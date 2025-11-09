@@ -1,0 +1,6 @@
+@TProxy_HostAddress = http://localhost:5225
+
+GET {{TProxy_HostAddress}}/
+Accept: application/json
+
+###

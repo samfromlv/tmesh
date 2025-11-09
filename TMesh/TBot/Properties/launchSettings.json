@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TBot": {
+      "commandName": "Project",
+      "commandLineArgs": "/checkinstall"
+    }
+  }
+}

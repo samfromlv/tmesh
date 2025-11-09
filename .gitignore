@@ -416,3 +416,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+/TMesh/TProxy/appsettings.json
+/TMesh/TProxy/appsettings.Release.json
+/TMesh/TBot/appsettings.json
+/TMesh/TBot/appsettings.Release.json
+/TMesh/TProxy/Properties/ServiceDependencies/*
