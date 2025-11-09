@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
+using TBot.Database;
 
 namespace TBot
 {
@@ -20,7 +22,14 @@ namespace TBot
                 .ConfigureServices((ctx, services) =>
                 {
                     services.Configure<TBotOptions>(ctx.Configuration.GetSection("TBot"));
-                    services.AddHostedService<StartupService>();
+                    services.AddDbContext<TBotDbContext>((s, opt) =>
+                    {
+                        var options = s.GetRequiredService<IOptions<TBotOptions>>();
+                        opt.UseSqlite(options.Value.SQLiteConnectionString);
+                    });
+                    services.AddMemoryCache();
+                    services.AddSingleton<MqttService>();
+                    services.AddHostedService<MessageLoopService>();
                     BotService.Register(services);
                 })
                 .ConfigureLogging(logging =>
@@ -30,25 +39,39 @@ namespace TBot
 
             using var host = hostBuilder.Build();
 
+            // Apply migrations
+            using (var scope = host.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<TBotDbContext>();
+                await db.Database.MigrateAsync();
+            }
+
             // Handle /install command
             if (args.Any(a => string.Equals(a, "/install", StringComparison.OrdinalIgnoreCase)))
             {
                 await HandleInstall(host);
+                return;
             }
             else if (args.Any(a => string.Equals(a, "/checkinstall", StringComparison.OrdinalIgnoreCase)))
             {
-                var botService = host.Services.GetRequiredService<BotService>();
-                var info = await botService.CheckInstall();
-                var logger = host.Services.GetRequiredService<ILogger<Program>>();
-                logger.LogInformation("Webhook Info: Url={Url}, HasCustomCertificate={HasCustomCertificate}, PendingUpdateCount={PendingUpdateCount}, LastErrorDate={LastErrorDate}, LastErrorMessage={LastErrorMessage}",
-                    info.Url,
-                    info.HasCustomCertificate,
-                    info.PendingUpdateCount,
-                    info.LastErrorDate,
-                    info.LastErrorMessage);
+                await HandleCheckInstall(host);
+                return;
             }
 
             await host.RunAsync();
+        }
+
+        private static async Task HandleCheckInstall(IHost host)
+        {
+            var botService = host.Services.GetRequiredService<BotService>();
+            var info = await botService.CheckInstall();
+            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            logger.LogInformation("Webhook Info: Url={Url}, HasCustomCertificate={HasCustomCertificate}, PendingUpdateCount={PendingUpdateCount}, LastErrorDate={LastErrorDate}, LastErrorMessage={LastErrorMessage}",
+                info.Url,
+                info.HasCustomCertificate,
+                info.PendingUpdateCount,
+                info.LastErrorDate,
+                info.LastErrorMessage);
         }
 
         private static async Task HandleInstall(IHost host)
@@ -64,7 +87,7 @@ namespace TBot
                 }
                 var botService = host.Services.GetRequiredService<BotService>();
                 logger.LogInformation("Installing webhook {WebhookUrl}", options.TelegramUpdateWebhookUrl);
-                await botService.Install();
+                await botService.InstallWebhook();
                 logger.LogInformation("Webhook installation completed successfully.");
             }
             catch (Exception ex)
@@ -73,32 +96,6 @@ namespace TBot
                 logger2.LogError(ex, "Webhook installation failed.");
             }
             return; // exit after install
-        }
-    }
-
-    internal class StartupService : IHostedService
-    {
-        private readonly ILogger<StartupService> _logger;
-        private readonly IHostApplicationLifetime _lifetime;
-        private readonly TBotOptions _options;
-
-        public StartupService(ILogger<StartupService> logger, IHostApplicationLifetime lifetime, Microsoft.Extensions.Options.IOptions<TBotOptions> options)
-        {
-            _logger = logger;
-            _lifetime = lifetime;
-            _options = options.Value;
-        }
-
-        public Task StartAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("TBot starting. MQTT: {Host}:{Port}, Telegram bot token configured: {HasToken}", _options.MqttAddress, _options.MqttPort, !string.IsNullOrEmpty(_options.TelegramApiToken));
-            return Task.CompletedTask;
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("TBot stopping.");
-            return Task.CompletedTask;
         }
     }
 }

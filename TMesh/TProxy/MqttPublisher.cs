@@ -2,11 +2,6 @@ using System.Text;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using MQTTnet;
-using MQTTnet.Client;
-using System.Threading;
-using System;
-using Microsoft.Extensions.Logging;
-using System.Threading.Tasks;
 
 namespace TProxy;
 
@@ -25,7 +20,7 @@ public class MqttPublisher : IAsyncDisposable
     {
         _options = options.Value;
         _logger = logger;
-        var factory = new MqttFactory();
+        var factory = new MqttClientFactory();
         _client = factory.CreateMqttClient();
         _client.DisconnectedAsync += OnDisconnectedAsync;
         _reconnectLoopTask = Task.Run(ReconnectLoopAsync);
@@ -59,7 +54,7 @@ public class MqttPublisher : IAsyncDisposable
             try
             {
                 var result = await _client.ConnectAsync(mqttOptions, CancellationToken.None);
-                _connected = result.ResultCode == MQTTnet.Client.MqttClientConnectResultCode.Success;
+                _connected = result.ResultCode == MqttClientConnectResultCode.Success;
                 if (_connected)
                 {
                     _logger.LogInformation("Connected to MQTT broker {Host}:{Port}", _options.MqttAddress, _options.MqttPort);
@@ -96,7 +91,7 @@ public class MqttPublisher : IAsyncDisposable
                     .Build();
 
                 var result = await _client.PublishAsync(message, cancellationToken);
-                if (result.ReasonCode != MQTTnet.Client.MqttClientPublishReasonCode.Success)
+                if (result.ReasonCode != MqttClientPublishReasonCode.Success)
                 {
                     _logger.LogWarning("Publish finished with reason: {Reason}, queuing message", result.ReasonCode);
                     QueueMessage(topic, payload);
@@ -135,7 +130,7 @@ public class MqttPublisher : IAsyncDisposable
                     .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build();
                 var publishResult = await _client.PublishAsync(msg, CancellationToken.None);
-                if (publishResult.ReasonCode != MQTTnet.Client.MqttClientPublishReasonCode.Success)
+                if (publishResult.ReasonCode != MqttClientPublishReasonCode.Success)
                 {
                     _logger.LogWarning("Failed to flush queued message. Reason: {Reason}. Re-queueing.", publishResult.ReasonCode);
                     _pending.Enqueue(item); // put back
