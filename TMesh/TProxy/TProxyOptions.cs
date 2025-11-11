@@ -6,7 +6,7 @@ public class TProxyOptions
     public int MqttPort { get; set; }
     public string MqttUser { get; set; }
     public string MqttPassword { get; set; }
-    public string MqttTopicPrefix { get; set; }
+    public string MqttTelegramTopic { get; set; }
 
     // Telegram webhook security
     public string TelegramWebhookSecret { get; set; } // expected header value

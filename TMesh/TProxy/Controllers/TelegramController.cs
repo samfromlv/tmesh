@@ -60,7 +60,7 @@ namespace TProxy.Controllers
                 return BadRequest("Invalid JSON");
             }
 
-            var topic = $"{_options.MqttTopicPrefix}/telegram/update".Trim('/');
+            var topic = _options.MqttTelegramTopic;
             try
             {
                 await _publisher.PublishAsync(topic, body, HttpContext.RequestAborted);
