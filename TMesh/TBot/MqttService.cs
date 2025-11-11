@@ -32,8 +32,8 @@ namespace TBot
         private void SetMeshtasticTopic()
         {
             _ourGatewayMeshtasicTopic = string.Concat(
-                _options.MqttMeshtasticTopic.TrimEnd('/'),
-                '/',
+                _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
+                "/PKI/",
                 MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId));
         }
 
@@ -89,7 +89,13 @@ namespace TBot
                              new MqttTopicFilter
                              {
                                  NoLocal = true,
-                                 Topic = _options.MqttMeshtasticTopic.TrimEnd('/') + "/#",
+                                 Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/PKI/#",
+                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                             },
+                             new MqttTopicFilter
+                             {
+                                 NoLocal = true,
+                                 Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
                                  QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                              }
                          }
@@ -105,6 +111,7 @@ namespace TBot
 
 
 
+        //Todo: all messages are published to PKI topic this work only for testing or one gateway
         public async Task PublishMeshtasticMessage(ServiceEnvelope envelope)
         {
             var message = new MqttApplicationMessageBuilder()
@@ -129,7 +136,7 @@ namespace TBot
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();
                     await TelegramMessageReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
                 }
-                else if (topic.StartsWith(_options.MqttMeshtasticTopic))
+                else if (topic.StartsWith(_options.MqttMeshtasticTopicPrefix))
                 {
                     if (topic == _ourGatewayMeshtasicTopic)
                     {

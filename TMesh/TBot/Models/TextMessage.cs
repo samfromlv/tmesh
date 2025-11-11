@@ -6,11 +6,9 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public class TextMessage
+    public class TextMessage: MeshMessage
     {
+        override public MeshMessageType MessageType => MeshMessageType.Text;
         public string Text { get; set; }
-        public long DeviceId { get; set; }
-
-        public byte[] PublicKey { get; set; }
     }
 }

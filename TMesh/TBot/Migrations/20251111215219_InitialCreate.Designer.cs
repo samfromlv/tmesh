@@ -11,7 +11,7 @@ using TBot.Database;
 namespace TBot.Migrations
 {
     [DbContext(typeof(TBotDbContext))]
-    [Migration("20251110171826_InitialCreate")]
+    [Migration("20251111215219_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -19,6 +19,27 @@ namespace TBot.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.10");
+
+            modelBuilder.Entity("TBot.Database.Models.Device", b =>
+                {
+                    b.Property<long>("DeviceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NodeName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("PublicKey")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("DeviceId");
+
+                    b.ToTable("Devices");
+                });
 
             modelBuilder.Entity("TBot.Database.Models.DeviceRegistration", b =>
                 {

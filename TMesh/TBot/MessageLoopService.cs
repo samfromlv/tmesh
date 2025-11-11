@@ -14,11 +14,13 @@ public class MessageLoopService : IHostedService
     private readonly IServiceProvider _services;
     private readonly MqttService _mqttService;
     private readonly MeshtasticService _meshtasticService;
+    private readonly RegistrationService _registrationService;
 
     public MessageLoopService(
         ILogger<MessageLoopService> logger,
         MqttService mqttService,
         MeshtasticService meshtasticService,
+        RegistrationService registrationService,
         IOptions<TBotOptions> options,
         IServiceProvider services)
     {
@@ -27,6 +29,7 @@ public class MessageLoopService : IHostedService
         _services = services;
         _mqttService = mqttService;
         _meshtasticService = meshtasticService;
+        _registrationService = registrationService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -49,7 +52,17 @@ public class MessageLoopService : IHostedService
     {
         try
         {
-            var res = _meshtasticService.ShouldHandleMessage(msg.Data);
+            var (isPki, senderDeviceId, receiverDeviceId) = _meshtasticService.GetMessageSenderDeviceId(msg.Data);
+
+            byte[] senderPublicKey = null;
+            if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
+            {
+                var device = await _registrationService.GetDeviceAsync(senderDeviceId);
+                senderPublicKey = device?.PublicKey;
+            }
+
+
+            var res = _meshtasticService.TryDecryptMessage(msg.Data, senderPublicKey);
 
             if (!res.success)
                 return;

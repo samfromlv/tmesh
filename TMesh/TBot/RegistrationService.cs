@@ -16,6 +16,8 @@ namespace TBot
     public class RegistrationService
     {
         public const int MaxCodeVerificationTries = 5;
+        private const string DevicePublicKeyCachePrefix = "DevicePublicKey#";
+        private static readonly TimeSpan DevicePublicKeyCacheDuration = TimeSpan.FromHours(1);
 
         private readonly TBotDbContext _db;
         private readonly ILogger<RegistrationService> _logger;
@@ -44,8 +46,6 @@ namespace TBot
             }
         }
 
-
-
         public async Task<bool> HasRegistrationAsync(long chatId, long deviceId)
         {
             return await _db.Registrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
@@ -58,7 +58,7 @@ namespace TBot
             string code,
             DateTimeOffset expiresUtc)
         {
-            _memoryCache.Set($"PendingCode{telegramUserId}#{chatId}", new PendingCode
+            _memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
             {
                 Code = code,
                 Tries = 0,
@@ -79,7 +79,6 @@ namespace TBot
             _memoryCache.Set($"DeviceCodesSent#{deviceId}", codesSent, DateTimeOffset.UtcNow.AddHours(1));
             return codesSent;
         }
-
 
         public void SetChatState(
             long telegramUserId,
@@ -109,11 +108,18 @@ namespace TBot
             return _memoryCache.Get<ChatState?>(key);
         }
 
-        public async Task<List<DeviceRegistration>> GetRegistrationsByChatId(long chatId)
+        public async Task<List<DeviceWithNameAndKey>> GetDevicesByChatId(long chatId)
         {
-            return await _db.Registrations
-                .Where(r => r.ChatId == chatId)
-                .ToListAsync();
+            return await (from r in _db.Registrations
+                         join d in _db.Devices on r.DeviceId equals d.DeviceId
+                         where r.ChatId == chatId
+                         select new DeviceWithNameAndKey
+                         {
+                             DeviceId = r.DeviceId,
+                             PublicKey = d.PublicKey,
+                             NodeName = d.NodeName,
+                             RegisteredByUser = r.UserName
+                         }).ToListAsync();
         }
 
         public async Task<List<DeviceRegistration>> GetRegistrationsByDeviceId(long deviceId)
@@ -135,7 +141,7 @@ namespace TBot
             long chatId,
             string code)
         {
-            string key = $"PendingCode#{telegramUserId}#{chatId}";
+            string key = GetPendingCodeCacheKey(telegramUserId, chatId);
             var storedCode = _memoryCache.Get<PendingCode>(key);
             if (storedCode == null) return false;
             if (storedCode.ExpiresUtc < DateTime.UtcNow) return false;
@@ -178,6 +184,69 @@ namespace TBot
             return true;
         }
 
+        private static string GetPendingCodeCacheKey(long telegramUserId, long chatId)
+        {
+            return $"PendingCode#{telegramUserId}#{chatId}";
+        }
 
+        // Device public key storage and lookup
+        private string GetDeviceCacheKey(long deviceId) => DevicePublicKeyCachePrefix + deviceId;
+
+        public async Task<Device> GetDeviceAsync(long deviceId)
+        {
+            if (_memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cached))
+            {
+                return cached;
+            }
+
+            var entity = await _db.Devices.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.DeviceId == deviceId);
+
+            if (entity?.PublicKey != null)
+            {
+                _memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+                return entity;
+            }
+            return null;
+        }
+
+        public async Task SetDeviceAsync(long deviceId, string nodeName, byte[] publicKey)
+        {
+            if (publicKey == null || publicKey.Length == 0 || publicKey.Length != 32)
+            {
+                throw new ArgumentException("Public key must be 32 bytes", nameof(publicKey));
+            }
+
+            var entity = await _db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
+            if (entity == null)
+            {
+                entity = new Device
+                {
+                    DeviceId = deviceId,
+                    NodeName = nodeName,
+                    PublicKey = publicKey,
+                    UpdatedUtc = DateTime.UtcNow
+                };
+                _db.Devices.Add(entity);
+            }
+            else
+            {
+                entity.PublicKey = publicKey;
+                entity.NodeName = nodeName;
+                entity.UpdatedUtc = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync();
+            _memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+        }
+
+        public async Task<bool> HasDeviceAsync(long deviceId)
+        {
+            if (_memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cachedDevice))
+            {
+                return true;
+            }
+            return await _db.Devices.AnyAsync(p => p.DeviceId == deviceId);
+        }
     }
 }
