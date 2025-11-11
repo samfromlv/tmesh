@@ -146,7 +146,7 @@ namespace TBot
 
                 var code = _registrationService.GenerateRandomCode();
                 _registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
-                await _meshtasticService.SendMeshtasticMessage(deviceId, $"TMesh verification code: {code}");
+                await _meshtasticService.SendMeshtasticMessage(deviceId, null, $"TMesh verification code: {code}");
                 await _botClient.SendMessage(chatId, $"Verification code sent to device {deviceId}. Please reply with the code. Code is valid for 5 minutes.");
                 _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
             }
@@ -206,7 +206,7 @@ namespace TBot
                 return;
             }
 
-            _logger.LogInformation("Received unsupported update type: {Type}", update.Type);
+            _logger.LogInformation("Received unsupported update type: {Type}", message.Text);
         }
 
         private async Task HandleText(
@@ -231,7 +231,7 @@ namespace TBot
             }
 
 
-            var registrations = await _registrationService.GetRegistrationsAsync(chatId);
+            var registrations = await _registrationService.GetRegistrationsByChatId(chatId);
             if (registrations.Count == 0)
             {
                 await _botClient.SendMessage(
@@ -248,7 +248,7 @@ namespace TBot
 
             foreach (var reg in registrations)
             {
-                await _meshtasticService.SendMeshtasticMessage(reg.DeviceId, userName, text);
+                await _meshtasticService.SendMeshtasticMessage(reg.DeviceId, null, userName, text);
             }
 
             await _botClient.SetMessageReaction(
@@ -259,7 +259,7 @@ namespace TBot
 
         private async Task HandleStatus(long chatId)
         {
-            var registrations = await _registrationService.GetRegistrationsAsync(chatId);
+            var registrations = await _registrationService.GetRegistrationsByChatId(chatId);
             if (registrations.Count == 0)
             {
                 await _botClient.SendMessage(chatId, "No registered devices. You can register new device with /add command.");
@@ -301,6 +301,30 @@ namespace TBot
             var update = JsonSerializer.Deserialize<Update>(payload);
             _logger.LogDebug("Processing inbound Telegram message: {Payload}", payload);
             return HandleUpdate(update);
+        }
+
+        public async Task ProcessInboundMeshtasticMessage(TextMessage message)
+        {
+            _logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+            var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
+
+            if (registrations.Count == 0)
+            {
+
+                await _meshtasticService.SendMeshtasticMessage(
+                    message.DeviceId,
+                    message.PublicKey,
+                    "This device is not registered in @TMesh_bot (Telegram)");
+                return;
+            }
+
+            foreach (var reg in registrations)
+            {
+                var text = message.Text ?? string.Empty;
+                await _botClient.SendMessage(
+                    reg.ChatId,
+                    $"{reg.UserName}: {text}");
+            }
         }
     }
 }

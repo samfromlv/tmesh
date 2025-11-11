@@ -12,8 +12,15 @@ public class TBotOptions
     public string TelegramWebhookSecret { get; set; } 
     public string TelegramUpdateWebhookUrl { get; set; }
 
-    public int TelegramBotMaxConnections { get; set; } = 40;
+    public int TelegramBotMaxConnections { get; set; }
     public string SQLiteConnectionString { get; set; }
+    public int OutgoingMessageHopLimit { get; set; }
+    public int MeshtasticNodeId { get; set; }
+    public string MeshtasticNodeNameShort { get; set; }
+    public string MeshtasticNodeNameLong { get; set; }
 
-   
+    public string MeshtasticPublicKeyBase64 { get; set; }
+    public string MeshtasticPrivateKeyBase64 { get; set; }
+
+
 }

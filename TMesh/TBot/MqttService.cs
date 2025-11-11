@@ -1,12 +1,9 @@
-﻿using Meshtastic.Protobufs;
+﻿using Google.Protobuf;
+using Meshtastic.Protobufs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using MQTTnet.Packets;
 using TBot.Models;
 
 namespace TBot
@@ -19,6 +16,7 @@ namespace TBot
         {
             _logger = logger;
             _options = options.Value;
+            SetMeshtasticTopic();
         }
 
         private readonly ILogger<MqttService> _logger;
@@ -26,9 +24,18 @@ namespace TBot
         private readonly TBotOptions _options;
         private IMqttClient _client;
         private readonly SemaphoreSlim _connectLock = new(1, 1);
+        private string _ourGatewayMeshtasicTopic;
 
         public event Func<DataEventArgs<string>, Task> TelegramMessageReceivedAsync;
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
+
+        private void SetMeshtasticTopic()
+        {
+            _ourGatewayMeshtasicTopic = string.Concat(
+                _options.MqttMeshtasticTopic.TrimEnd('/'),
+                '/',
+                MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId));
+        }
 
         public async Task EnsureMqttConnectedAsync(CancellationToken ct = default)
         {
@@ -70,14 +77,23 @@ namespace TBot
                 _logger.LogInformation("MQTT connected to {Host}:{Port}", _options.MqttAddress, _options.MqttPort);
 
                 await _client.SubscribeAsync(
-                    _options.MqttTelegramTopic,
-                    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce,
-                    cancellationToken: ct);
-
-                await _client.SubscribeAsync(
-                    _options.MqttMeshtasticTopic,
-                    MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce,
-                    cancellationToken: ct);
+                    new MqttClientSubscribeOptions
+                    {
+                        TopicFilters = new List<MqttTopicFilter>
+                         {
+                             new MqttTopicFilter
+                             {
+                                 Topic = _options.MqttTelegramTopic,
+                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                             },
+                             new MqttTopicFilter
+                             {
+                                 NoLocal = true,
+                                 Topic = _options.MqttMeshtasticTopic.TrimEnd('/') + "/#",
+                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                             }
+                         }
+                    }, ct);
 
                 _logger.LogInformation("Subscribed to mqtt topics");
             }
@@ -85,6 +101,20 @@ namespace TBot
             {
                 _connectLock.Release();
             }
+        }
+
+
+
+        public async Task PublishMeshtasticMessage(ServiceEnvelope envelope)
+        {
+            var message = new MqttApplicationMessageBuilder()
+                .WithTopic(_ourGatewayMeshtasicTopic)
+                .WithPayload(envelope.ToByteArray())
+                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .Build();
+            await EnsureMqttConnectedAsync();
+            await _client.PublishAsync(message);
+            _logger.LogInformation("Published Meshtastic message to MQTT");
         }
 
 
@@ -99,11 +129,21 @@ namespace TBot
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();
                     await TelegramMessageReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
                 }
-                else if (topic == _options.MqttMeshtasticTopic)
+                else if (topic.StartsWith(_options.MqttMeshtasticTopic))
                 {
+                    if (topic == _ourGatewayMeshtasicTopic)
+                    {
+                        _logger.LogDebug("Ignoring Meshtastic message sent by ourselves");
+                        return;
+                    }
+
                     var payload = arg.ApplicationMessage.Payload;
                     var env = ServiceEnvelope.Parser.ParseFrom(payload);
                     await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<ServiceEnvelope>(env));
+                }
+                else
+                {
+                    _logger.LogWarning("Received MQTT message on unknown topic: {Topic}", topic);
                 }
             }
             catch (Exception ex)
@@ -120,7 +160,6 @@ namespace TBot
                 _client.Dispose();
                 _client = null;
             }
-            throw new NotImplementedException();
         }
     }
 }

@@ -109,10 +109,17 @@ namespace TBot
             return _memoryCache.Get<ChatState?>(key);
         }
 
-        public async Task<List<DeviceRegistration>> GetRegistrationsAsync(long chatId)
+        public async Task<List<DeviceRegistration>> GetRegistrationsByChatId(long chatId)
         {
             return await _db.Registrations
                 .Where(r => r.ChatId == chatId)
+                .ToListAsync();
+        }
+
+        public async Task<List<DeviceRegistration>> GetRegistrationsByDeviceId(long deviceId)
+        {
+            return await _db.Registrations
+                .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
         }
 
@@ -145,7 +152,9 @@ namespace TBot
                 return false;
             }
 
-            var reg = await _db.Registrations.FirstOrDefaultAsync(x => x.ChatId == chatId && x.DeviceId == deviceId);
+            var reg = await _db.Registrations.FirstOrDefaultAsync(x =>
+                x.ChatId == chatId
+                && x.DeviceId == storedCode.DeviceId);
             if (reg == null)
             {
                 reg = new DeviceRegistration
@@ -169,14 +178,6 @@ namespace TBot
             return true;
         }
 
-        public async Task<bool> TryVerifyAnyAsync(long telegramUserId, string code)
-        {
-            var pendings = await _db.PendingCodes.Where(p => p.TelegramUserId == telegramUserId).ToListAsync();
-            foreach (var p in pendings)
-            {
-                if (await VerifyCodeAsync(telegramUserId, p.DeviceId, code)) return true;
-            }
-            return false;
-        }
+
     }
 }

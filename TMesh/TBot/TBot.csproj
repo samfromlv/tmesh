@@ -31,4 +31,10 @@
     <PackageReference Include="MQTTnet" Version="5.0.1.1416" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

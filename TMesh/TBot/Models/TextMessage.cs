@@ -10,5 +10,7 @@ namespace TBot.Models
     {
         public string Text { get; set; }
         public long DeviceId { get; set; }
+
+        public byte[] PublicKey { get; set; }
     }
 }

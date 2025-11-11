@@ -39,29 +39,33 @@ namespace TBot
 
             using var host = hostBuilder.Build();
 
-            // Apply migrations
-            using (var scope = host.Services.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<TBotDbContext>();
-                await db.Database.MigrateAsync();
-            }
-
             // Handle /install command
-            if (args.Any(a => string.Equals(a, "/install", StringComparison.OrdinalIgnoreCase)))
+            if (args.Any(a => string.Equals(a, "/installwebhook", StringComparison.OrdinalIgnoreCase)))
             {
-                await HandleInstall(host);
+                await InstallWebHook(host);
                 return;
             }
-            else if (args.Any(a => string.Equals(a, "/checkinstall", StringComparison.OrdinalIgnoreCase)))
+            else if (args.Any(a => string.Equals(a, "/checkinstallwebhook", StringComparison.OrdinalIgnoreCase)))
             {
-                await HandleCheckInstall(host);
+                await CheckInstallWebHook(host);
+                return;
+            }
+            else if (args.Any(a => string.Equals(a, "/updatedb", StringComparison.OrdinalIgnoreCase)))
+            {
+                await UpdateDb(host);
+                return;
+            }
+            else if (args.Any(a => string.Equals(a, "/generatekeys", StringComparison.OrdinalIgnoreCase)))
+            {
+                GenerateKeys(host);
+                Console.ReadLine();
                 return;
             }
 
             await host.RunAsync();
         }
 
-        private static async Task HandleCheckInstall(IHost host)
+        private static async Task CheckInstallWebHook(IHost host)
         {
             var botService = host.Services.GetRequiredService<BotService>();
             var info = await botService.CheckInstall();
@@ -74,7 +78,7 @@ namespace TBot
                 info.LastErrorMessage);
         }
 
-        private static async Task HandleInstall(IHost host)
+        private static async Task InstallWebHook(IHost host)
         {
             var logger = host.Services.GetRequiredService<ILogger<Program>>();
             try
@@ -94,6 +98,49 @@ namespace TBot
             {
                 var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
                 logger2.LogError(ex, "Webhook installation failed.");
+            }
+            return; // exit after install
+        }
+
+        private static async Task UpdateDb(IHost host)
+        {
+            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            try
+            {
+                var options = host.Services.GetRequiredService<IOptions<TBotOptions>>().Value;
+                if (string.IsNullOrWhiteSpace(options.SQLiteConnectionString))
+                {
+                    logger.LogError("Missing SQLiteConnectionString in configuration. Aborting /updatedb.");
+                    return; // exit non-zero? keep zero for simplicity
+                }
+                var regService = host.Services.GetRequiredService<RegistrationService>();
+                await regService.EnsureMigratedAsync();
+                logger.LogInformation("Database update completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
+                logger2.LogError(ex, "Database update failed.");
+            }
+            return; // exit after install
+        }
+
+
+        private static void GenerateKeys(IHost host)
+        {
+            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            try
+            {
+                var service = host.Services.GetRequiredService<MeshtasticService>();
+                var pair = service.GenerateKeyPair();
+                logger.LogInformation("Generated Key Pair:");
+                logger.LogInformation("PublicKey=[{PublicKey}]", pair.publicKeyBase64);
+                logger.LogInformation("PrivateKey=[{PrivateKey}]", pair.privateKeyBase64);
+            }
+            catch (Exception ex)
+            {
+                var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
+                logger2.LogError(ex, "Key pair generation failed.");
             }
             return; // exit after install
         }
