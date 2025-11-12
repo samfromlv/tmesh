@@ -16,7 +16,22 @@ namespace TBot
             var hostBuilder = Host.CreateDefaultBuilder(args)
                 .ConfigureAppConfiguration(config =>
                 {
-                    config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+                    // Prefer external config volume /tbot/config or env TBOT_CONFIG_PATH
+                    var configPath = Environment.GetEnvironmentVariable("TBOT_CONFIG_PATH")?.Trim();
+                    if (string.IsNullOrWhiteSpace(configPath)) configPath = "/tbot/config"; // default inside container
+                    var filePath = Path.Combine(configPath, "appsettings.json");
+
+                    // If running locally (not container) allow fallback to local appsettings.json
+                    var inContainer = Directory.Exists("/tbot");
+                    if (inContainer)
+                    {
+                        config.AddJsonFile(filePath, optional: false, reloadOnChange: true);
+                    }
+                    else
+                    {
+                        // local dev
+                        config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+                    }
                     config.AddEnvironmentVariables();
                 })
                 .ConfigureServices((ctx, services) =>

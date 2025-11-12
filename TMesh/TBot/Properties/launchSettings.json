@@ -1,8 +1,10 @@
 {
   "profiles": {
     "TBot": {
-      "commandName": "Project",
-      "commandLineArgs": ""
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
     }
   }
 }
