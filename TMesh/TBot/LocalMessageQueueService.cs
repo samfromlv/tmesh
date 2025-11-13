@@ -2,9 +2,7 @@
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TBot.Models;
 
@@ -27,9 +25,11 @@ namespace TBot
         private readonly ConcurrentQueue<QueuedMessage> _highPriorityQueue = new ConcurrentQueue<QueuedMessage>();
         private readonly ConcurrentQueue<QueuedMessage> _normalPriorityQueue = new ConcurrentQueue<QueuedMessage>();
         private readonly ConcurrentQueue<QueuedMessage> _lowPriorityQueue = new ConcurrentQueue<QueuedMessage>();
+        private readonly SemaphoreSlim _messageSemaphore = new SemaphoreSlim(0);
 
         public event Func<DataEventArgs<QueuedMessage>, Task> SendMessage;
-        public void EnqueueMessage(QueuedMessage message, MessagePriority priority )
+
+        public void EnqueueMessage(QueuedMessage message, MessagePriority priority)
         {
             switch (priority)
             {
@@ -42,23 +42,15 @@ namespace TBot
                 default:
                     _lowPriorityQueue.Enqueue(message);
                     break;
-            }   
+            }
+            _messageSemaphore.Release();
         }
 
         private bool TryDequeueMessage(out QueuedMessage message)
         {
-            if (_highPriorityQueue.TryDequeue(out message))
-            {
-                return true;
-            }
-            if (_normalPriorityQueue.TryDequeue(out message))
-            {
-                return true;
-            }
-            if (_lowPriorityQueue.TryDequeue(out message))
-            {
-                return true;
-            }
+            if (_highPriorityQueue.TryDequeue(out message)) return true;
+            if (_normalPriorityQueue.TryDequeue(out message)) return true;
+            if (_lowPriorityQueue.TryDequeue(out message)) return true;
             message = null;
             return false;
         }
@@ -67,42 +59,56 @@ namespace TBot
         {
             _processingTask = Task.Run(async () =>
             {
-                while (!_cancellationTokenSource.IsCancellationRequested)
+                var token = _cancellationTokenSource.Token;
+                while (!token.IsCancellationRequested)
                 {
-                    var timeSinceLastSent = DateTime.UtcNow - _lastSentTime;
-                    if (timeSinceLastSent.TotalMilliseconds < _delayMs)
+                    try
                     {
-                        var delay = _delayMs - (int)timeSinceLastSent.TotalMilliseconds;
-                        await Task.Delay(delay);
+                        await _messageSemaphore.WaitAsync(token); // Wait for next message arrival
                     }
-                    else
+                    catch (OperationCanceledException)
                     {
-                        await Task.Delay(100);
+                        break;
                     }
-                    await Loop();
+                    while (!token.IsCancellationRequested)
+                    {
+                        if (!await Loop(token))
+                        {
+                            break; // No more messages to process
+                        }
+                    }
                 }
             });
         }
 
         public Task Stop()
         {
-            if (_processingTask == null)
-                return Task.CompletedTask;
-
+            if (_processingTask == null) return Task.CompletedTask;
             _cancellationTokenSource.Cancel();
             return _processingTask;
         }
 
-
-        public async Task Loop()
+        private async Task<bool> Loop(CancellationToken token)
         {
             if (!TryDequeueMessage(out var message))
             {
-                return;
+                return false; // Semaphore count may exceed actual queued messages in rare races
             }
 
-            await SendMessage?.Invoke(new DataEventArgs<QueuedMessage>(message));
-            _lastSentTime = DateTime.UtcNow;
+            // Rate limit: only delay if last send was within the window
+            var elapsedMs = (int)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
+            if (_lastSentTime != DateTime.MinValue && elapsedMs < _delayMs)
+            {
+                var wait = _delayMs - elapsedMs;
+                try { await Task.Delay(wait, token); } catch (OperationCanceledException) { return false; }
+            }
+
+            if (SendMessage != null)
+            {
+                await SendMessage(new DataEventArgs<QueuedMessage>(message));
+                _lastSentTime = DateTime.UtcNow;
+            }
+            return true;
         }
     }
 }
