@@ -43,6 +43,7 @@ namespace TBot
                         opt.UseSqlite(options.Value.SQLiteConnectionString);
                     });
                     services.AddMemoryCache();
+                    services.AddSingleton<LocalMessageQueueService>();
                     services.AddSingleton<MqttService>();
                     services.AddHostedService<MessageLoopService>();
                     BotService.Register(services);

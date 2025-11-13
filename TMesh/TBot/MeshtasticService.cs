@@ -20,44 +20,82 @@ namespace TBot
         const int TrimUserNamesToLength = 8;
         private const int NoDupExpirationMinutes = 3;
         private const int PkiKeyLength = 32;
+        private const int ReplyHopsMargin = 2;
 
         public MeshtasticService(
             MqttService mqttService,
+            LocalMessageQueueService localMessageQueueService,
             IMemoryCache memoryCache,
             IOptions<TBotOptions> options,
             ILogger<MeshtasticService> logger)
         {
             _mqttService = mqttService;
+            _localMessageQueueService = localMessageQueueService;
             _logger = logger;
             _memoryCache = memoryCache;
             _options = options.Value;
+            _localMessageQueueService.SendMessage += _localMessageQueueService_SendMessage;
+        }
+
+        private Task _localMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
+        {
+            return _mqttService.PublishMeshtasticMessage(arg.Data.Message);
         }
 
         private readonly MqttService _mqttService;
         private readonly ILogger<MeshtasticService> _logger;
         private readonly IMemoryCache _memoryCache;
         private readonly TBotOptions _options;
+        private readonly LocalMessageQueueService _localMessageQueueService;
 
 
-        public async Task SendMeshtasticMessage(long deviceId, byte[] publicKey, string userName, string text)
+        public void SendMeshtasticMessage(long deviceId, byte[] publicKey, string userName, string text)
         {
             var message = $"{StringHelper.Truncate(userName, TrimUserNamesToLength)}: {text}";
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, message);
-            await QueueTextMessage(deviceId, publicKey, message);
+            QueueTextMessage(deviceId, publicKey, message);
         }
 
-        public async Task SendMeshtasticMessage(long deviceId, byte[] publicKey, string text)
+        public void SendMeshtasticMessage(long deviceId, byte[] publicKey, string text)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
-            await QueueTextMessage(deviceId, publicKey, text);
+            QueueTextMessage(deviceId, publicKey, text);
         }
 
-        private async Task QueueTextMessage(long deviceId, byte[] publicKey, string text)
+        public void AckMeshtasticMessage(byte[] publicKey, MeshMessage msg)
+        {
+            var hopsUsed = msg.HopStart - msg.HopLimit;
+            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            QueueAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
+        }
+
+        public void AckMeshtasticMessage(long deviceId, byte[] publicKey, MeshPacket packet)
+        {
+            var hopsUsed = packet.HopStart - packet.HopLimit;
+            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            QueueAckMessage(deviceId, publicKey, packet.Id, (int)hopsForReply);
+        }
+
+        private void QueueTextMessage(long deviceId, byte[] publicKey, string text)
         {
             var envelope = PackTextMessage(deviceId, publicKey, text);
             var id = envelope.Packet.Id;
             StoreNoDup(id);
-            await _mqttService.PublishMeshtasticMessage(envelope);
+            _localMessageQueueService.EnqueueMessage(new QueuedMessage
+            {
+                 Message = envelope
+            },  MessagePriority.Normal);
+        }
+
+        private void QueueAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
+        {
+            var envelope = PackAckMessage(deviceId, publicKey, messageId, messageHopLimit);
+            var id = envelope.Packet.Id;
+            StoreNoDup(id);
+            _localMessageQueueService.EnqueueMessage(new QueuedMessage
+            {
+                Message = envelope
+            }, MessagePriority.High);
         }
 
         private static string GetNoDupMessageKey(uint id)
@@ -68,6 +106,13 @@ namespace TBot
         private ServiceEnvelope PackTextMessage(long deviceId, byte[] publicKey, string text)
         {
             var packet = CreateTextMessagePacket(deviceId, publicKey, text);
+            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            return envelope;
+        }
+
+        private ServiceEnvelope PackAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
+        {
+            var packet = CreateAckMessagePacket(deviceId, publicKey, messageId, messageHopLimit);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -127,6 +172,53 @@ namespace TBot
             return packet;
         }
 
+        public MeshPacket CreateAckMessagePacket(
+            long deviceId,
+            byte[] publicKey,
+            long meesageId,
+            int messageHopLimit)
+        {
+            var routeData = new Routing
+            {
+                ErrorReason = Routing.Types.Error.None
+            };
+
+            var packet = new MeshPacket()
+            {
+                Channel = 0,
+                WantAck = false,
+                To = (uint)deviceId,
+                From = (uint)_options.MeshtasticNodeId,
+                Priority = MeshPacket.Types.Priority.Ack,
+                Id = (uint)Math.Floor(Random.Shared.Next() * 1e9),
+                HopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                HopStart = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                Decoded = new Meshtastic.Protobufs.Data()
+                {
+                    Portnum = PortNum.RoutingApp,
+                    RequestId = (uint)meesageId,
+                    Bitfield = 1,
+                    Payload = routeData.ToByteString(),
+                },
+            };
+
+            if (publicKey != null && publicKey.Length > 0)
+            {
+                Meshtastic.Crypto.PKIEncryption.Encrypt(
+                    Convert.FromBase64String(_options.MeshtasticPrivateKeyBase64),
+                    publicKey,
+                    packet
+                );
+
+                packet.PkiEncrypted = true;
+                // Not needed, as it's in the encrypted payload.
+                // The proxy node should have this node's public key for retransmission.
+                // packet.PublicKey = ByteString.FromBase64(_options.MeshtasticPublicKeyBase64);
+            }
+
+            return packet;
+        }
+
 
         public bool TryParseDeviceId(string input, out long deviceId)
         {
@@ -160,13 +252,16 @@ namespace TBot
             return byteCount <= MaxTextMessageBytes;
         }
 
-        public async Task SendVirtualNodeInfoAsync()
+        public void SendVirtualNodeInfoAsync()
         {
             var packet = CreateTMeshVirtualNodeInfo();
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
             var id = envelope.Packet.Id;
             StoreNoDup(id);
-            await _mqttService.PublishMeshtasticMessage(envelope);
+            _localMessageQueueService.EnqueueMessage(new QueuedMessage
+            {
+                Message = envelope
+            }, MessagePriority.Low);
         }
 
         private void StoreNoDup(uint id)
@@ -353,6 +448,9 @@ namespace TBot
                     return (true, new NodeInfoMessage
                     {
                         DeviceId = deviceId,
+                        HopLimit = (int)envelope.Packet.HopLimit,
+                        HopStart = (int)envelope.Packet.HopStart,
+                        Id = (int)envelope.Packet.Id,
                         NodeName = nodeInfo.User.LongName ?? nodeInfo.User.ShortName ?? nodeInfo.User.Id,
                         PublicKey = nodeInfo.User.PublicKey.ToByteArray(),
                     });
@@ -386,6 +484,9 @@ namespace TBot
 
             var res = new TextMessage
             {
+                Id = (int)envelope.Packet.Id,
+                HopLimit = (int)envelope.Packet.HopLimit,
+                HopStart = (int)envelope.Packet.HopStart,
                 Text = decoded.Payload.ToStringUtf8(),
                 DeviceId = envelope.Packet.From,
             };

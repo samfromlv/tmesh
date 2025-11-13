@@ -161,7 +161,7 @@ namespace TBot
 
                 var code = _registrationService.GenerateRandomCode();
                 _registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
-                await _meshtasticService.SendMeshtasticMessage(deviceId, device.PublicKey, $"TMesh verification code: {code}");
+                _meshtasticService.SendMeshtasticMessage(deviceId, device.PublicKey, $"TMesh verification code: {code}");
                 await _botClient.SendMessage(chatId, $"Verification code sent to device {device.NodeName} ({deviceId}). Please reply with the received code here. The code is valid for 5 minutes.");
                 _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
             }
@@ -267,7 +267,7 @@ namespace TBot
 
             foreach (var reg in registrations)
             {
-                await _meshtasticService.SendMeshtasticMessage(reg.DeviceId, reg.PublicKey, userName, text);
+                _meshtasticService.SendMeshtasticMessage(reg.DeviceId, reg.PublicKey, userName, text);
             }
 
             await _botClient.SetMessageReaction(
@@ -347,7 +347,7 @@ namespace TBot
 
                 if (registrations.Count == 0)
                 {
-                    await _meshtasticService.SendMeshtasticMessage(
+                    _meshtasticService.SendMeshtasticMessage(
                         message.DeviceId,
                         device.PublicKey,
                         $"{StringHelper.Truncate(device.NodeName, 20)} is not registered in @TMesh_bot (Telegram)");
@@ -367,6 +367,8 @@ namespace TBot
                         reg.ChatId,
                         $"{reg.UserName} ({device.NodeName}): {text}");
                 }
+
+                _meshtasticService.AckMeshtasticMessage(device.PublicKey, message);
             }
         }
     }

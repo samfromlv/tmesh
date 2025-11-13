@@ -10,5 +10,9 @@ namespace TBot.Models
     {
         public abstract MeshMessageType MessageType { get; }
         public long DeviceId { get; set; }
+
+        public int HopLimit { get; set; }
+        public int HopStart { get; set; }
+        public int Id { get; set; }
     }
 }

@@ -15,9 +15,12 @@ public class MessageLoopService : IHostedService
     private readonly MqttService _mqttService;
     private readonly MeshtasticService _meshtasticService;
     private readonly RegistrationService _registrationService;
+    private readonly LocalMessageQueueService _localMessageQueueService;
+    private System.Timers.Timer _virtualNodeInfoTimer;
 
     public MessageLoopService(
         ILogger<MessageLoopService> logger,
+        LocalMessageQueueService localMessageQueueService,
         MqttService mqttService,
         MeshtasticService meshtasticService,
         RegistrationService registrationService,
@@ -30,6 +33,7 @@ public class MessageLoopService : IHostedService
         _mqttService = mqttService;
         _meshtasticService = meshtasticService;
         _registrationService = registrationService;
+        _localMessageQueueService = localMessageQueueService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -37,11 +41,33 @@ public class MessageLoopService : IHostedService
         _mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         await _mqttService.EnsureMqttConnectedAsync(cancellationToken);
-        await _meshtasticService.SendVirtualNodeInfoAsync();
+        _localMessageQueueService.Start();
+        StartVirtualNodeInfoTimer();
+        _meshtasticService.SendVirtualNodeInfoAsync();
+    }
+
+    private void StartVirtualNodeInfoTimer()
+    {
+        _virtualNodeInfoTimer = new System.Timers.Timer(_options.SentTBotNodeInfoEverySeconds * 1000);
+        _virtualNodeInfoTimer.Elapsed += async (sender, e) =>
+        {
+            try
+            {
+                _meshtasticService.SendVirtualNodeInfoAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending virtual node info");
+            }
+        };
+        _virtualNodeInfoTimer.AutoReset = true;
+        _virtualNodeInfoTimer.Enabled = true;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _virtualNodeInfoTimer.Enabled = false;
+        await _localMessageQueueService.Stop();
         _mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
         await _mqttService.DisposeAsync();
