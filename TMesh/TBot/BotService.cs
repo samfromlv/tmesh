@@ -54,12 +54,12 @@ namespace TBot
                 new BotCommand
                 {
                     Command = "add",
-                    Description = "Register a Meshtastic device"
+                    Description = "Register a Meshtastic device (e.g., /add !aabbcc11)"
                 },
                 new BotCommand
                 {
                     Command = "remove",
-                    Description = "Unregister a Meshtastic device"
+                    Description = "Unregister a Meshtastic device (e.g., /remove !aabbcc11)"
                 },
                 new BotCommand
                 {
@@ -127,7 +127,7 @@ namespace TBot
                     break;
                 case ChatState.RemovingDevice:
                     {
-                        await _botClient.SendMessage(chatId, "Device removal is not implemented yet.");
+                        await HandleDeviceRemove(userId, chatId, msg);
                         break;
                     }
                 default:
@@ -164,6 +164,39 @@ namespace TBot
             {
                 _logger.LogWarning("Unexpected chat state {ChatState} in HandleDeviceAdd", chatState);
             }
+        }
+
+        private async Task HandleDeviceRemove(long userId, long chatId, Message message)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await _botClient.SendMessage(chatId, "Removal canceled.");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var text = message.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await _botClient.SendMessage(chatId, "Please send a Meshtastic device ID to remove or /stop to cancel.");
+                return;
+            }
+            if (!_meshtasticService.TryParseDeviceId(text, out var deviceId))
+            {
+                await _botClient.SendMessage(chatId, "Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
+                return;
+            }
+
+            var removed = await _registrationService.RemoveDeviceFromChatAsync(chatId, deviceId);
+            if (!removed)
+            {
+                await _botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat.");
+            }
+            else
+            {
+                await _botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} removed from this chat.");
+            }
+            _registrationService.SetChatState(userId, chatId, ChatState.Default);
         }
 
         private async Task SetQueuedStatus(List<QueueResult> queueResults)
@@ -232,7 +265,7 @@ namespace TBot
 
         private async Task ReportStatus(MeshtasticMessageStatus status)
         {
-            if (status.MeshMessages.Count == 1)
+            if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered))
             {
                 var deliveryStatus = status.MeshMessages.First().Value;
                 string reactionEmoji = ConvertDeliveryStatusToString(deliveryStatus.Status);
@@ -269,7 +302,7 @@ namespace TBot
                 var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate - DateTime.UtcNow).TotalSeconds);
                 if (waitTimeSeconds >= 2)
                 {
-                    sb.Append($" Queue wait: {waitTimeSeconds} seconds");
+                    sb.Append($". Queue wait: {waitTimeSeconds} seconds");
                 }
 
                 if (status.BotReplyId != null)
@@ -315,51 +348,78 @@ namespace TBot
             if (!string.IsNullOrWhiteSpace(message.Text)
                                 && _meshtasticService.TryParseDeviceId(message.Text, out var deviceId))
             {
-                var device = await _registrationService.GetDeviceAsync(deviceId);
-                if (device == null)
-                {
-                    await _botClient.SendMessage(chatId,
-                        $"Device {deviceId} has not yet been seen by the MQTT node {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
-                        $"1. Ensure your primary channel is '{_options.MeshtasticPrimaryChannelName}' and the key is '{_options.MeshtasticPrimaryChannelPskBase64}'.\r\n" +
-                        "2. Make sure 'OK to MQTT' is enabled in LoRa settings on your device.\r\n" +
-                        $"3. Find node {_options.MeshtasticNodeNameLong} (MQTT) in node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds} seconds.\r\n\r\n" +
-                        "Registration aborted.");
-                    _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
-                    return;
-                }
-
-                if (await _registrationService.HasRegistrationAsync(chatId, deviceId))
-                {
-                    await _botClient.SendMessage(chatId, $"Device {device.NodeName} ({deviceId}) is already registered in this chat. Registration aborted.");
-                    _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
-                    return;
-                }
-
-                var codesSent = _registrationService.IncrementDeviceCodesSentRecently(deviceId);
-                if (codesSent > RegistrationService.MaxCodeVerificationTries)
-                {
-                    await _botClient.SendMessage(chatId, $"Device {device.NodeName} ({deviceId}) has reached the maximum number of verification codes sent. Please wait at least 1 hour before trying again to add the same device to any chats. Registration aborted.");
-                    _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
-                    return;
-                }
-
-                var code = _registrationService.GenerateRandomCode();
-                _registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
-
-                var msg = await _botClient.SendMessage(chatId,
-                    $"Verification code sent to device {device.NodeName} ({deviceId}). Please reply with the received code here. The code is valid for 5 minutes.");
-
-                await SendAndTrackMeshtasticMessage(
-                    device,
-                    chatId,
-                    msg.MessageId,
-                    $"TMesh verification code is: {code}");
-                _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
+                var userName = message.From?.Username ?? $"{message.From?.FirstName} {message.From?.LastName}".Trim();
+                await ProcessDeviceIdForAdd(userId, userName, chatId, message.MessageId, deviceId);
             }
             else
             {
                 await _botClient.SendMessage(chatId, "Invalid device ID. Please send a valid Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
             }
+        }
+
+        private async Task ProcessDeviceIdForAdd(long userId, string userName, long chatId, int messageId, long deviceId)
+        {
+            var device = await _registrationService.GetDeviceAsync(deviceId);
+            if (device == null)
+            {
+                await _botClient.SendMessage(chatId,
+                    $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the MQTT node {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
+                    $"1. Ensure your primary channel is '{_options.MeshtasticPrimaryChannelName}' and the key is '{_options.MeshtasticPrimaryChannelPskBase64}'.\r\n" +
+                    "2. Make sure 'OK to MQTT' is enabled in LoRa settings on your device.\r\n" +
+                    $"3. Find node {_options.MeshtasticNodeNameLong} (MQTT) in node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds} seconds.\r\n\r\n" +
+                    "Registration aborted.");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            if (await _registrationService.HasRegistrationAsync(chatId, deviceId))
+            {
+                await _botClient.SendMessage(chatId, $"Device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is already registered in this chat. Registration aborted.");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var codesSent = _registrationService.IncrementDeviceCodesSentRecently(deviceId);
+            if (codesSent > RegistrationService.MaxCodeVerificationTries)
+            {
+                await _botClient.SendMessage(chatId, $"Device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) has reached the maximum number of verification codes sent. Please wait at least 1 hour before trying again to add the same device to any chats. Registration aborted.");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var code = _registrationService.GenerateRandomCode();
+            _registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
+
+            var msg = await _botClient.SendMessage(chatId,
+                $"Verification code sent to device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}). Please reply with the received code here. The code is valid for 5 minutes.");
+
+            await SendAndTrackMeshtasticMessage(
+                device,
+                chatId,
+                msg.MessageId,
+                $"TMesh verification code is: {code}");
+            _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
+        }
+
+        private string ExtractDeviceIdFromCommand(string commandText, string command)
+        {
+            if (string.IsNullOrWhiteSpace(commandText))
+            {
+                return null;
+            }
+
+            // Remove the command part and trim
+            var text = commandText.Substring(command.Length).Trim();
+            
+            // Return null if empty (no device ID provided)
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
+
+            // Extract first word (device ID should not have spaces)
+            var parts = text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 0 ? parts[0] : null;
         }
 
         private async Task SendAndTrackMeshtasticMessage(
@@ -466,12 +526,14 @@ namespace TBot
         {
             if (message.Text?.StartsWith("/add", StringComparison.OrdinalIgnoreCase) == true)
             {
-                await StartAdd(userId, chatId);
+                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/add");
+                await StartAdd(userId, userName, chatId, message.MessageId, deviceIdFromCommand);
                 return;
             }
             if (message.Text?.StartsWith("/remove", StringComparison.OrdinalIgnoreCase) == true)
             {
-                await StartRemove(userId, chatId);
+                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/remove");
+                await StartRemove(userId, chatId, message.MessageId, deviceIdFromCommand);
                 return;
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
@@ -553,16 +615,66 @@ namespace TBot
             }
         }
 
-        private async Task StartAdd(long userId, long chatId)
+        private async Task StartAdd(long userId, string userName, long chatId, int messageId, string deviceIdText)
         {
-            await _botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
-            _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedDeviceId);
+            if (string.IsNullOrWhiteSpace(deviceIdText))
+            {
+                // No device ID provided, ask for it
+                await _botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedDeviceId);
+                return;
+            }
+
+            // Device ID provided in command, process immediately
+            if (!_meshtasticService.TryParseDeviceId(deviceIdText, out var deviceId))
+            {
+                await _botClient.SendMessage(chatId, 
+                    $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).\n\n" +
+                    "Examples:\n" +
+                    "• /add 123456789\n" +
+                    "• /add !75bcd15\n" +
+                    "• /add #75bcd15\n\n" +
+                    "Or use /add without parameters and I'll ask for the device ID.");
+                return;
+            }
+
+            // Process the device ID (same logic as ProcessNeedDeviceId)
+            await ProcessDeviceIdForAdd(userId, userName, chatId, messageId, deviceId);
         }
 
-        private async Task StartRemove(long userId, long chatId)
+        private async Task StartRemove(long userId, long chatId, int messageId, string deviceIdText)
         {
-            await _botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
-            _registrationService.SetChatState(userId, chatId, Models.ChatState.RemovingDevice);
+            if (string.IsNullOrWhiteSpace(deviceIdText))
+            {
+                // No device ID provided, ask for it
+                await _botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
+                _registrationService.SetChatState(userId, chatId, Models.ChatState.RemovingDevice);
+                return;
+            }
+
+            // Device ID provided in command, process immediately
+            if (!_meshtasticService.TryParseDeviceId(deviceIdText, out var deviceId))
+            {
+                await _botClient.SendMessage(chatId,
+                    $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).\n\n" +
+                    "Examples:\n" +
+                    "• /remove 123456789\n" +
+                    "• /remove !75bcd15\n" +
+                    "• /remove #75bcd15\n\n" +
+                    "Or use /remove without parameters and I'll ask for the device ID.");
+                return;
+            }
+
+            // Process removal immediately
+            var removed = await _registrationService.RemoveDeviceFromChatAsync(chatId, deviceId);
+            if (!removed)
+            {
+                await _botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat.");
+            }
+            else
+            {
+                await _botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has been removed from this chat.");
+            }
         }
 
         public static void Register(IServiceCollection services)

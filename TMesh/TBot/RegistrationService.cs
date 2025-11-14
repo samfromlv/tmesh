@@ -248,5 +248,20 @@ namespace TBot
             }
             return await _db.Devices.AnyAsync(p => p.DeviceId == deviceId);
         }
+
+        // Remove all registrations for a device in a chat (any user can remove)
+        public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)
+        {
+            var regs = await _db.Registrations
+                .Where(r => r.ChatId == chatId && r.DeviceId == deviceId)
+                .ToListAsync();
+            if (regs.Count == 0)
+            {
+                return false;
+            }
+            _db.Registrations.RemoveRange(regs);
+            await _db.SaveChangesAsync();
+            return true;
+        }
     }
 }
