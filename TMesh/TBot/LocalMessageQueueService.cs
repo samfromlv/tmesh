@@ -29,7 +29,7 @@ namespace TBot
 
         public event Func<DataEventArgs<QueuedMessage>, Task> SendMessage;
 
-        public void EnqueueMessage(QueuedMessage message, MessagePriority priority)
+        public TimeSpan EnqueueMessage(QueuedMessage message, MessagePriority priority)
         {
             switch (priority)
             {
@@ -44,6 +44,8 @@ namespace TBot
                     break;
             }
             _messageSemaphore.Release();
+            var delay = EstimateDelay(priority);
+            return delay;
         }
 
         private bool TryDequeueMessage(out QueuedMessage message)
@@ -86,6 +88,30 @@ namespace TBot
             if (_processingTask == null) return Task.CompletedTask;
             _cancellationTokenSource.Cancel();
             return _processingTask;
+        }
+
+        public TimeSpan EstimateDelay(MessagePriority priority)
+        {
+            int queuedCount = 0;
+            switch (priority)
+            {
+                case MessagePriority.High:
+                    queuedCount += _highPriorityQueue.Count;
+                    break;
+                case MessagePriority.Normal:
+                    queuedCount += _highPriorityQueue.Count + _normalPriorityQueue.Count;
+                    break;
+                case MessagePriority.Low:
+                    queuedCount += _highPriorityQueue.Count + _normalPriorityQueue.Count + _lowPriorityQueue.Count;
+                    break;
+            }
+            var estimatedMs = queuedCount * _delayMs;
+            var elapsedMs = (int)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
+            if (_lastSentTime != DateTime.MinValue && elapsedMs < _delayMs)
+            {
+                estimatedMs += (_delayMs - elapsedMs);
+            }
+            return TimeSpan.FromMilliseconds(estimatedMs);
         }
 
         private async Task<bool> Loop(CancellationToken token)

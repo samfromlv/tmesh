@@ -1,9 +1,12 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Meshtastic.Protobufs;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
 using Telegram.Bot;
@@ -14,17 +17,22 @@ namespace TBot
 {
     public class BotService
     {
+
+        const int TrimUserNamesToLength = 8;
+
         public BotService(
             TelegramBotClient botClient,
             IOptions<TBotOptions> options,
             RegistrationService registrationService,
             MeshtasticService meshtasticService,
+            IMemoryCache memoryCache,
             ILogger<BotService> logger)
         {
             _botClient = botClient;
             _options = options.Value;
             _registrationService = registrationService;
             _meshtasticService = meshtasticService;
+            _memoryCache = memoryCache;
             _logger = logger;
         }
         private readonly TelegramBotClient _botClient;
@@ -32,6 +40,7 @@ namespace TBot
         private readonly RegistrationService _registrationService;
         private readonly MeshtasticService _meshtasticService;
         private readonly ILogger<BotService> _logger;
+        private readonly IMemoryCache _memoryCache;
 
         public async Task InstallWebhook()
         {
@@ -65,6 +74,29 @@ namespace TBot
             return await _botClient.GetWebhookInfo();
         }
 
+        public void StoreMessageStatus(long meshtasticMessageId, MeshtasticMessageStatus status)
+        {
+            var currentDelay = _meshtasticService.EstimateDelay(MessagePriority.Normal);
+            var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
+            _memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 0.3, 3))));
+        }
+
+        public MeshtasticMessageStatus GetMessageStatus(long meshtasticMessageId)
+        {
+            var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
+            if (_memoryCache.TryGetValue(cacheKey, out MeshtasticMessageStatus status))
+            {
+                return status;
+            }
+            return null;
+        }
+
+        public void ClearMessageStatus(long meshtasticMessageId)
+        {
+            var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
+            _memoryCache.Remove(cacheKey);
+        }
+
         private async Task HandleUpdate(Update update)
         {
             if (update.Type != UpdateType.Message
@@ -73,9 +105,17 @@ namespace TBot
                 || update.Message.From == null) return;
 
             var msg = update.Message;
+
+            if (msg.From.IsBot && msg.From.Username == _options.TelegramBotUserName)
+            {
+                // Ignore messages from the bot itself
+                return;
+            }
+
             var chatId = msg.Chat.Id;
             var userId = msg.From.Id;
             var userName = msg.From.Username ?? $"{msg.From.FirstName} {msg.From.LastName}".Trim();
+
 
             var chatState = _registrationService.GetChatState(userId, chatId);
 
@@ -126,6 +166,150 @@ namespace TBot
             }
         }
 
+        private async Task SetQueuedStatus(List<QueueResult> queueResults)
+        {
+            var first = queueResults[0];
+            var status = GetMessageStatus(first.MessageId);
+            if (status == null)
+            {
+                return;
+            }
+
+            lock (status)
+            {
+                foreach (var qr in queueResults)
+                {
+                    if (status.MeshMessages[qr.MessageId].Status == DeliveryStatus.Created)
+                    {
+                        status.MeshMessages[qr.MessageId].Status = DeliveryStatus.Queued;
+                    }
+                }
+            }
+            var longestQueueDelay = queueResults.Max(qr => qr.EstimatedSendDelay);
+            status.EstimatedSendDate = DateTime.UtcNow.Add(longestQueueDelay);
+
+            await ReportStatus(status);
+        }
+
+        public async Task UpdateMeshMessageStatus(long meshMessageId, DeliveryStatus newStatus)
+        {
+            var status = GetMessageStatus(meshMessageId);
+            if (status == null)
+            {
+                return;
+            }
+            lock (status)
+            {
+                if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
+                {
+                    sts.Status = newStatus;
+                }
+            }
+            await ReportStatus(status);
+        }
+
+        public async Task SetAckMeshMessageStatus(long meshMessageId, long fromDeviceId)
+        {
+            var status = GetMessageStatus(meshMessageId);
+            if (status == null)
+            {
+                return;
+            }
+            lock (status)
+            {
+                if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
+                {
+                    var newStatus = fromDeviceId == sts.DeviceId
+                        ? DeliveryStatus.Delivered
+                        : DeliveryStatus.Acknowledged;
+
+                    sts.Status = newStatus;
+                }
+            }
+            await ReportStatus(status);
+        }
+
+
+        private async Task ReportStatus(MeshtasticMessageStatus status)
+        {
+            if (status.MeshMessages.Count == 1)
+            {
+                var deliveryStatus = status.MeshMessages.First().Value;
+                string reactionEmoji = ConvertDeliveryStatusToString(deliveryStatus.Status);
+
+                await _botClient.SetMessageReaction(
+                          status.TelegramChatId,
+                          status.TelegramMessageId,
+                          [reactionEmoji]);
+
+                int? deletedReplyId = null;
+                if (status.BotReplyId != null)
+                {
+                    if (deliveryStatus.Status != DeliveryStatus.Queued)
+                    {
+                        deletedReplyId = status.BotReplyId;
+                        status.BotReplyId = null;
+                    }
+                }
+                if (deletedReplyId != null)
+                {
+                    await _botClient.DeleteMessage(
+                        status.TelegramChatId,
+                        deletedReplyId.Value);
+                }
+            }
+            else
+            {
+                var sb = new StringBuilder("Status: ");
+                var statusesOrdered = status.MeshMessages.OrderBy(x => x.Key).ToList();
+                foreach (var (messageId, deliveryStatus) in statusesOrdered)
+                {
+                    sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
+                }
+                var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate - DateTime.UtcNow).TotalSeconds);
+                if (waitTimeSeconds >= 2)
+                {
+                    sb.Append($" Queue wait: {waitTimeSeconds} seconds");
+                }
+
+                if (status.BotReplyId != null)
+                {
+                    var replyMsg = await _botClient.EditMessageText(
+                        status.TelegramChatId,
+                        status.BotReplyId.Value, sb.ToString());
+
+                    status.BotReplyId = replyMsg.MessageId;
+                }
+                else
+                {
+                    var replyMsg = await _botClient.SendMessage(
+                           status.TelegramChatId,
+                           sb.ToString(),
+                           replyParameters: new ReplyParameters
+                           {
+                               AllowSendingWithoutReply = false,
+                               ChatId = status.TelegramChatId,
+                               MessageId = status.TelegramMessageId,
+                           });
+
+                    status.BotReplyId = replyMsg.MessageId;
+                }
+            }
+        }
+
+        private string ConvertDeliveryStatusToString(DeliveryStatus status)
+        {
+            return status switch
+            {
+                DeliveryStatus.Created => ReactionEmoji.WritingHand,
+                DeliveryStatus.Queued => ReactionEmoji.Eyes,
+                DeliveryStatus.Acknowledged => ReactionEmoji.Dove,
+                DeliveryStatus.Delivered => ReactionEmoji.OkHand,
+                DeliveryStatus.Failed => ReactionEmoji.ThumbsDown,
+                _ => ReactionEmoji.ExplodingHead,
+            };
+        }
+
         private async Task ProcessNeedDeviceId(long userId, long chatId, Message message)
         {
             if (!string.IsNullOrWhiteSpace(message.Text)
@@ -138,7 +322,7 @@ namespace TBot
                         $"Device {deviceId} has not yet been seen by the MQTT node {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
                         $"1. Ensure your primary channel is '{_options.MeshtasticPrimaryChannelName}' and the key is '{_options.MeshtasticPrimaryChannelPskBase64}'.\r\n" +
                         "2. Make sure 'OK to MQTT' is enabled in LoRa settings on your device.\r\n" +
-                        $"3. Wait for your node info to reach {_options.MeshtasticNodeNameLong} or exchange user info with the proxy node '{_options.MeshtasticProxyNodeName}'.\r\n\r\n" +
+                        $"3. Find node {_options.MeshtasticNodeNameLong} (MQTT) in node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds} seconds.\r\n\r\n" +
                         "Registration aborted.");
                     _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
                     return;
@@ -161,14 +345,89 @@ namespace TBot
 
                 var code = _registrationService.GenerateRandomCode();
                 _registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
-                _meshtasticService.SendMeshtasticMessage(deviceId, device.PublicKey, $"TMesh verification code: {code}");
-                await _botClient.SendMessage(chatId, $"Verification code sent to device {device.NodeName} ({deviceId}). Please reply with the received code here. The code is valid for 5 minutes.");
+
+                var msg = await _botClient.SendMessage(chatId,
+                    $"Verification code sent to device {device.NodeName} ({deviceId}). Please reply with the received code here. The code is valid for 5 minutes.");
+
+                await SendAndTrackMeshtasticMessage(
+                    device,
+                    chatId,
+                    msg.MessageId,
+                    $"TMesh verification code is: {code}");
                 _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
             }
             else
             {
                 await _botClient.SendMessage(chatId, "Invalid device ID. Please send a valid Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
             }
+        }
+
+        private async Task SendAndTrackMeshtasticMessage(
+            Device device,
+            long chatId,
+            int messageId,
+            string text)
+        {
+            var newMeshMessageId = _meshtasticService.GetNextMeshtasticMessageId();
+            StoreMessageStatus(newMeshMessageId, new MeshtasticMessageStatus
+            {
+                TelegramChatId = chatId,
+                TelegramMessageId = messageId,
+                MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
+                    { {newMeshMessageId, new DeliveryStatusWithDeviceId
+                    {
+                        DeviceId = device.DeviceId,
+                        Status = DeliveryStatus.Created,
+                    } } },
+                BotReplyId = null,
+            });
+
+            var queueResult = _meshtasticService.SendTextMessage(
+                    newMeshMessageId,
+                    device.DeviceId,
+                    device.PublicKey,
+                    text);
+
+            await SetQueuedStatus([queueResult]);
+        }
+
+        private async Task SendAndTrackMeshtasticMessages(
+            List<DeviceWithNameAndKey> devices,
+            long chatId,
+            int messageId,
+            string text)
+        {
+            var status = new MeshtasticMessageStatus
+            {
+                TelegramChatId = chatId,
+                TelegramMessageId = messageId,
+                MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>(devices.Count)
+            };
+
+            var deviceMessageIds = new List<(long deviceId, long messageId, byte[] publicKey)>();
+            foreach (var device in devices)
+            {
+                var newMeshMessageId = _meshtasticService.GetNextMeshtasticMessageId();
+                status.MeshMessages.Add(newMeshMessageId, new DeliveryStatusWithDeviceId
+                {
+                    DeviceId = device.DeviceId,
+                    Status = DeliveryStatus.Created
+                });
+                StoreMessageStatus(newMeshMessageId, status);
+                deviceMessageIds.Add((device.DeviceId, newMeshMessageId, device.PublicKey));
+            }
+            var queueResults = new List<QueueResult>();
+
+            foreach (var (deviceId, newMeshMessageId, publicKey) in deviceMessageIds)
+            {
+                queueResults.Add(
+                    _meshtasticService.SendTextMessage(
+                        newMeshMessageId,
+                        deviceId,
+                        publicKey,
+                        text));
+            }
+            await SetQueuedStatus(queueResults);
         }
 
         private async Task ProcessNeedCode(long userId, string userName, long chatId, Message message)
@@ -236,14 +495,21 @@ namespace TBot
             long chatId,
             string text)
         {
-            if (!_meshtasticService.CanSendMessage(userName, text))
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            var textToMesh = $"{StringHelper.Truncate(userName, TrimUserNamesToLength)}: {text}";
+
+            if (!_meshtasticService.CanSendMessage(text))
             {
                 await _botClient.SendMessage(
                     chatId,
                     $"Message is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).",
                     replyParameters: new ReplyParameters
                     {
-                        AllowSendingWithoutReply = true,
+                        AllowSendingWithoutReply = false,
                         ChatId = chatId,
                         MessageId = msgId,
                     });
@@ -258,22 +524,18 @@ namespace TBot
                     "No registered devices. You can register a new device with the /add command. Please remove the bot from the group if you don't need it.",
                     replyParameters: new ReplyParameters
                     {
-                        AllowSendingWithoutReply = true,
+                        AllowSendingWithoutReply = false,
                         ChatId = chatId,
                         MessageId = msgId,
                     });
                 return;
             }
 
-            foreach (var reg in registrations)
-            {
-                _meshtasticService.SendMeshtasticMessage(reg.DeviceId, reg.PublicKey, userName, text);
-            }
-
-            await _botClient.SetMessageReaction(
+            await SendAndTrackMeshtasticMessages(
+                registrations,
                 chatId,
                 msgId,
-                [ReactionEmoji.OkHand]);
+                textToMesh);
         }
 
         private async Task HandleStatus(long chatId)
@@ -322,7 +584,7 @@ namespace TBot
             return HandleUpdate(update);
         }
 
-        public async Task ProcessInboundMeshtasticMessage(MeshMessage message)
+        public async Task ProcessInboundMeshtasticMessage(MeshMessage message, Device device)
         {
             if (message.MessageType == MeshMessageType.NodeInfo)
             {
@@ -333,13 +595,15 @@ namespace TBot
                     nodeInfo.PublicKey);
                 return;
             }
+            else if (message.MessageType == MeshMessageType.EncryptedDirectMessage)
+            {
+                _meshtasticService.NakNoPubKeyMeshtasticMessage(message);
+            }
             else if (message.MessageType == MeshMessageType.Text)
             {
-                var device = await _registrationService.GetDeviceAsync(message.DeviceId);
                 if (device == null)
                 {
-                    _logger.LogWarning("Received text message from unknown device {DeviceId}", message.DeviceId);
-                    return;
+                    throw new ArgumentNullException(nameof(device), "Device cannot be null for Text messages");
                 }
 
                 _logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
@@ -347,7 +611,8 @@ namespace TBot
 
                 if (registrations.Count == 0)
                 {
-                    _meshtasticService.SendMeshtasticMessage(
+                    _meshtasticService.AckMeshtasticMessage(device.PublicKey, message);
+                    _meshtasticService.SendTextMessage(
                         message.DeviceId,
                         device.PublicKey,
                         $"{StringHelper.Truncate(device.NodeName, 20)} is not registered in @TMesh_bot (Telegram)");
@@ -370,6 +635,26 @@ namespace TBot
 
                 _meshtasticService.AckMeshtasticMessage(device.PublicKey, message);
             }
+        }
+
+        public async Task ProcessAckMessages(List<AckMessage> batch)
+        {
+            foreach (var item in batch)
+            {
+                if (item.Success)
+                {
+                    await SetAckMeshMessageStatus(item.AckedMessageId, item.DeviceId);
+                }
+                else
+                {
+                    await UpdateMeshMessageStatus(item.AckedMessageId, DeliveryStatus.Failed);
+                }
+            }
+        }
+
+        public async Task ProcessMessageSent(long meshtasticMessageId)
+        {
+            await UpdateMeshMessageStatus(meshtasticMessageId, DeliveryStatus.SentToMqtt);
         }
     }
 }

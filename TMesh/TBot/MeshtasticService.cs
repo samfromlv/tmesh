@@ -3,6 +3,7 @@ using Meshtastic.Protobufs;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Org.BouncyCastle.Bcpg;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Agreement.JPake;
 using Org.BouncyCastle.Crypto.Parameters;
@@ -17,7 +18,6 @@ namespace TBot
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
         const int MESHTASTIC_PKC_OVERHEAD = 12;
-        const int TrimUserNamesToLength = 8;
         private const int NoDupExpirationMinutes = 3;
         private const int PkiKeyLength = 32;
         private const int ReplyHopsMargin = 2;
@@ -48,51 +48,54 @@ namespace TBot
         private readonly TBotOptions _options;
         private readonly LocalMessageQueueService _localMessageQueueService;
 
-
-        public void SendMeshtasticMessage(long deviceId, byte[] publicKey, string userName, string text)
+        public QueueResult SendTextMessage(long deviceId, byte[] publicKey, string text)
         {
-            var message = $"{StringHelper.Truncate(userName, TrimUserNamesToLength)}: {text}";
-            _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, message);
-            QueueTextMessage(deviceId, publicKey, message);
+            return SendTextMessage(GenerateNewMessageId(), deviceId, publicKey, text);
         }
 
-        public void SendMeshtasticMessage(long deviceId, byte[] publicKey, string text)
+        public QueueResult SendTextMessage(long newMessageId, long deviceId, byte[] publicKey, string text)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
-            QueueTextMessage(deviceId, publicKey, text);
+            var envelope = PackTextMessage(newMessageId, deviceId, publicKey, text);
+            var delay = QueueMessage(envelope, MessagePriority.Normal);
+            return new QueueResult
+            {
+                MessageId = envelope.Packet.Id,
+                EstimatedSendDelay = delay
+            };
         }
 
         public void AckMeshtasticMessage(byte[] publicKey, MeshMessage msg)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
-            QueueAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
+            var envelope = PackAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
+            QueueMessage(envelope, MessagePriority.High);
+        }
+
+        public void NakNoPubKeyMeshtasticMessage(MeshMessage msg)
+        {
+            var hopsUsed = msg.HopStart - msg.HopLimit;
+            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply);
+            QueueMessage(envelope, MessagePriority.Low);
         }
 
         public void AckMeshtasticMessage(long deviceId, byte[] publicKey, MeshPacket packet)
         {
             var hopsUsed = packet.HopStart - packet.HopLimit;
-            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
-            QueueAckMessage(deviceId, publicKey, packet.Id, (int)hopsForReply);
+            var hopsForReply = (int)Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var envelope = PackAckMessage(deviceId, publicKey, packet.Id, hopsForReply);
+            QueueMessage(envelope, MessagePriority.High);
         }
 
-        private void QueueTextMessage(long deviceId, byte[] publicKey, string text)
-        {
-            var envelope = PackTextMessage(deviceId, publicKey, text);
-            var id = envelope.Packet.Id;
-            StoreNoDup(id);
-            _localMessageQueueService.EnqueueMessage(new QueuedMessage
-            {
-                 Message = envelope
-            },  MessagePriority.Normal);
-        }
 
-        private void QueueAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
+
+        private TimeSpan QueueMessage(ServiceEnvelope envelope, MessagePriority messagePriority)
         {
-            var envelope = PackAckMessage(deviceId, publicKey, messageId, messageHopLimit);
             var id = envelope.Packet.Id;
             StoreNoDup(id);
-            _localMessageQueueService.EnqueueMessage(new QueuedMessage
+            return _localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
                 Message = envelope
             }, MessagePriority.High);
@@ -103,9 +106,9 @@ namespace TBot
             return $"meshtastic:outgoing:{id:X}";
         }
 
-        private ServiceEnvelope PackTextMessage(long deviceId, byte[] publicKey, string text)
+        private ServiceEnvelope PackTextMessage(long newMessageId, long deviceId, byte[] publicKey, string text)
         {
-            var packet = CreateTextMessagePacket(deviceId, publicKey, text);
+            var packet = CreateTextMessagePacket(newMessageId, deviceId, publicKey, text);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -113,6 +116,13 @@ namespace TBot
         private ServiceEnvelope PackAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
         {
             var packet = CreateAckMessagePacket(deviceId, publicKey, messageId, messageHopLimit);
+            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            return envelope;
+        }
+
+        private ServiceEnvelope PackNoPublicKeyMessage(long deviceId, long messageId, int messageHopLimit)
+        {
+            var packet = CreateNoPublicKeyMessagePacket(deviceId, messageId, messageHopLimit);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -132,7 +142,7 @@ namespace TBot
             return "!" + deviceId.ToString("X").ToLower();
         }
 
-        private MeshPacket CreateTextMessagePacket(long deviceId, byte[] publicKey, string text)
+        private MeshPacket CreateTextMessagePacket(long newMessageId, long deviceId, byte[] publicKey, string text)
         {
             var bytes = ByteString.CopyFromUtf8(text);
             if (bytes.Length > MaxTextMessageBytes)
@@ -145,7 +155,7 @@ namespace TBot
                 To = (uint)deviceId,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Default,
-                Id = (uint)Math.Floor(Random.Shared.Next() * 1e9),
+                Id = (uint)newMessageId,
                 HopLimit = (uint)_options.OutgoingMessageHopLimit,
                 HopStart = (uint)_options.OutgoingMessageHopLimit,
                 Decoded = new Meshtastic.Protobufs.Data()
@@ -172,10 +182,20 @@ namespace TBot
             return packet;
         }
 
+        private static uint GenerateNewMessageId()
+        {
+            return (uint)Math.Floor(Random.Shared.Next() * 1e9);
+        }
+
+        public long GetNextMeshtasticMessageId()
+        {
+            return GenerateNewMessageId();
+        }
+
         public MeshPacket CreateAckMessagePacket(
             long deviceId,
             byte[] publicKey,
-            long meesageId,
+            long messageId,
             int messageHopLimit)
         {
             var routeData = new Routing
@@ -190,13 +210,13 @@ namespace TBot
                 To = (uint)deviceId,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Ack,
-                Id = (uint)Math.Floor(Random.Shared.Next() * 1e9),
+                Id = GenerateNewMessageId(),
                 HopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
                 HopStart = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
                 Decoded = new Meshtastic.Protobufs.Data()
                 {
                     Portnum = PortNum.RoutingApp,
-                    RequestId = (uint)meesageId,
+                    RequestId = (uint)messageId,
                     Bitfield = 1,
                     Payload = routeData.ToByteString(),
                 },
@@ -215,6 +235,40 @@ namespace TBot
                 // The proxy node should have this node's public key for retransmission.
                 // packet.PublicKey = ByteString.FromBase64(_options.MeshtasticPublicKeyBase64);
             }
+
+            return packet;
+        }
+
+        public MeshPacket CreateNoPublicKeyMessagePacket(
+          long deviceId,
+          long messageId,
+          int messageHopLimit)
+        {
+            var routeData = new Routing
+            {
+                ErrorReason = Routing.Types.Error.PkiUnknownPubkey
+            };
+
+            var packet = new MeshPacket()
+            {
+                Channel = 0,
+                WantAck = false,
+                To = (uint)deviceId,
+                From = (uint)_options.MeshtasticNodeId,
+                Priority = MeshPacket.Types.Priority.Ack,
+                Id = GenerateNewMessageId(),
+                HopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                HopStart = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                Decoded = new Meshtastic.Protobufs.Data()
+                {
+                    Portnum = PortNum.RoutingApp,
+                    RequestId = (uint)messageId,
+                    Bitfield = 1,
+                    Payload = routeData.ToByteString(),
+                },
+            };
+
+            packet = EncryptPacketWithPsk(packet);
 
             return packet;
         }
@@ -243,12 +297,9 @@ namespace TBot
             return (Convert.ToBase64String(keyPair.publicKey), Convert.ToBase64String(keyPair.privateKey));
         }
 
-        public bool CanSendMessage(string userName, string text)
+        public bool CanSendMessage(string text)
         {
             var byteCount = Encoding.UTF8.GetByteCount(text);
-            byteCount += Encoding.UTF8.GetByteCount(
-                StringHelper.Truncate(userName, TrimUserNamesToLength));
-            byteCount += 2; // for ": "
             return byteCount <= MaxTextMessageBytes;
         }
 
@@ -289,7 +340,7 @@ namespace TBot
                 To = uint.MaxValue,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Background,
-                Id = (uint)Math.Floor(Random.Shared.Next() * 1e9),
+                Id = GenerateNewMessageId(),
                 HopLimit = (uint)_options.OwnNodeInfoMessageHopLimit,
                 HopStart = (uint)_options.OwnNodeInfoMessageHopLimit,
                 Decoded = new Meshtastic.Protobufs.Data()
@@ -433,27 +484,12 @@ namespace TBot
 
                 if (packet.Decoded.Portnum == PortNum.NodeinfoApp)
                 {
-                    var nodeInfo = NodeInfo.Parser.ParseFrom(packet.Decoded.ToByteArray());
-                    if (nodeInfo?.User?.PublicKey == null
-                        || nodeInfo.User.PublicKey.Length != PkiKeyLength)
-                    {
-                        return default;
-                    }
-                    long deviceId = packet.From;
-                    if (TryParseDeviceId(nodeInfo.User.Id, out var parsedId))
-                    {
-                        deviceId = parsedId;
-                    }
-
-                    return (true, new NodeInfoMessage
-                    {
-                        DeviceId = deviceId,
-                        HopLimit = (int)envelope.Packet.HopLimit,
-                        HopStart = (int)envelope.Packet.HopStart,
-                        Id = (int)envelope.Packet.Id,
-                        NodeName = nodeInfo.User.LongName ?? nodeInfo.User.ShortName ?? nodeInfo.User.Id,
-                        PublicKey = nodeInfo.User.PublicKey.ToByteArray(),
-                    });
+                    return DecodeNodeInfo(envelope, packet.Decoded);
+                }
+                else if (packet.Decoded.Portnum == PortNum.RoutingApp
+                    && packet.To == _options.MeshtasticNodeId)
+                {
+                    return DecodeAck(envelope, packet);
                 }
                 else
                 {
@@ -466,7 +502,13 @@ namespace TBot
 
             if (SenderPublicKey == null)
             {
-                return default;
+                return (true, new EncryptedDirectMessage
+                {
+                    DeviceId = envelope.Packet.From,
+                    HopLimit = (int)envelope.Packet.HopLimit,
+                    HopStart = (int)envelope.Packet.HopStart,
+                    Id = (int)envelope.Packet.Id,
+                });
             }
 
             if (!Meshtastic.Crypto.PKIEncryption.Decrypt(
@@ -478,21 +520,73 @@ namespace TBot
                 return default;
             }
 
-            var decoded = envelope.Packet.Decoded;
-            if (decoded.Portnum != PortNum.TextMessageApp)
-                return default;
-
-            var res = new TextMessage
+            if (envelope.Packet.Decoded.Portnum == PortNum.TextMessageApp)
             {
-                Id = (int)envelope.Packet.Id,
-                HopLimit = (int)envelope.Packet.HopLimit,
-                HopStart = (int)envelope.Packet.HopStart,
-                Text = decoded.Payload.ToStringUtf8(),
-                DeviceId = envelope.Packet.From,
-            };
+                var res = new TextMessage
+                {
+                    Id = (int)envelope.Packet.Id,
+                    HopLimit = (int)envelope.Packet.HopLimit,
+                    HopStart = (int)envelope.Packet.HopStart,
+                    Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
+                    DeviceId = envelope.Packet.From,
+                };
 
-            return (true, res);
+                return (true, res);
+            }
+            else if (envelope.Packet.Decoded.Portnum == PortNum.RoutingApp)
+            {
+                return DecodeAck(envelope, envelope.Packet);
+            }
+            else if (envelope.Packet.Decoded.Portnum == PortNum.NodeinfoApp)
+            {
+                return DecodeNodeInfo(envelope, envelope.Packet.Decoded);
+            }
+            return default;
         }
 
+        public TimeSpan EstimateDelay(MessagePriority priority)
+        {
+            return _localMessageQueueService.EstimateDelay(priority);
+        }
+
+        private static (bool success, MeshMessage msg) DecodeAck(ServiceEnvelope envelope, MeshPacket packet)
+        {
+            var routing = Routing.Parser.ParseFrom(packet.Decoded.Payload);
+
+            return (true, new AckMessage
+            {
+                DeviceId = envelope.Packet.From,
+                HopLimit = (int)envelope.Packet.HopLimit,
+                HopStart = (int)envelope.Packet.HopStart,
+                Id = (int)envelope.Packet.Id,
+                AckedMessageId = packet.Decoded.RequestId,
+                IsPkiEncrypted = envelope.Packet.PkiEncrypted,
+                Success = routing.ErrorReason == Routing.Types.Error.None
+            });
+        }
+
+        private (bool success, MeshMessage msg) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded)
+        {
+            var nodeInfo = NodeInfo.Parser.ParseFrom(decoded.Payload);
+            if (nodeInfo?.User?.PublicKey == null
+                || nodeInfo.User.PublicKey.Length != PkiKeyLength)
+            {
+                return default;
+            }
+            long deviceId = envelope.Packet.From;
+            if (TryParseDeviceId(nodeInfo.User.Id, out var parsedId))
+            {
+                deviceId = parsedId;
+            }
+            return (true, new NodeInfoMessage
+            {
+                DeviceId = deviceId,
+                HopLimit = (int)envelope.Packet.HopLimit,
+                HopStart = (int)envelope.Packet.HopStart,
+                Id = (int)envelope.Packet.Id,
+                NodeName = nodeInfo.User.LongName ?? nodeInfo.User.ShortName ?? nodeInfo.User.Id,
+                PublicKey = nodeInfo.User.PublicKey.ToByteArray(),
+            });
+        }
     }
 }

@@ -28,6 +28,7 @@ namespace TBot
 
         public event Func<DataEventArgs<string>, Task> TelegramMessageReceivedAsync;
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
+        public event Func<DataEventArgs<long>, Task> MessageSent;
 
         private void SetMeshtasticTopic()
         {
@@ -121,6 +122,10 @@ namespace TBot
                 .Build();
             await EnsureMqttConnectedAsync();
             await _client.PublishAsync(message);
+            if (MessageSent != null)
+            {
+                await MessageSent.Invoke(new DataEventArgs<long>(envelope.Packet.Id));
+            }
             _logger.LogInformation("Published Meshtastic message to MQTT");
         }
 

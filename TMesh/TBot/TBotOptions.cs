@@ -11,6 +11,7 @@ public class TBotOptions
     public string TelegramApiToken { get; set; } 
     public string TelegramWebhookSecret { get; set; } 
     public string TelegramUpdateWebhookUrl { get; set; }
+    public string TelegramBotUserName { get; set; }
 
     public int TelegramBotMaxConnections { get; set; }
     public string SQLiteConnectionString { get; set; }

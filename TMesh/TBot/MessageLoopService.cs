@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
+using TBot.Database.Models;
 using TBot.Models;
 
 namespace TBot;
@@ -17,6 +19,10 @@ public class MessageLoopService : IHostedService
     private readonly RegistrationService _registrationService;
     private readonly LocalMessageQueueService _localMessageQueueService;
     private System.Timers.Timer _virtualNodeInfoTimer;
+
+    private BlockingCollection<AckMessage> _ackQueue;
+    private SemaphoreSlim _ackQueueSemaphore = new SemaphoreSlim(0);
+    private Task _ackWorker;
 
     public MessageLoopService(
         ILogger<MessageLoopService> logger,
@@ -44,6 +50,9 @@ public class MessageLoopService : IHostedService
         _localMessageQueueService.Start();
         StartVirtualNodeInfoTimer();
         _meshtasticService.SendVirtualNodeInfoAsync();
+
+        _ackQueue = new BlockingCollection<AckMessage>();
+        _ackWorker = AckWorker(_ackQueue);
     }
 
     private void StartVirtualNodeInfoTimer()
@@ -66,11 +75,62 @@ public class MessageLoopService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _ackQueue.CompleteAdding();
+        _ackQueueSemaphore.Release();
+        await _ackWorker;
+        _ackQueue.Dispose();
+        _ackQueue = null;
+        _ackWorker = null;
         _virtualNodeInfoTimer.Enabled = false;
         await _localMessageQueueService.Stop();
         _mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
         await _mqttService.DisposeAsync();
+    }
+
+    private void EnqueueAckMessage(AckMessage ackMessage)
+    {
+        if (_ackQueue == null || _ackQueue.IsAddingCompleted)
+            return;
+
+        _ackQueue.Add(ackMessage);
+        _ackQueueSemaphore.Release();
+    }
+
+    public Task AckWorker(BlockingCollection<AckMessage> ackQueue)
+    {
+        return Task.Run(async () =>
+        {
+            try
+            {
+                while (ackQueue != null && !ackQueue.IsCompleted)
+                {
+                    try
+                    {
+                        await _ackQueueSemaphore.WaitAsync();
+                        var batch = new List<AckMessage>();
+                        while (ackQueue.TryTake(out var ackMessage))
+                        {
+                            batch.Add(ackMessage);
+                        }
+                        if (batch.Count > 0)
+                        {
+                            using var scope = _services.CreateScope();
+                            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+                            await botService.ProcessAckMessages(batch);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error in AckWorker");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in AckWorker outer");
+            }
+        });
     }
 
 
@@ -80,22 +140,27 @@ public class MessageLoopService : IHostedService
         {
             var (isPki, senderDeviceId, receiverDeviceId) = _meshtasticService.GetMessageSenderDeviceId(msg.Data);
 
-            byte[] senderPublicKey = null;
+            Device device = null;
             if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
             {
-                var device = await _registrationService.GetDeviceAsync(senderDeviceId);
-                senderPublicKey = device?.PublicKey;
+                device = await _registrationService.GetDeviceAsync(senderDeviceId);
             }
 
-
-            var res = _meshtasticService.TryDecryptMessage(msg.Data, senderPublicKey);
+            var res = _meshtasticService.TryDecryptMessage(msg.Data, device?.PublicKey);
 
             if (!res.success)
                 return;
 
+            if (res.msg.MessageType == MeshMessageType.AckMessage)
+            {
+                var ackMessage = (AckMessage)res.msg;
+                EnqueueAckMessage(ackMessage);
+                return;
+            }
+
             using var scope = _services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
-            await botService.ProcessInboundMeshtasticMessage(res.msg);
+            await botService.ProcessInboundMeshtasticMessage(res.msg, device);
         }
         catch (Exception ex)
         {

@@ -6,11 +6,9 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public enum MeshMessageType
+    public class DeliveryStatusWithDeviceId
     {
-        NodeInfo,         
-        Text,
-        EncryptedDirectMessage,
-        AckMessage
+        public long DeviceId { get; set; }
+        public DeliveryStatus Status { get; set; }
     }
 }

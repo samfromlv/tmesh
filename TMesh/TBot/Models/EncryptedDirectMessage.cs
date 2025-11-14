@@ -6,11 +6,8 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public enum MeshMessageType
+    public class EncryptedDirectMessage: MeshMessage
     {
-        NodeInfo,         
-        Text,
-        EncryptedDirectMessage,
-        AckMessage
+        public override MeshMessageType MessageType => MeshMessageType.EncryptedDirectMessage;
     }
 }

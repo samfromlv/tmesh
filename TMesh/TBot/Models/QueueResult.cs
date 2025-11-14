@@ -6,11 +6,10 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public enum MeshMessageType
+    public class QueueResult
     {
-        NodeInfo,         
-        Text,
-        EncryptedDirectMessage,
-        AckMessage
+        public long MessageId { get; set; }
+
+        public TimeSpan EstimatedSendDelay { get; set; }
     }
 }
