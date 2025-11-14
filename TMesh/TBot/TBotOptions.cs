@@ -21,7 +21,6 @@ public class TBotOptions
     public string MeshtasticNodeNameShort { get; set; }
     public string MeshtasticNodeNameLong { get; set; }
 
-    public string MeshtasticProxyNodeName { get; set; }
 
     public string MeshtasticPrimaryChannelName { get; set; }
     public string MeshtasticPrimaryChannelPskBase64 { get; set; }

@@ -567,14 +567,14 @@ namespace TBot
 
         private (bool success, MeshMessage msg) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded)
         {
-            var nodeInfo = NodeInfo.Parser.ParseFrom(decoded.Payload);
-            if (nodeInfo?.User?.PublicKey == null
-                || nodeInfo.User.PublicKey.Length != PkiKeyLength)
+            var user = User.Parser.ParseFrom(decoded.Payload);
+            if (user?.PublicKey == null
+                || user.PublicKey.Length != PkiKeyLength)
             {
                 return default;
             }
             long deviceId = envelope.Packet.From;
-            if (TryParseDeviceId(nodeInfo.User.Id, out var parsedId))
+            if (TryParseDeviceId(user.Id, out var parsedId))
             {
                 deviceId = parsedId;
             }
@@ -584,8 +584,8 @@ namespace TBot
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
                 Id = (int)envelope.Packet.Id,
-                NodeName = nodeInfo.User.LongName ?? nodeInfo.User.ShortName ?? nodeInfo.User.Id,
-                PublicKey = nodeInfo.User.PublicKey.ToByteArray(),
+                NodeName = user.LongName ?? user.ShortName ?? user.Id,
+                PublicKey = user.PublicKey.ToByteArray(),
             });
         }
     }
