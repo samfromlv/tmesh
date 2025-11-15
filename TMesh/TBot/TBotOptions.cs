@@ -5,7 +5,9 @@ public class TBotOptions
     public string MqttAddress { get; set; }
     public int MqttPort { get; set; }
     public string MqttUser { get; set; } 
-    public string MqttPassword { get; set; } 
+    public string MqttPassword { get; set; }
+    public bool MqttAllowUntrustedCertificates { get; set; }
+    public bool MqttUseTls { get; set; }
     public string MqttMeshtasticTopicPrefix { get; set; }
     public string MqttTelegramTopic { get; set; }
     public string TelegramApiToken { get; set; } 

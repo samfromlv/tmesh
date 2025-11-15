@@ -6,6 +6,9 @@ public class TProxyOptions
     public int MqttPort { get; set; }
     public string MqttUser { get; set; }
     public string MqttPassword { get; set; }
+
+    public bool MqttAllowUntrustedCertificates { get; set; }
+    public bool MqttUseTls { get; set; }
     public string MqttTelegramTopic { get; set; }
 
     // Telegram webhook security

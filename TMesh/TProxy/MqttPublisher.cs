@@ -11,7 +11,7 @@ public class MqttPublisher : IAsyncDisposable
     private readonly IMqttClient _client;
     private readonly ILogger<MqttPublisher> _logger;
     private readonly ConcurrentQueue<(string Topic, string Payload)> _pending = new();
-    private readonly SemaphoreSlim _connectLock = new(1,1);
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
     private bool _connected;
     private Task _reconnectLoopTask;
@@ -47,7 +47,15 @@ public class MqttPublisher : IAsyncDisposable
             if (_connected) return;
             var mqttOptions = new MqttClientOptionsBuilder()
                 .WithTcpServer(_options.MqttAddress, _options.MqttPort)
+                .WithTlsOptions(new MqttClientTlsOptions
+                {
+                    IgnoreCertificateChainErrors = _options.MqttAllowUntrustedCertificates,
+                    IgnoreCertificateRevocationErrors = _options.MqttAllowUntrustedCertificates,
+                    AllowUntrustedCertificates = _options.MqttAllowUntrustedCertificates,
+                    UseTls = _options.MqttUseTls,
+                })
                 .WithCredentials(_options.MqttUser, _options.MqttPassword)
+
                 .WithCleanSession()
                 .Build();
 

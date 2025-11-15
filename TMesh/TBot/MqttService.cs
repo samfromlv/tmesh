@@ -61,9 +61,27 @@ namespace TBot
                     await EnsureMqttConnectedAsync(CancellationToken.None);
                 };
 
+                var sslOptions = new MqttClientTlsOptions
+                {
+                    IgnoreCertificateChainErrors = _options.MqttAllowUntrustedCertificates,
+                    IgnoreCertificateRevocationErrors = _options.MqttAllowUntrustedCertificates,
+                    AllowUntrustedCertificates = _options.MqttAllowUntrustedCertificates,
+                    UseTls = _options.MqttUseTls
+                };
+
+                if (_options.MqttAllowUntrustedCertificates)
+                {
+                    sslOptions.CertificateValidationHandler = context =>
+                    {
+                        // Additional custom validation can be added here if needed
+                        return true; // accept all for now if untrusted allowed
+                    };
+                }
+
                 var builder = new MqttClientOptionsBuilder()
                     .WithTcpServer(_options.MqttAddress, _options.MqttPort)
                     .WithCredentials(_options.MqttUser, _options.MqttPassword)
+                    .WithTlsOptions(sslOptions)
                     .WithClientId("TBot")
                     .WithSessionExpiryInterval(30 * 24 * 3600)
                     .WithCleanSession(false);

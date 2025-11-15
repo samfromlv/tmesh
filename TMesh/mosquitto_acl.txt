@@ -1,0 +1,10 @@
+﻿pattern read msh/RU/2/e/PKI/<your virtual node id in hex>
+pattern write msh/RU/2/e/LongFast/%u
+pattern write msh/RU/2/e/PKI/%u
+user tproxy
+topic write TProxy/prod/telegram/update
+user tbot
+topic read TProxy/prod/telegram/update
+topic readwrite msh/RU/2/e/#
+user dev
+topic readwrite #
