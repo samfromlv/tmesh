@@ -11,7 +11,5 @@ namespace TBot.Models
         public long DeviceId { get; set; }
         public string NodeName { get; set; }
         public byte[] PublicKey { get; set; }
-
-        public string RegisteredByUser { get; set; }
     }
 }

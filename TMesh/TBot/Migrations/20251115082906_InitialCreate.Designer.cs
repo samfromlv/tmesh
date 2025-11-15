@@ -11,7 +11,7 @@ using TBot.Database;
 namespace TBot.Migrations
 {
     [DbContext(typeof(TBotDbContext))]
-    [Migration("20251111215219_InitialCreate")]
+    [Migration("20251115082906_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -25,6 +25,9 @@ namespace TBot.Migrations
                     b.Property<long>("DeviceId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("NodeName")
                         .HasColumnType("TEXT");
@@ -58,9 +61,6 @@ namespace TBot.Migrations
 
                     b.Property<long>("TelegramUserId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("UserName")
-                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

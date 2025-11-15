@@ -23,6 +23,9 @@ namespace TBot.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("NodeName")
                         .HasColumnType("TEXT");
 
@@ -55,9 +58,6 @@ namespace TBot.Migrations
 
                     b.Property<long>("TelegramUserId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("UserName")
-                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

@@ -16,7 +16,6 @@ public class MessageLoopService : IHostedService
     private readonly IServiceProvider _services;
     private readonly MqttService _mqttService;
     private readonly MeshtasticService _meshtasticService;
-    private readonly RegistrationService _registrationService;
     private readonly LocalMessageQueueService _localMessageQueueService;
     private System.Timers.Timer _virtualNodeInfoTimer;
 
@@ -29,7 +28,6 @@ public class MessageLoopService : IHostedService
         LocalMessageQueueService localMessageQueueService,
         MqttService mqttService,
         MeshtasticService meshtasticService,
-        RegistrationService registrationService,
         IOptions<TBotOptions> options,
         IServiceProvider services)
     {
@@ -38,7 +36,6 @@ public class MessageLoopService : IHostedService
         _services = services;
         _mqttService = mqttService;
         _meshtasticService = meshtasticService;
-        _registrationService = registrationService;
         _localMessageQueueService = localMessageQueueService;
     }
 
@@ -136,6 +133,7 @@ public class MessageLoopService : IHostedService
 
     private async Task HandleMeshtasticMessage(DataEventArgs<ServiceEnvelope> msg)
     {
+        IServiceScope scope = null;
         try
         {
             var (isPki, senderDeviceId, receiverDeviceId) = _meshtasticService.GetMessageSenderDeviceId(msg.Data);
@@ -143,6 +141,8 @@ public class MessageLoopService : IHostedService
             Device device = null;
             if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
             {
+                scope = _services.CreateScope();
+                var _registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
                 device = await _registrationService.GetDeviceAsync(senderDeviceId);
             }
 
@@ -158,13 +158,18 @@ public class MessageLoopService : IHostedService
                 return;
             }
 
-            using var scope = _services.CreateScope();
+            scope ??= _services.CreateScope();
+
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error handling MQTT message");
+        }
+        finally
+        {
+            scope?.Dispose();
         }
     }
 

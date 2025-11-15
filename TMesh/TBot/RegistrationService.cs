@@ -118,7 +118,6 @@ namespace TBot
                              DeviceId = r.DeviceId,
                              PublicKey = d.PublicKey,
                              NodeName = d.NodeName,
-                             RegisteredByUser = r.UserName
                          }).ToListAsync();
         }
 
@@ -161,6 +160,7 @@ namespace TBot
             var reg = await _db.Registrations.FirstOrDefaultAsync(x =>
                 x.ChatId == chatId
                 && x.DeviceId == storedCode.DeviceId);
+            var now = DateTime.UtcNow;
             if (reg == null)
             {
                 reg = new DeviceRegistration
@@ -168,16 +168,14 @@ namespace TBot
                     TelegramUserId = telegramUserId,
                     ChatId = chatId,
                     DeviceId = storedCode.DeviceId,
-                    CreatedUtc = DateTime.UtcNow,
-                    UserName = userName
+                    CreatedUtc = now
                 };
                 _db.Registrations.Add(reg);
             }
             else
             {
-                reg.UserName = userName;
                 reg.TelegramUserId = telegramUserId;
-                reg.CreatedUtc = DateTime.UtcNow;
+                reg.CreatedUtc = now;
             }
             await _db.SaveChangesAsync();
             _memoryCache.Remove(key);
@@ -218,6 +216,7 @@ namespace TBot
             }
 
             var entity = await _db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
+            var now = DateTime.UtcNow;
             if (entity == null)
             {
                 entity = new Device
@@ -225,7 +224,8 @@ namespace TBot
                     DeviceId = deviceId,
                     NodeName = nodeName,
                     PublicKey = publicKey,
-                    UpdatedUtc = DateTime.UtcNow
+                    CreatedUtc = now,
+                    UpdatedUtc = now
                 };
                 _db.Devices.Add(entity);
             }
@@ -233,7 +233,7 @@ namespace TBot
             {
                 entity.PublicKey = publicKey;
                 entity.NodeName = nodeName;
-                entity.UpdatedUtc = DateTime.UtcNow;
+                entity.UpdatedUtc = now;
             }
 
             await _db.SaveChangesAsync();

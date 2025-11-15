@@ -31,6 +31,8 @@ public class TBotDbContext : DbContext
             e.Property(p => p.PublicKey)
                 .IsRequired();
             e.Property(p => p.NodeName);
+            e.Property(p => p.CreatedUtc)
+                .IsRequired();
             e.Property(p => p.UpdatedUtc)
                 .IsRequired();
         });

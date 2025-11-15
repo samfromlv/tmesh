@@ -21,8 +21,7 @@ When you register a Meshtastic device to a Telegram chat, TMesh stores:
 | Data Type | Purpose | Storage Duration |
 |-----------|---------|------------------|
 | **Telegram Chat ID** | Identify which Telegram group/chat to send messages to | Until device is unregistered or database is cleared |
-| **Telegram User ID** | Associate registration with the user who added the device | Until device is unregistered or database is cleared |
-| **Telegram Username** | Display who registered the device and identify message senders | Until device is unregistered or database is cleared |
+| **Telegram User ID** | Track registrations and manage verification code limits | Until device is unregistered or database is cleared |
 | **Meshtastic Device ID** | Identify which Meshtastic device to communicate with | Until device is unregistered or database is cleared |
 | **Registration Timestamp** | Track when the device was registered | Until device is unregistered or database is cleared |
 
@@ -69,7 +68,8 @@ TMesh explicitly does **NOT** collect or permanently store:
 - ❌ Message history or logs
 - ❌ Meshtastic location data
 - ❌ Telegram phone numbers
-- ❌ Personal information beyond username
+- ❌ Telegram usernames
+- ❌ Personal information beyond user ID and chat ID
 - ❌ IP addresses or connection logs
 - ❌ Analytics or usage statistics
 - ❌ Cookies or tracking identifiers
@@ -182,7 +182,7 @@ If you operate TMesh in the EU or process data of EU citizens, you should be awa
 Users can request to see what data TMesh stores about them by contacting the instance operator.
 
 ### Right to Rectification
-Telegram usernames are automatically updated when users change them. Device registrations can be removed and re-added.
+Device registrations can be removed and re-added to update stored information.
 
 ### Right to Erasure
 Users can request deletion of their registration data. Use the `/remove` command (when implemented) or contact the operator.

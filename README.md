@@ -625,7 +625,7 @@ TMesh/
 ### Data Storage
 
 TMesh stores the following data (see [PRIVACY.md](PRIVACY.md) for details):
-- Device registrations: Chat ID, Telegram user ID, username
+- Device registrations: Chat ID, Telegram user ID
 - Device information: Node ID, public keys from node info broadcasts
 - Messages are NOT stored permanently
 - Temporary verification codes (5-minute expiry)

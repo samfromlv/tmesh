@@ -609,7 +609,7 @@ namespace TBot
             }
             else
             {
-                var lines = devices.Select(d => $"• Device: {d.NodeName} ({d.DeviceId}), registered by: {d.RegisteredByUser}");
+                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)})");
                 var text = "Registered devices:\r\n" + string.Join("\r\n", lines);
                 await _botClient.SendMessage(chatId, text);
             }
@@ -742,7 +742,7 @@ namespace TBot
                 {
                     await _botClient.SendMessage(
                         reg.ChatId,
-                        $"{reg.UserName} ({device.NodeName}): {text}");
+                        $"{device.NodeName}: {text}");
                 }
 
                 _meshtasticService.AckMeshtasticMessage(device.PublicKey, message);

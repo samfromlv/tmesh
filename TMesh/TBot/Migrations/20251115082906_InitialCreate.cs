@@ -19,6 +19,7 @@ namespace TBot.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     PublicKey = table.Column<byte[]>(type: "BLOB", nullable: false),
                     NodeName = table.Column<string>(type: "TEXT", nullable: true),
+                    CreatedUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     UpdatedUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -35,7 +36,6 @@ namespace TBot.Migrations
                     TelegramUserId = table.Column<long>(type: "INTEGER", nullable: false),
                     ChatId = table.Column<long>(type: "INTEGER", nullable: false),
                     DeviceId = table.Column<long>(type: "INTEGER", nullable: false),
-                    UserName = table.Column<string>(type: "TEXT", nullable: true),
                     CreatedUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
