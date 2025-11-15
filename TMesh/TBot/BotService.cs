@@ -727,7 +727,7 @@ namespace TBot
                     _meshtasticService.SendTextMessage(
                         message.DeviceId,
                         device.PublicKey,
-                        $"{StringHelper.Truncate(device.NodeName, 20)} is not registered in @TMesh_bot (Telegram)");
+                        $"{StringHelper.Truncate(device.NodeName, 20)} is not registered with {_options.TelegramBotUserName} (Telegram)");
                     return;
                 }
 
