@@ -43,6 +43,7 @@ public class MessageLoopService : IHostedService
     {
         _mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
+        _mqttService.MessageSent += HandleMessageSent;
         await _mqttService.EnsureMqttConnectedAsync(cancellationToken);
         _localMessageQueueService.Start();
         StartVirtualNodeInfoTimer();
@@ -52,10 +53,17 @@ public class MessageLoopService : IHostedService
         _ackWorker = AckWorker(_ackQueue);
     }
 
+    private async Task HandleMessageSent(DataEventArgs<long> args)
+    {
+        using var scope = _services.CreateScope();
+        var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+        await botService.ProcessMessageSent(args.Data);
+    }
+
     private void StartVirtualNodeInfoTimer()
     {
         _virtualNodeInfoTimer = new System.Timers.Timer(_options.SentTBotNodeInfoEverySeconds * 1000);
-        _virtualNodeInfoTimer.Elapsed += async (sender, e) =>
+        _virtualNodeInfoTimer.Elapsed += (sender, e) =>
         {
             try
             {
@@ -82,6 +90,7 @@ public class MessageLoopService : IHostedService
         await _localMessageQueueService.Stop();
         _mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
+        _mqttService.MessageSent -= HandleMessageSent;
         await _mqttService.DisposeAsync();
     }
 

@@ -210,6 +210,8 @@ namespace TBot
 
             lock (status)
             {
+                var longestQueueDelay = queueResults.Max(qr => qr.EstimatedSendDelay);
+                status.EstimatedSendDate = DateTime.UtcNow.Add(longestQueueDelay);
                 foreach (var qr in queueResults)
                 {
                     if (status.MeshMessages[qr.MessageId].Status == DeliveryStatus.Created)
@@ -218,13 +220,19 @@ namespace TBot
                     }
                 }
             }
-            var longestQueueDelay = queueResults.Max(qr => qr.EstimatedSendDelay);
-            status.EstimatedSendDate = DateTime.UtcNow.Add(longestQueueDelay);
+            if (status.MeshMessages.Any(x=>x.Value.Status != DeliveryStatus.Queued)
+                || DateTime.UtcNow.Subtract(status.EstimatedSendDate).TotalSeconds < 3)
+            {
+                return;
+            }
 
             await ReportStatus(status);
         }
 
-        public async Task UpdateMeshMessageStatus(long meshMessageId, DeliveryStatus newStatus)
+        public async Task UpdateMeshMessageStatus(
+            long meshMessageId, 
+            DeliveryStatus newStatus,
+            DeliveryStatus? maxCurrentStatus = null)
         {
             var status = GetMessageStatus(meshMessageId);
             if (status == null)
@@ -235,6 +243,12 @@ namespace TBot
             {
                 if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
                 {
+                    if (maxCurrentStatus.HasValue 
+                        && sts.Status > maxCurrentStatus.Value)
+                    {
+                        return;
+                    }
+
                     sts.Status = newStatus;
                 }
             }
@@ -261,6 +275,8 @@ namespace TBot
             }
             await ReportStatus(status);
         }
+
+       
 
 
         private async Task ReportStatus(MeshtasticMessageStatus status)
@@ -299,10 +315,13 @@ namespace TBot
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
                 }
-                var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate - DateTime.UtcNow).TotalSeconds);
-                if (waitTimeSeconds >= 2)
+                if (statusesOrdered.Any(x=>x.Value.Status == DeliveryStatus.Queued))
                 {
-                    sb.Append($". Queue wait: {waitTimeSeconds} seconds");
+                    var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate - DateTime.UtcNow).TotalSeconds);
+                    if (waitTimeSeconds >= 2)
+                    {
+                        sb.Append($". Queue wait: {waitTimeSeconds} seconds");
+                    }
                 }
 
                 if (status.BotReplyId != null)
@@ -336,7 +355,8 @@ namespace TBot
             {
                 DeliveryStatus.Created => ReactionEmoji.WritingHand,
                 DeliveryStatus.Queued => ReactionEmoji.Eyes,
-                DeliveryStatus.Acknowledged => ReactionEmoji.Dove,
+                DeliveryStatus.SentToMqtt => ReactionEmoji.Dove,
+                DeliveryStatus.Acknowledged => ReactionEmoji.ManShrugging,
                 DeliveryStatus.Delivered => ReactionEmoji.OkHand,
                 DeliveryStatus.Failed => ReactionEmoji.ThumbsDown,
                 _ => ReactionEmoji.ExplodingHead,
@@ -719,8 +739,8 @@ namespace TBot
                 }
 
                 _logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+                
                 var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
-
                 if (registrations.Count == 0)
                 {
                     _meshtasticService.AckMeshtasticMessage(device.PublicKey, message);
@@ -766,7 +786,10 @@ namespace TBot
 
         public async Task ProcessMessageSent(long meshtasticMessageId)
         {
-            await UpdateMeshMessageStatus(meshtasticMessageId, DeliveryStatus.SentToMqtt);
+            await UpdateMeshMessageStatus(
+                meshtasticMessageId, 
+                DeliveryStatus.SentToMqtt,
+                maxCurrentStatus: DeliveryStatus.Queued);
         }
     }
 }
