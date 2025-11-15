@@ -221,7 +221,7 @@ namespace TBot
                 }
             }
             if (status.MeshMessages.Any(x=>x.Value.Status != DeliveryStatus.Queued)
-                || DateTime.UtcNow.Subtract(status.EstimatedSendDate).TotalSeconds < 3)
+                || DateTime.UtcNow.Subtract(status.EstimatedSendDate.Value).TotalSeconds < 3)
             {
                 return;
             }
@@ -315,9 +315,10 @@ namespace TBot
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
                 }
-                if (statusesOrdered.Any(x=>x.Value.Status == DeliveryStatus.Queued))
+                if (statusesOrdered.Any(x=>x.Value.Status == DeliveryStatus.Queued)
+                    && status.EstimatedSendDate.HasValue)
                 {
-                    var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate - DateTime.UtcNow).TotalSeconds);
+                    var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate.Value - DateTime.UtcNow).TotalSeconds);
                     if (waitTimeSeconds >= 2)
                     {
                         sb.Append($". Queue wait: {waitTimeSeconds} seconds");
