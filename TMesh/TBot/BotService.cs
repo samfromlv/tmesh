@@ -221,7 +221,7 @@ namespace TBot
                 }
             }
             if (status.MeshMessages.Any(x=>x.Value.Status != DeliveryStatus.Queued)
-                || DateTime.UtcNow.Subtract(status.EstimatedSendDate.Value).TotalSeconds < 3)
+                || status.EstimatedSendDate.Value.Subtract(DateTime.UtcNow).TotalSeconds < 3)
             {
                 return;
             }
