@@ -56,6 +56,7 @@ public class MessageLoopService : IHostedService
         _ackQueue = new BlockingCollection<AckMessage>();
         _ackWorker = AckWorker(_ackQueue);
         SendVirtualNodeInfo();
+        await PublishStats();
     }
 
     private void SendVirtualNodeInfo()
@@ -88,32 +89,37 @@ public class MessageLoopService : IHostedService
                 SendVirtualNodeInfo();
             }
 
-            var now = DateTime.UtcNow;
-            var min5ago = now.AddMinutes(-5);
-            var min15ago = now.AddMinutes(-15);
-            var hour1ago = now.AddHours(-1);
-
-            var botStats = new BotStats
-            {
-                Mesh5Min = _meshtasticService.AggregateStartFrom(min5ago),
-                Mesh15Min = _meshtasticService.AggregateStartFrom(min15ago),
-                Mesh1Hour = _meshtasticService.AggregateStartFrom(hour1ago),
-                LastUpdate = now,
-                Started = _started
-            };
-
-            using var scope = _services.CreateScope();
-            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-        
-            botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
-            botStats.Devices = await registrationService.GetTotalDevicesCount();
-
-            await _mqttService.PublishStatus(botStats);
+            await PublishStats();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in ServiceInfo timer");
         }
+    }
+
+    private async Task PublishStats()
+    {
+        var now = DateTime.UtcNow;
+        var min5ago = now.AddMinutes(-5);
+        var min15ago = now.AddMinutes(-15);
+        var hour1ago = now.AddHours(-1);
+
+        var botStats = new BotStats
+        {
+            Mesh5Min = _meshtasticService.AggregateStartFrom(min5ago),
+            Mesh15Min = _meshtasticService.AggregateStartFrom(min15ago),
+            Mesh1Hour = _meshtasticService.AggregateStartFrom(hour1ago),
+            LastUpdate = now,
+            Started = _started
+        };
+
+        using var scope = _services.CreateScope();
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+
+        botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
+        botStats.Devices = await registrationService.GetTotalDevicesCount();
+
+        await _mqttService.PublishStatus(botStats);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

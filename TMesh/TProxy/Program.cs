@@ -16,7 +16,7 @@ namespace TProxy
             builder.Services.Configure<TProxyOptions>(builder.Configuration.GetSection("TProxy"));
 
             // MQTT publisher service
-            builder.Services.AddSingleton<MqttPublisher>();
+            builder.Services.AddSingleton<MqttService>();
 
             var app = builder.Build();
 

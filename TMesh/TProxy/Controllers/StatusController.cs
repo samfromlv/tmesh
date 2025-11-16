@@ -8,14 +8,14 @@ namespace TProxy.Controllers
     [Route("/status")]
     public class StatusController : Controller
     {
-        private readonly MqttPublisher _publisher;
+        private readonly MqttService _publisher;
 
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
             WriteIndented = true,
         };
 
-        public StatusController(MqttPublisher publisher)
+        public StatusController(MqttService publisher)
         {
             _publisher = publisher;
         }

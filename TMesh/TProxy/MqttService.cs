@@ -4,14 +4,15 @@ using Microsoft.Extensions.Options;
 using MQTTnet;
 using Shared.Models;
 using System.Text.Json;
+using MQTTnet.Protocol;
 
 namespace TProxy;
 
-public class MqttPublisher : IAsyncDisposable
+public class MqttService : IAsyncDisposable
 {
     private readonly TProxyOptions _options;
     private readonly IMqttClient _client;
-    private readonly ILogger<MqttPublisher> _logger;
+    private readonly ILogger<MqttService> _logger;
     private readonly ConcurrentQueue<(string Topic, string Payload)> _pending = new();
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
@@ -19,7 +20,7 @@ public class MqttPublisher : IAsyncDisposable
     private Task _reconnectLoopTask;
     private DateTime _started;
 
-    public MqttPublisher(IOptions<TProxyOptions> options, ILogger<MqttPublisher> logger)
+    public MqttService(IOptions<TProxyOptions> options, ILogger<MqttService> logger)
     {
         _options = options.Value;
         _logger = logger;
@@ -83,6 +84,14 @@ public class MqttPublisher : IAsyncDisposable
                 _connected = result.ResultCode == MqttClientConnectResultCode.Success;
                 if (_connected)
                 {
+                    var topicFilter = new MqttTopicFilterBuilder()
+                        .WithTopic(_options.MqttStatusTopic)
+                        .WithAtLeastOnceQoS()
+                        .WithRetainHandling(MqttRetainHandling.SendAtSubscribe)
+                        .Build();
+
+                    await _client.SubscribeAsync(topicFilter);
+
                     _logger.LogInformation("Connected to MQTT broker {Host}:{Port}", _options.MqttAddress, _options.MqttPort);
                     await FlushPendingAsync();
                 }

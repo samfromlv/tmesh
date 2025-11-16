@@ -12,10 +12,10 @@ namespace TProxy.Controllers
     public class TelegramController : ControllerBase
     {
         private readonly ILogger<TelegramController> _logger;
-        private readonly MqttPublisher _publisher;
+        private readonly MqttService _publisher;
         private readonly TProxyOptions _options;
 
-        public TelegramController(ILogger<TelegramController> logger, MqttPublisher publisher, Microsoft.Extensions.Options.IOptions<TProxyOptions> options)
+        public TelegramController(ILogger<TelegramController> logger, MqttService publisher, Microsoft.Extensions.Options.IOptions<TProxyOptions> options)
         {
             _logger = logger;
             _publisher = publisher;
