@@ -10,6 +10,7 @@ public class TProxyOptions
     public bool MqttAllowUntrustedCertificates { get; set; }
     public bool MqttUseTls { get; set; }
     public string MqttTelegramTopic { get; set; }
+    public string MqttStatusTopic { get; set; }
 
     // Telegram webhook security
     public string TelegramWebhookSecret { get; set; } // expected header value

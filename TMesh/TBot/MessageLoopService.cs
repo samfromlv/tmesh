@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Shared.Models;
 using System.Collections.Concurrent;
+using System.Timers;
 using TBot.Database.Models;
 using TBot.Models;
 
@@ -17,7 +19,9 @@ public class MessageLoopService : IHostedService
     private readonly MqttService _mqttService;
     private readonly MeshtasticService _meshtasticService;
     private readonly LocalMessageQueueService _localMessageQueueService;
-    private System.Timers.Timer _virtualNodeInfoTimer;
+    private System.Timers.Timer _serviceInfoTimer;
+    private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
+    private DateTime _started;
 
     private BlockingCollection<AckMessage> _ackQueue;
     private SemaphoreSlim _ackQueueSemaphore = new SemaphoreSlim(0);
@@ -41,16 +45,23 @@ public class MessageLoopService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _started = DateTime.UtcNow;
         _mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         _mqttService.MessageSent += HandleMessageSent;
         await _mqttService.EnsureMqttConnectedAsync(cancellationToken);
         _localMessageQueueService.Start();
-        StartVirtualNodeInfoTimer();
-        _meshtasticService.SendVirtualNodeInfoAsync();
+        StartServiceInfoInfoTimer();
 
         _ackQueue = new BlockingCollection<AckMessage>();
         _ackWorker = AckWorker(_ackQueue);
+        SendVirtualNodeInfo();
+    }
+
+    private void SendVirtualNodeInfo()
+    {
+        _lastVirtualNodeInfoSent = DateTime.UtcNow;
+        _meshtasticService.SendVirtualNodeInfo();
     }
 
     private async Task HandleMessageSent(DataEventArgs<long> args)
@@ -60,22 +71,49 @@ public class MessageLoopService : IHostedService
         await botService.ProcessMessageSent(args.Data);
     }
 
-    private void StartVirtualNodeInfoTimer()
+    private void StartServiceInfoInfoTimer()
     {
-        _virtualNodeInfoTimer = new System.Timers.Timer(_options.SentTBotNodeInfoEverySeconds * 1000);
-        _virtualNodeInfoTimer.Elapsed += (sender, e) =>
+        _serviceInfoTimer = new System.Timers.Timer(60 * 1000);
+        _serviceInfoTimer.Elapsed += _serviceInfoTimer_Elapsed;
+        _serviceInfoTimer.AutoReset = true;
+        _serviceInfoTimer.Enabled = true;
+    }
+
+    private async void _serviceInfoTimer_Elapsed(object sender, ElapsedEventArgs e)
+    {
+        try
         {
-            try
+            if ((DateTime.UtcNow - _lastVirtualNodeInfoSent).TotalSeconds >= _options.SentTBotNodeInfoEverySeconds)
             {
-                _meshtasticService.SendVirtualNodeInfoAsync();
+                SendVirtualNodeInfo();
             }
-            catch (Exception ex)
+
+            var now = DateTime.UtcNow;
+            var min5ago = now.AddMinutes(-5);
+            var min15ago = now.AddMinutes(-15);
+            var hour1ago = now.AddHours(-1);
+
+            var botStats = new BotStats
             {
-                _logger.LogError(ex, "Error sending virtual node info");
-            }
-        };
-        _virtualNodeInfoTimer.AutoReset = true;
-        _virtualNodeInfoTimer.Enabled = true;
+                Mesh5Min = _meshtasticService.AggregateStartFrom(min5ago),
+                Mesh15Min = _meshtasticService.AggregateStartFrom(min15ago),
+                Mesh1Hour = _meshtasticService.AggregateStartFrom(hour1ago),
+                LastUpdate = now,
+                Started = _started
+            };
+
+            using var scope = _services.CreateScope();
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        
+            botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
+            botStats.Devices = await registrationService.GetTotalDevicesCount();
+
+            await _mqttService.PublishStatus(botStats);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in ServiceInfo timer");
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -86,7 +124,7 @@ public class MessageLoopService : IHostedService
         _ackQueue.Dispose();
         _ackQueue = null;
         _ackWorker = null;
-        _virtualNodeInfoTimer.Enabled = false;
+        _serviceInfoTimer.Enabled = false;
         await _localMessageQueueService.Stop();
         _mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         _mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;

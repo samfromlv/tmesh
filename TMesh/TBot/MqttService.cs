@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Packets;
+using Shared.Models;
+using System.Text.Json;
 using TBot.Models;
 
 namespace TBot
@@ -147,6 +149,18 @@ namespace TBot
             _logger.LogInformation("Published Meshtastic message to MQTT");
         }
 
+        public async Task PublishStatus(BotStats stats)
+        {
+            var message = new MqttApplicationMessageBuilder()
+                .WithTopic(_options.MqttStatusTopic)
+                .WithPayload(JsonSerializer.Serialize(stats))
+                .WithRetainFlag(true)
+                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .Build();
+            await EnsureMqttConnectedAsync();
+            await _client.PublishAsync(message);
+            _logger.LogInformation("Published status message to MQTT");
+        }
 
         private async Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs arg)
         {

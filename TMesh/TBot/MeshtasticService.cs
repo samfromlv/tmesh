@@ -3,13 +3,11 @@ using Meshtastic.Protobufs;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Bcpg;
 using Org.BouncyCastle.Crypto;
-using Org.BouncyCastle.Crypto.Agreement.JPake;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
+using Shared.Models;
 using System.Text;
-using TBot.Helpers;
 using TBot.Models;
 
 namespace TBot
@@ -21,6 +19,10 @@ namespace TBot
         private const int NoDupExpirationMinutes = 3;
         private const int PkiKeyLength = 32;
         private const int ReplyHopsMargin = 2;
+        private const int KeepStatsForMinutes = 60;
+
+        private LinkedList<MeshStat> _meshStatsQueue = new LinkedList<MeshStat>();
+
 
         public MeshtasticService(
             MqttService mqttService,
@@ -303,7 +305,7 @@ namespace TBot
             return byteCount <= MaxTextMessageBytes;
         }
 
-        public void SendVirtualNodeInfoAsync()
+        public void SendVirtualNodeInfo()
         {
             var packet = CreateTMeshVirtualNodeInfo();
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
@@ -470,6 +472,10 @@ namespace TBot
             var id = envelope.Packet.Id;
             if (!TryStoreNoDup(id))
             {
+                AddStat(new MeshStat
+                {
+                    DupsIgnored = 1,
+                });
                 _logger.LogDebug("Duplicate Meshtastic message received, ignoring. Id: {Id}", id);
                 return default;
             }
@@ -489,6 +495,10 @@ namespace TBot
                 else if (packet.Decoded.Portnum == PortNum.RoutingApp
                     && packet.To == _options.MeshtasticNodeId)
                 {
+                    AddStat(new MeshStat
+                    {
+                        AckRecieved = 1,
+                    });
                     return DecodeAck(envelope, packet);
                 }
                 else
@@ -530,11 +540,19 @@ namespace TBot
                     Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
                     DeviceId = envelope.Packet.From,
                 };
+                AddStat(new MeshStat
+                {
+                    TextMessagesRecieved = 1,
+                });
 
                 return (true, res);
             }
             else if (envelope.Packet.Decoded.Portnum == PortNum.RoutingApp)
             {
+                AddStat(new MeshStat
+                {
+                    AckRecieved = 1,
+                });
                 return DecodeAck(envelope, envelope.Packet);
             }
             else if (envelope.Packet.Decoded.Portnum == PortNum.NodeinfoApp)
@@ -552,7 +570,6 @@ namespace TBot
         private static (bool success, MeshMessage msg) DecodeAck(ServiceEnvelope envelope, MeshPacket packet)
         {
             var routing = Routing.Parser.ParseFrom(packet.Decoded.Payload);
-
             return (true, new AckMessage
             {
                 DeviceId = envelope.Packet.From,
@@ -578,6 +595,10 @@ namespace TBot
             {
                 deviceId = parsedId;
             }
+            AddStat(new MeshStat
+            {
+                NodeInfoRecieved = 1,
+            });
             return (true, new NodeInfoMessage
             {
                 DeviceId = deviceId,
@@ -587,6 +608,73 @@ namespace TBot
                 NodeName = user.LongName ?? user.ShortName ?? user.Id,
                 PublicKey = user.PublicKey.ToByteArray(),
             });
+        }
+
+        public MeshStat AggregateStartFrom(DateTime fromUtc)
+        {
+            var aggregate = new MeshStat();
+            lock (_meshStatsQueue)
+            {
+                foreach (var stat in _meshStatsQueue)
+                {
+                    if (stat.IntervalStart >= fromUtc)
+                    {
+                        aggregate.DupsIgnored += stat.DupsIgnored;
+                        aggregate.NodeInfoRecieved += stat.NodeInfoRecieved;
+                        aggregate.TextMessagesRecieved += stat.TextMessagesRecieved;
+                        aggregate.TextMessagesSent += stat.TextMessagesSent;
+                        aggregate.AckRecieved += stat.AckRecieved;
+                        aggregate.AckSent += stat.AckSent;
+                        aggregate.NakSent += stat.NakSent;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            return aggregate;
+        }
+
+        public void AddStat(MeshStat stat)
+        {
+            lock (_meshStatsQueue)
+            {
+                var roundedUtcNow = DateTime.UtcNow;
+                roundedUtcNow = new DateTime(
+                    roundedUtcNow.Year,
+                    roundedUtcNow.Month,
+                    roundedUtcNow.Day,
+                    roundedUtcNow.Hour,
+                    roundedUtcNow.Minute,
+                    0,
+                    DateTimeKind.Utc);
+
+                var existingStat = _meshStatsQueue.First?.Value;
+
+                if (existingStat != null)
+                {
+                    if (roundedUtcNow == existingStat.IntervalStart)
+                    {
+                        // Same interval, aggregate stats
+                        existingStat.DupsIgnored += stat.DupsIgnored;
+                        existingStat.NodeInfoRecieved += stat.NodeInfoRecieved;
+                        existingStat.TextMessagesRecieved += stat.TextMessagesRecieved;
+                        existingStat.TextMessagesSent += stat.TextMessagesSent;
+                        existingStat.AckRecieved += stat.AckRecieved;
+                        existingStat.AckSent += stat.AckSent;
+                        existingStat.NakSent += stat.NakSent;
+                        return;
+                    }
+                }
+                stat.IntervalStart = roundedUtcNow;
+                _meshStatsQueue.AddFirst(stat);
+                var border = roundedUtcNow.AddMinutes(-KeepStatsForMinutes);
+                while (_meshStatsQueue.Count > 0 && _meshStatsQueue.Last.Value.IntervalStart < border)
+                {
+                    _meshStatsQueue.RemoveLast();
+                }
+            }
         }
     }
 }

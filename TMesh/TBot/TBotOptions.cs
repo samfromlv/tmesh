@@ -10,6 +10,7 @@ public class TBotOptions
     public bool MqttUseTls { get; set; }
     public string MqttMeshtasticTopicPrefix { get; set; }
     public string MqttTelegramTopic { get; set; }
+    public string MqttStatusTopic { get; set; }
     public string TelegramApiToken { get; set; } 
     public string TelegramWebhookSecret { get; set; } 
     public string TelegramUpdateWebhookUrl { get; set; }

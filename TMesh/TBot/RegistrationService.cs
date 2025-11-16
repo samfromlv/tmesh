@@ -263,5 +263,15 @@ namespace TBot
             await _db.SaveChangesAsync();
             return true;
         }
+
+        public async Task<int> GetTotalRegistrationsCount()
+        {
+            return await _db.Registrations.CountAsync();
+        }
+
+        public async Task<int> GetTotalDevicesCount()
+        {
+            return await _db.Devices.CountAsync();
+        }
     }
 }

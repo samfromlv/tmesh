@@ -41,7 +41,6 @@ namespace TProxy.Controllers
                 }
             }
 
-
             using var reader = new StreamReader(Request.Body);
             var body = await reader.ReadToEndAsync();
             if (string.IsNullOrWhiteSpace(body))

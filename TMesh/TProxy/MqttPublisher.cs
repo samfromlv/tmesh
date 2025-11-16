@@ -2,6 +2,8 @@ using System.Text;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using MQTTnet;
+using Shared.Models;
+using System.Text.Json;
 
 namespace TProxy;
 
@@ -15,6 +17,7 @@ public class MqttPublisher : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private bool _connected;
     private Task _reconnectLoopTask;
+    private DateTime _started;
 
     public MqttPublisher(IOptions<TProxyOptions> options, ILogger<MqttPublisher> logger)
     {
@@ -22,14 +25,30 @@ public class MqttPublisher : IAsyncDisposable
         _logger = logger;
         var factory = new MqttClientFactory();
         _client = factory.CreateMqttClient();
+        _client.ApplicationMessageReceivedAsync += OnApplicationMessageReceivedAsync;
         _client.DisconnectedAsync += OnDisconnectedAsync;
         _reconnectLoopTask = Task.Run(ReconnectLoopAsync);
+        _started = DateTime.UtcNow;
     }
 
-    private async Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs arg)
+    public BotStats LastStatusPayload { get; private set; }
+
+    public DateTime Started => _started;
+
+    private Task OnApplicationMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs args)
+    {
+       if (!args.ApplicationMessage.Topic.Equals(_options.MqttStatusTopic, StringComparison.OrdinalIgnoreCase))
+           return Task.CompletedTask;
+
+       LastStatusPayload = JsonSerializer.Deserialize<BotStats>(args.ApplicationMessage.ConvertPayloadToString());
+       return Task.CompletedTask;
+    }
+
+    private Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs arg)
     {
         _connected = false;
         _logger.LogWarning("MQTT disconnected. Reason: {Reason}", arg.Reason);
+        return Task.CompletedTask;
     }
 
     private async Task EnsureConnectedAsync()
@@ -55,7 +74,6 @@ public class MqttPublisher : IAsyncDisposable
                     UseTls = _options.MqttUseTls,
                 })
                 .WithCredentials(_options.MqttUser, _options.MqttPassword)
-
                 .WithCleanSession()
                 .Build();
 
