@@ -612,7 +612,10 @@ namespace TBot
 
         public MeshStat AggregateStartFrom(DateTime fromUtc)
         {
-            var aggregate = new MeshStat();
+            var aggregate = new MeshStat()
+            {
+                IntervalStart = fromUtc
+            };
             lock (_meshStatsQueue)
             {
                 foreach (var stat in _meshStatsQueue)
