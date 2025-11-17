@@ -34,5 +34,7 @@ public class TBotOptions
 
     public int SentTBotNodeInfoEverySeconds { get; set; }
 
+    public long[] GatewayNodeIds { get; set; }
+
 
 }

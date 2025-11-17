@@ -13,6 +13,8 @@ namespace TBot;
 
 public class MessageLoopService : IHostedService
 {
+    private const int CheckGatewayNodeInfoLAstSeenAfterMinutes = 60;
+
     private readonly ILogger<MessageLoopService> _logger;
     private readonly TBotOptions _options;
     private readonly IServiceProvider _services;
@@ -22,6 +24,7 @@ public class MessageLoopService : IHostedService
     private System.Timers.Timer _serviceInfoTimer;
     private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
     private DateTime _started;
+    private ConcurrentDictionary<long, DateTime> _gatewayLastSeen = new ConcurrentDictionary<long, DateTime>();
 
     private BlockingCollection<AckMessage> _ackQueue;
     private SemaphoreSlim _ackQueueSemaphore = new SemaphoreSlim(0);
@@ -118,8 +121,32 @@ public class MessageLoopService : IHostedService
 
         botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
         botStats.Devices = await registrationService.GetTotalDevicesCount();
-
+        botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
         await _mqttService.PublishStatus(botStats);
+    }
+
+    private async ValueTask<DateTime?[]> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
+    {
+        var stat = new DateTime?[_options.GatewayNodeIds.Length];
+        var i = 0;
+        foreach (var gwId in _options.GatewayNodeIds.OrderBy(x => x))
+        {
+            if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
+            {
+                lastSeen = DateTime.MinValue;
+            }
+            if ((utcNow - lastSeen).TotalMinutes > CheckGatewayNodeInfoLAstSeenAfterMinutes)
+            {
+                var gw = await regService.GetDeviceAsync(gwId);
+                if (gw != null && gw.UpdatedUtc > lastSeen)
+                {
+                    lastSeen = gw.UpdatedUtc;
+                }
+            }
+            stat[i] = lastSeen == DateTime.MinValue ? null : lastSeen;
+            i++;
+        }
+        return stat;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -189,6 +216,24 @@ public class MessageLoopService : IHostedService
         IServiceScope scope = null;
         try
         {
+            if (msg.Data == null)
+            {
+                _logger.LogWarning("Received Meshtastic message with null data");
+                return;
+            }
+
+            if (!_meshtasticService.TryParseDeviceId(msg.Data.GatewayId, out var gatewayId))
+            {
+                _logger.LogWarning("Received Meshtastic message with invalid gateway ID format: {GatewayId}", msg.Data.GatewayId);
+                return;
+            }
+
+            if (!_options.GatewayNodeIds.Contains(gatewayId))
+            {
+                _logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
+                return;
+            }
+            UpdateGatewayLastSeen(gatewayId);
             var (isPki, senderDeviceId, receiverDeviceId) = _meshtasticService.GetMessageSenderDeviceId(msg.Data);
 
             Device device = null;
@@ -224,6 +269,12 @@ public class MessageLoopService : IHostedService
         {
             scope?.Dispose();
         }
+    }
+
+    private void UpdateGatewayLastSeen(long gatewayId)
+    {
+        var now = DateTime.UtcNow;
+        _gatewayLastSeen.AddOrUpdate(gatewayId, now, (key, oldValue) => oldValue > now ? oldValue : now);
     }
 
     private async Task HandleTelegramMessage(DataEventArgs<string> msg)

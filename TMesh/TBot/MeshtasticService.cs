@@ -59,6 +59,10 @@ namespace TBot
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(newMessageId, deviceId, publicKey, text);
+            AddStat(new MeshStat
+            {
+                TextMessagesSent = 1,
+            });
             var delay = QueueMessage(envelope, MessagePriority.Normal);
             return new QueueResult
             {
@@ -72,6 +76,10 @@ namespace TBot
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
             var envelope = PackAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
+            AddStat(new MeshStat
+            {
+                AckSent = 1
+            });
             QueueMessage(envelope, MessagePriority.High);
         }
 
@@ -80,6 +88,10 @@ namespace TBot
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
             var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply);
+            AddStat(new MeshStat
+            {
+                NakSent = 1
+            });
             QueueMessage(envelope, MessagePriority.Low);
         }
 
@@ -278,6 +290,12 @@ namespace TBot
 
         public bool TryParseDeviceId(string input, out long deviceId)
         {
+            if (string.IsNullOrEmpty(input))
+            {
+                deviceId = 0;
+                return false;
+            }
+
             input = input.Trim();
             if (input.StartsWith("!", StringComparison.OrdinalIgnoreCase)
                 || input.StartsWith("#", StringComparison.OrdinalIgnoreCase))
@@ -288,7 +306,10 @@ namespace TBot
                     out deviceId))
                     return true;
             }
-            if (long.TryParse(input, out deviceId)) return true;
+            if (long.TryParse(input, out deviceId))
+            {
+                return true;
+            }
             deviceId = 0;
             return false;
         }

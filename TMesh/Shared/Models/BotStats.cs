@@ -19,5 +19,7 @@ namespace Shared.Models
         public DateTime LastUpdate { get; set; }
 
         public DateTime Started { get; set; }
+
+        public DateTime?[] GatewaysLastSeen { get; set; }
     }
 }
