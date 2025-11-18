@@ -15,6 +15,19 @@ namespace Shared.Models
         public int TextMessagesSent { get; set; }
         public int AckSent { get; set; }
         public int NakSent { get; set; }
+        public int TraceRoutes { get; set; }
+
+        public void Add(MeshStat other)
+        {
+            DupsIgnored += other.DupsIgnored;
+            NodeInfoRecieved += other.NodeInfoRecieved;
+            TextMessagesRecieved += other.TextMessagesRecieved;
+            AckRecieved += other.AckRecieved;
+            TextMessagesSent += other.TextMessagesSent;
+            AckSent += other.AckSent;
+            NakSent += other.NakSent;
+            TraceRoutes += other.TraceRoutes;
+        }
 
         public DateTime IntervalStart { get; set; }
     }

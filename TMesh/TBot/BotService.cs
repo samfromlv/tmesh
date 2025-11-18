@@ -1,14 +1,13 @@
-﻿using Meshtastic.Protobufs;
-using Microsoft.Extensions.Caching.Memory;
+﻿using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
+using TBot.Models.MeshMessages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -220,7 +219,7 @@ namespace TBot
                     }
                 }
             }
-            if (status.MeshMessages.Any(x=>x.Value.Status != DeliveryStatus.Queued)
+            if (status.MeshMessages.Any(x => x.Value.Status != DeliveryStatus.Queued)
                 || status.EstimatedSendDate.Value.Subtract(DateTime.UtcNow).TotalSeconds < 3)
             {
                 return;
@@ -230,7 +229,7 @@ namespace TBot
         }
 
         public async Task UpdateMeshMessageStatus(
-            long meshMessageId, 
+            long meshMessageId,
             DeliveryStatus newStatus,
             DeliveryStatus? maxCurrentStatus = null)
         {
@@ -243,7 +242,7 @@ namespace TBot
             {
                 if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
                 {
-                    if (maxCurrentStatus.HasValue 
+                    if (maxCurrentStatus.HasValue
                         && sts.Status > maxCurrentStatus.Value)
                     {
                         return;
@@ -276,7 +275,7 @@ namespace TBot
             await ReportStatus(status);
         }
 
-       
+
 
 
         private async Task ReportStatus(MeshtasticMessageStatus status)
@@ -315,7 +314,7 @@ namespace TBot
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
                 }
-                if (statusesOrdered.Any(x=>x.Value.Status == DeliveryStatus.Queued)
+                if (statusesOrdered.Any(x => x.Value.Status == DeliveryStatus.Queued)
                     && status.EstimatedSendDate.HasValue)
                 {
                     var waitTimeSeconds = Math.Ceiling((status.EstimatedSendDate.Value - DateTime.UtcNow).TotalSeconds);
@@ -431,7 +430,7 @@ namespace TBot
 
             // Remove the command part and trim
             var text = commandText.Substring(command.Length).Trim();
-            
+
             // Return null if empty (no device ID provided)
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -649,7 +648,7 @@ namespace TBot
             // Device ID provided in command, process immediately
             if (!_meshtasticService.TryParseDeviceId(deviceIdText, out var deviceId))
             {
-                await _botClient.SendMessage(chatId, 
+                await _botClient.SendMessage(chatId,
                     $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).\n\n" +
                     "Examples:\n" +
                     "• /add 123456789\n" +
@@ -717,6 +716,42 @@ namespace TBot
             return HandleUpdate(update);
         }
 
+        private async Task<string> FormatTraceRouteMessage(TraceRouteMessage msg)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < msg.RouteDiscovery.Route.Count; i++)
+            {
+                var nodeId = msg.RouteDiscovery.Route[i];
+                var snr = msg.RouteDiscovery.SnrTowards.Count > i
+                    ? msg.RouteDiscovery.SnrTowards[i]
+                    : sbyte.MinValue;
+
+                string deviceName;
+                if (_meshtasticService.IsBroadcastDeviceId(nodeId))
+                {
+                    deviceName = "Unknown";
+                }
+                else
+                {
+                    var device = await _registrationService.GetDeviceAsync(nodeId);
+                    if (device != null)
+                    {
+                        deviceName = device.NodeName;
+                    }
+                    else
+                    {
+                        deviceName = null;
+                    }
+                }
+
+                sb.AppendLine($"↓↓ SNR {(snr == sbyte.MinValue ? "?" : snr.ToString())} dB");
+                sb.AppendLine(deviceName ?? MeshtasticService.GetMeshtasticNodeHexId(nodeId));
+            }
+            sb.AppendLine($"↓↓ SNR ? dB");
+            sb.AppendLine(_options.MeshtasticNodeNameLong);
+            return sb.ToString();
+        }
+
         public async Task ProcessInboundMeshtasticMessage(MeshMessage message, Device device)
         {
             if (message.MessageType == MeshMessageType.NodeInfo)
@@ -732,6 +767,25 @@ namespace TBot
             {
                 _meshtasticService.NakNoPubKeyMeshtasticMessage(message);
             }
+            else if (message.MessageType == MeshMessageType.TraceRoute)
+            {
+                var traceRouteMsg = (TraceRouteMessage)message;
+                _meshtasticService.SendTraceRouteResponse(traceRouteMsg);
+                device ??= await _registrationService.GetDeviceAsync(message.DeviceId);
+                if (device == null)
+                {
+                    return;
+                }
+                var text = await FormatTraceRouteMessage(traceRouteMsg);
+
+                var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
+                foreach (var reg in registrations)
+                {
+                    await _botClient.SendMessage(
+                        reg.ChatId,
+                        $"{device.NodeName} Trace\r\n" + text);
+                }
+            }
             else if (message.MessageType == MeshMessageType.Text)
             {
                 if (device == null)
@@ -740,7 +794,7 @@ namespace TBot
                 }
 
                 _logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
-                
+
                 var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
                 if (registrations.Count == 0)
                 {
@@ -788,7 +842,7 @@ namespace TBot
         public async Task ProcessMessageSent(long meshtasticMessageId)
         {
             await UpdateMeshMessageStatus(
-                meshtasticMessageId, 
+                meshtasticMessageId,
                 DeliveryStatus.SentToMqtt,
                 maxCurrentStatus: DeliveryStatus.Queued);
         }

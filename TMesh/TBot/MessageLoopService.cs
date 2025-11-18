@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Timers;
 using TBot.Database.Models;
 using TBot.Models;
+using TBot.Models.MeshMessages;
 
 namespace TBot;
 

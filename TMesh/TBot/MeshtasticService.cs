@@ -9,6 +9,7 @@ using Org.BouncyCastle.Security;
 using Shared.Models;
 using System.Text;
 using TBot.Models;
+using TBot.Models.MeshMessages;
 
 namespace TBot
 {
@@ -20,6 +21,7 @@ namespace TBot
         private const int PkiKeyLength = 32;
         private const int ReplyHopsMargin = 2;
         private const int KeepStatsForMinutes = 60;
+        private const int TraceRouteSNRDefault = sbyte.MinValue;
 
         private LinkedList<MeshStat> _meshStatsQueue = new LinkedList<MeshStat>();
 
@@ -83,6 +85,29 @@ namespace TBot
             QueueMessage(envelope, MessagePriority.High);
         }
 
+        public bool IsBroadcastDeviceId(long deviceId)
+        {
+            return deviceId == UInt32.MaxValue;
+        }
+
+        public void SendTraceRouteResponse(TraceRouteMessage msg)
+        {
+            var hopsUsed = msg.HopStart - msg.HopLimit;
+            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var envelope = PackTraceRouteResponse(
+                msg.DeviceId,
+                msg.RouteDiscovery, 
+                msg.Id,
+                hopsUsed,
+                hopsForReply);
+
+            AddStat(new MeshStat
+            {
+                TraceRoutes = 1
+            });
+            QueueMessage(envelope, MessagePriority.Low);
+        }
+
         public void NakNoPubKeyMeshtasticMessage(MeshMessage msg)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
@@ -130,6 +155,23 @@ namespace TBot
         private ServiceEnvelope PackAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
         {
             var packet = CreateAckMessagePacket(deviceId, publicKey, messageId, messageHopLimit);
+            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            return envelope;
+        }
+
+        private ServiceEnvelope PackTraceRouteResponse(
+            long deviceId,
+            RouteDiscovery routeDiscovery,
+            long messageId,
+            int hopsUsed,
+            int messageHopLimit)
+        {
+            var packet = CreateTraceRouteResponsePacket(
+                deviceId, 
+                routeDiscovery,
+                messageId,
+                hopsUsed,
+                messageHopLimit);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -250,6 +292,43 @@ namespace TBot
                 // packet.PublicKey = ByteString.FromBase64(_options.MeshtasticPublicKeyBase64);
             }
 
+            return packet;
+        }
+
+        public MeshPacket CreateTraceRouteResponsePacket(
+           long deviceId,
+           RouteDiscovery routeDiscovery,
+           long messageId,
+           int hopsUsed,
+           int messageHopLimit)
+        {
+            while (routeDiscovery.Route.Count < hopsUsed)
+            {
+                routeDiscovery.Route.Add(uint.MaxValue);
+                routeDiscovery.SnrTowards.Add(sbyte.MinValue);
+            }
+
+            routeDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
+
+            var packet = new MeshPacket()
+            {
+                Channel = 0,
+                WantAck = false,
+                To = (uint)deviceId,
+                From = (uint)_options.MeshtasticNodeId,
+                Priority = MeshPacket.Types.Priority.Reliable,
+                Id = GenerateNewMessageId(),
+                HopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                HopStart = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                Decoded = new Meshtastic.Protobufs.Data()
+                {
+                    Portnum = PortNum.TracerouteApp,
+                    RequestId = (uint)messageId,
+                    Bitfield = 1,
+                    Payload = routeDiscovery.ToByteString(),
+                },
+            };
+            packet = EncryptPacketWithPsk(packet);
             return packet;
         }
 
@@ -479,8 +558,13 @@ namespace TBot
             {
                 return default;
             }
+            if (!TryParseDeviceId(envelope.GatewayId, out var gatewayNodeId))
+            {
+                gatewayNodeId = 0;
+            }
 
-            if (envelope.GatewayId == GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+
+            if (gatewayNodeId == _options.MeshtasticNodeId)
             {
                 return default;
             }
@@ -521,6 +605,26 @@ namespace TBot
                         AckRecieved = 1,
                     });
                     return DecodeAck(envelope, packet);
+                }
+                else if (packet.Decoded.Portnum == PortNum.TracerouteApp
+                    && packet.To == _options.MeshtasticNodeId)
+                {
+                    var routeDiscovery = RouteDiscovery.Parser.ParseFrom(packet.Decoded.Payload);
+
+                    if (!routeDiscovery.Route.Contains((uint)gatewayNodeId))
+                    {
+                        routeDiscovery.Route.Add((uint)gatewayNodeId);
+                        routeDiscovery.SnrTowards.Add(RoundSnrForTrace(packet.RxSnr));
+                    }
+
+                    return (true, new TraceRouteMessage
+                    {
+                        DeviceId = envelope.Packet.From,
+                        HopLimit = (int)envelope.Packet.HopLimit,
+                        HopStart = (int)envelope.Packet.HopStart,
+                        Id = (int)envelope.Packet.Id,
+                        RouteDiscovery = routeDiscovery,
+                    });
                 }
                 else
                 {
@@ -583,6 +687,11 @@ namespace TBot
             return default;
         }
 
+        private static int RoundSnrForTrace(float snr)
+        {
+            return (int)Math.Round(snr * 4);
+        }
+
         public TimeSpan EstimateDelay(MessagePriority priority)
         {
             return _localMessageQueueService.EstimateDelay(priority);
@@ -643,13 +752,7 @@ namespace TBot
                 {
                     if (stat.IntervalStart >= fromUtc)
                     {
-                        aggregate.DupsIgnored += stat.DupsIgnored;
-                        aggregate.NodeInfoRecieved += stat.NodeInfoRecieved;
-                        aggregate.TextMessagesRecieved += stat.TextMessagesRecieved;
-                        aggregate.TextMessagesSent += stat.TextMessagesSent;
-                        aggregate.AckRecieved += stat.AckRecieved;
-                        aggregate.AckSent += stat.AckSent;
-                        aggregate.NakSent += stat.NakSent;
+                        aggregate.Add(stat);
                     }
                     else
                     {
@@ -681,13 +784,7 @@ namespace TBot
                     if (roundedUtcNow == existingStat.IntervalStart)
                     {
                         // Same interval, aggregate stats
-                        existingStat.DupsIgnored += stat.DupsIgnored;
-                        existingStat.NodeInfoRecieved += stat.NodeInfoRecieved;
-                        existingStat.TextMessagesRecieved += stat.TextMessagesRecieved;
-                        existingStat.TextMessagesSent += stat.TextMessagesSent;
-                        existingStat.AckRecieved += stat.AckRecieved;
-                        existingStat.AckSent += stat.AckSent;
-                        existingStat.NakSent += stat.NakSent;
+                        existingStat.Add(stat);
                         return;
                     }
                 }

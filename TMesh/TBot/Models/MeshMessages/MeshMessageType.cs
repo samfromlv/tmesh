@@ -4,13 +4,14 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TBot.Models
+namespace TBot.Models.MeshMessages
 {
     public enum MeshMessageType
     {
         NodeInfo,         
         Text,
         EncryptedDirectMessage,
-        AckMessage
+        AckMessage,
+        TraceRoute
     }
 }
