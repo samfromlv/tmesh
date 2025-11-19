@@ -744,7 +744,7 @@ namespace TBot
                     }
                 }
 
-                sb.AppendLine($"↓↓ SNR {(snr == sbyte.MinValue ? "?" : snr.ToString())} dB");
+                sb.AppendLine($"↓↓ SNR {(snr == sbyte.MinValue ? "?" : MeshtasticService.UnroundSnrFromTrace(snr).ToString())} dB");
                 sb.AppendLine(deviceName ?? MeshtasticService.GetMeshtasticNodeHexId(nodeId));
             }
             sb.AppendLine($"↓↓ SNR ? dB");

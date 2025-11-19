@@ -692,6 +692,11 @@ namespace TBot
             return (int)Math.Round(snr * 4);
         }
 
+        public static float UnroundSnrFromTrace(int snr)
+        {
+            return snr / 4.0f;
+        }
+
         public TimeSpan EstimateDelay(MessagePriority priority)
         {
             return _localMessageQueueService.EstimateDelay(priority);
