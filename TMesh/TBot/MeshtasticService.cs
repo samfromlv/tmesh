@@ -96,7 +96,7 @@ namespace TBot
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
             var envelope = PackTraceRouteResponse(
                 msg.DeviceId,
-                msg.RouteDiscovery, 
+                msg.RouteDiscovery,
                 msg.Id,
                 hopsUsed,
                 hopsForReply);
@@ -167,7 +167,7 @@ namespace TBot
             int messageHopLimit)
         {
             var packet = CreateTraceRouteResponsePacket(
-                deviceId, 
+                deviceId,
                 routeDiscovery,
                 messageId,
                 hopsUsed,
@@ -611,7 +611,8 @@ namespace TBot
                 {
                     var routeDiscovery = RouteDiscovery.Parser.ParseFrom(packet.Decoded.Payload);
 
-                    if (!routeDiscovery.Route.Contains((uint)gatewayNodeId))
+                    if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
+                        && packet.From != gatewayNodeId)
                     {
                         routeDiscovery.Route.Add((uint)gatewayNodeId);
                         routeDiscovery.SnrTowards.Add(RoundSnrForTrace(packet.RxSnr));
