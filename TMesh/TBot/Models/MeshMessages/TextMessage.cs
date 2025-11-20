@@ -10,5 +10,7 @@ namespace TBot.Models.MeshMessages
     {
         override public MeshMessageType MessageType => MeshMessageType.Text;
         public string Text { get; set; }
+
+        public long ReplyTo { get; set; }
     }
 }

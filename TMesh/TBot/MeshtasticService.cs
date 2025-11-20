@@ -214,7 +214,7 @@ namespace TBot
                 Id = (uint)newMessageId,
                 HopLimit = (uint)_options.OutgoingMessageHopLimit,
                 HopStart = (uint)_options.OutgoingMessageHopLimit,
-                Decoded = new Meshtastic.Protobufs.Data()
+                Decoded = new Data()
                 {
                     Portnum = PortNum.TextMessageApp,
                     Payload = bytes,
@@ -623,7 +623,7 @@ namespace TBot
                         DeviceId = envelope.Packet.From,
                         HopLimit = (int)envelope.Packet.HopLimit,
                         HopStart = (int)envelope.Packet.HopStart,
-                        Id = (int)envelope.Packet.Id,
+                        Id = envelope.Packet.Id,
                         RouteDiscovery = routeDiscovery,
                     });
                 }
@@ -643,7 +643,7 @@ namespace TBot
                     DeviceId = envelope.Packet.From,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
-                    Id = (int)envelope.Packet.Id,
+                    Id = envelope.Packet.Id,
                 });
             }
 
@@ -660,11 +660,12 @@ namespace TBot
             {
                 var res = new TextMessage
                 {
-                    Id = (int)envelope.Packet.Id,
+                    Id = envelope.Packet.Id,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
                     Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
                     DeviceId = envelope.Packet.From,
+                    ReplyTo = envelope.Packet.Decoded.ReplyId
                 };
                 AddStat(new MeshStat
                 {
@@ -711,7 +712,7 @@ namespace TBot
                 DeviceId = envelope.Packet.From,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
-                Id = (int)envelope.Packet.Id,
+                Id = envelope.Packet.Id,
                 AckedMessageId = packet.Decoded.RequestId,
                 IsPkiEncrypted = envelope.Packet.PkiEncrypted,
                 Success = routing.ErrorReason == Routing.Types.Error.None
@@ -740,7 +741,7 @@ namespace TBot
                 DeviceId = deviceId,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
-                Id = (int)envelope.Packet.Id,
+                Id = envelope.Packet.Id,
                 NodeName = user.LongName ?? user.ShortName ?? user.Id,
                 PublicKey = user.PublicKey.ToByteArray(),
             });
