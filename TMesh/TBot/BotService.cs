@@ -73,14 +73,31 @@ namespace TBot
             return await _botClient.GetWebhookInfo();
         }
 
-        public void StoreMessageStatus(long meshtasticMessageId, MeshtasticMessageStatus status)
+        public void StoreTelegramMessageStatus(long chatId, int messageId, MeshtasticMessageStatus status)
+        {
+            var currentDelay = _meshtasticService.EstimateDelay(MessagePriority.Normal);
+            var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
+            _memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
+        }
+
+        public MeshtasticMessageStatus GetTelegramMessageStatus(long chatId, int messageId)
+        {
+            var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
+            if (_memoryCache.TryGetValue(cacheKey, out MeshtasticMessageStatus status))
+            {
+                return status;
+            }
+            return null;
+        }
+
+        public void StoreMeshMessageStatus(long meshtasticMessageId, MeshtasticMessageStatus status)
         {
             var currentDelay = _meshtasticService.EstimateDelay(MessagePriority.Normal);
             var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
-            _memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 0.3, 3))));
+            _memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
         }
 
-        public MeshtasticMessageStatus GetMessageStatus(long meshtasticMessageId)
+        public MeshtasticMessageStatus GetMeshMessageStatus(long meshtasticMessageId)
         {
             var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
             if (_memoryCache.TryGetValue(cacheKey, out MeshtasticMessageStatus status))
@@ -201,7 +218,7 @@ namespace TBot
         private async Task SetQueuedStatus(List<QueueResult> queueResults)
         {
             var first = queueResults[0];
-            var status = GetMessageStatus(first.MessageId);
+            var status = GetMeshMessageStatus(first.MessageId);
             if (status == null)
             {
                 return;
@@ -233,7 +250,7 @@ namespace TBot
             DeliveryStatus newStatus,
             DeliveryStatus? maxCurrentStatus = null)
         {
-            var status = GetMessageStatus(meshMessageId);
+            var status = GetMeshMessageStatus(meshMessageId);
             if (status == null)
             {
                 return;
@@ -256,7 +273,7 @@ namespace TBot
 
         public async Task SetAckMeshMessageStatus(long meshMessageId, long fromDeviceId)
         {
-            var status = GetMessageStatus(meshMessageId);
+            var status = GetMeshMessageStatus(meshMessageId);
             if (status == null)
             {
                 return;
@@ -418,6 +435,7 @@ namespace TBot
                 chatId,
                 msg.MessageId,
                 $"TMesh verification code is: {code}");
+
             _registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
         }
 
@@ -449,7 +467,8 @@ namespace TBot
             string text)
         {
             var newMeshMessageId = _meshtasticService.GetNextMeshtasticMessageId();
-            StoreMessageStatus(newMeshMessageId, new MeshtasticMessageStatus
+
+            var status = new MeshtasticMessageStatus
             {
                 TelegramChatId = chatId,
                 TelegramMessageId = messageId,
@@ -460,7 +479,9 @@ namespace TBot
                         Status = DeliveryStatus.Created,
                     } } },
                 BotReplyId = null,
-            });
+            };
+            StoreMeshMessageStatus(newMeshMessageId, status);
+            StoreTelegramMessageStatus(chatId, messageId, status);
 
             var queueResult = _meshtasticService.SendTextMessage(
                     newMeshMessageId,
@@ -475,6 +496,7 @@ namespace TBot
             List<DeviceWithNameAndKey> devices,
             long chatId,
             int messageId,
+            int? replyToTelegramMsgId,
             string text)
         {
             var status = new MeshtasticMessageStatus
@@ -493,19 +515,29 @@ namespace TBot
                     DeviceId = device.DeviceId,
                     Status = DeliveryStatus.Created
                 });
-                StoreMessageStatus(newMeshMessageId, status);
+                StoreMeshMessageStatus(newMeshMessageId, status);
                 deviceMessageIds.Add((device.DeviceId, newMeshMessageId, device.PublicKey));
             }
+            StoreTelegramMessageStatus(chatId, messageId, status);
+
             var queueResults = new List<QueueResult>();
+
+            var replyToStatus = replyToTelegramMsgId.HasValue
+                ? GetTelegramMessageStatus(chatId, replyToTelegramMsgId.Value)
+                : null;
 
             foreach (var (deviceId, newMeshMessageId, publicKey) in deviceMessageIds)
             {
+                var replyToMeshMessageId = replyToStatus?.MeshMessages
+                    .FirstOrDefault(kv => kv.Value.DeviceId == deviceId).Key;
+
                 queueResults.Add(
                     _meshtasticService.SendTextMessage(
                         newMeshMessageId,
                         deviceId,
                         publicKey,
-                        text));
+                        text,
+                        replyToMeshMessageId));
             }
             await SetQueuedStatus(queueResults);
         }
@@ -577,11 +609,12 @@ namespace TBot
             }
 
             await HandleText(
-            message.MessageId,
-            userId,
-            userName,
-            chatId,
-            message.Text ?? string.Empty);
+                message.MessageId,
+                userId,
+                userName,
+                chatId,
+                message.ReplyToMessage?.MessageId,
+                message.Text ?? string.Empty);
         }
 
         private async Task<bool> HandleAdmin(
@@ -685,6 +718,7 @@ namespace TBot
             long userId,
             string userName,
             long chatId,
+            int? replyToTelegramMessageId,
             string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -727,6 +761,7 @@ namespace TBot
                 registrations,
                 chatId,
                 msgId,
+                replyToTelegramMessageId,
                 textToMesh);
         }
 
@@ -925,19 +960,42 @@ namespace TBot
 
             if (message.ReplyTo != 0)
             {
-                var replyToStatus = GetMessageStatus(message.ReplyTo);
+                var replyToStatus = GetMeshMessageStatus(message.ReplyTo);
                 if (replyToStatus != null
-                        && registrations.Any(x=>x.ChatId ==  replyToStatus.TelegramChatId))
+                        && registrations.Any(x => x.ChatId == replyToStatus.TelegramChatId))
                 {
-                    await _botClient.SendMessage(
+                    var msg = await _botClient.SendMessage(
                         replyToStatus.TelegramChatId,
-                        $"{deviceOrNull.NodeName}: {text}"
-                        ,replyParameters: new ReplyParameters
+                        $"{deviceOrNull.NodeName}: {text}",
+                        replyParameters: new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
                             ChatId = replyToStatus.TelegramChatId,
                             MessageId = replyToStatus.TelegramMessageId,
                         });
+
+                    var status = new MeshtasticMessageStatus
+                    {
+                        TelegramChatId = replyToStatus.TelegramChatId,
+                        TelegramMessageId = msg.Id,
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
+                            {
+                                { message.Id, new DeliveryStatusWithDeviceId
+                                    {
+                                        DeviceId = message.DeviceId,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                        BotReplyId = null,
+                    };
+
+                    StoreTelegramMessageStatus(replyToStatus.TelegramChatId,
+                        msg.Id,
+                        status);
+
+                    StoreMeshMessageStatus(message.Id, status);
+
                     sentReply = true;
                 }
             }
@@ -946,9 +1004,27 @@ namespace TBot
             {
                 foreach (var reg in registrations)
                 {
-                    await _botClient.SendMessage(
+                    var msg = await _botClient.SendMessage(
                         reg.ChatId,
                         $"{deviceOrNull.NodeName}: {text}");
+
+                    var status = new MeshtasticMessageStatus
+                    {
+                        TelegramChatId = reg.ChatId,
+                        TelegramMessageId = msg.Id,
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
+                            {
+                                { message.Id, new DeliveryStatusWithDeviceId
+                                    {
+                                        DeviceId = message.DeviceId,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                        BotReplyId = null};
+
+                    StoreTelegramMessageStatus(reg.ChatId, msg.Id, status);
+                    StoreMeshMessageStatus(message.Id, status);
                 }
             }
 

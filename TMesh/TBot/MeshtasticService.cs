@@ -52,15 +52,33 @@ namespace TBot
         private readonly TBotOptions _options;
         private readonly LocalMessageQueueService _localMessageQueueService;
 
-        public QueueResult SendTextMessage(long deviceId, byte[] publicKey, string text)
+        public QueueResult SendTextMessage(
+            long deviceId,
+            byte[] publicKey,
+            string text,
+            long? replyToMessageId = null)
         {
-            return SendTextMessage(GenerateNewMessageId(), deviceId, publicKey, text);
+            return SendTextMessage(GenerateNewMessageId(), 
+                deviceId, 
+                publicKey,
+                text,
+                replyToMessageId);
         }
 
-        public QueueResult SendTextMessage(long newMessageId, long deviceId, byte[] publicKey, string text)
+        public QueueResult SendTextMessage(
+            long newMessageId, 
+            long deviceId, 
+            byte[] publicKey,
+            string text,
+            long? replyToMessageId = null)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
-            var envelope = PackTextMessage(newMessageId, deviceId, publicKey, text);
+            var envelope = PackTextMessage(
+                newMessageId, 
+                deviceId,
+                publicKey,
+                text,
+                replyToMessageId);
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,
@@ -145,9 +163,19 @@ namespace TBot
             return $"meshtastic:outgoing:{id:X}";
         }
 
-        private ServiceEnvelope PackTextMessage(long newMessageId, long deviceId, byte[] publicKey, string text)
+        private ServiceEnvelope PackTextMessage(
+            long newMessageId, 
+            long deviceId,
+            byte[] publicKey,
+            string text,
+            long? replyToMessageId)
         {
-            var packet = CreateTextMessagePacket(newMessageId, deviceId, publicKey, text);
+            var packet = CreateTextMessagePacket(
+                newMessageId,
+                deviceId,
+                publicKey,
+                text,
+                replyToMessageId);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -198,7 +226,12 @@ namespace TBot
             return "!" + deviceId.ToString("X").ToLower();
         }
 
-        private MeshPacket CreateTextMessagePacket(long newMessageId, long deviceId, byte[] publicKey, string text)
+        private MeshPacket CreateTextMessagePacket(
+            long newMessageId,
+            long deviceId,
+            byte[] publicKey,
+            string text,
+            long? replyToMessageId)
         {
             var bytes = ByteString.CopyFromUtf8(text);
             if (bytes.Length > MaxTextMessageBytes)
@@ -216,6 +249,7 @@ namespace TBot
                 HopStart = (uint)_options.OutgoingMessageHopLimit,
                 Decoded = new Data()
                 {
+                    ReplyId = replyToMessageId.HasValue ? (uint)replyToMessageId.Value : 0,
                     Portnum = PortNum.TextMessageApp,
                     Payload = bytes,
                 },
