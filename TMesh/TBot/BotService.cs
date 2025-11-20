@@ -561,13 +561,123 @@ namespace TBot
                 await HandleStatus(chatId);
                 return;
             }
+            if (message.Text?.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var handled = await HandleAdmin(
+                    message.MessageId,
+                    userId,
+                    userName,
+                    chatId,
+                    message.Text);
+
+                if (handled)
+                {
+                    return;
+                }
+            }
 
             await HandleText(
-                message.MessageId,
-                userId,
-                userName,
-                chatId,
-                message.Text ?? string.Empty);
+            message.MessageId,
+            userId,
+            userName,
+            chatId,
+            message.Text ?? string.Empty);
+        }
+
+        private async Task<bool> HandleAdmin(
+            int msgId,
+            long userId,
+            string userName,
+            long chatId,
+            string text)
+        {
+            var chatState = _registrationService.GetChatState(userId, chatId);
+
+            var noPrefix = text.Substring("/admin".Length).Trim();
+            var segments = noPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                if (chatState == ChatState.Admin)
+                {
+                    await _botClient.SendMessage(chatId, "Invalid admin command");
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else if (chatState == ChatState.Default && segments[0] != "login")
+            {
+                return false;
+            }
+
+            var command = segments[0].ToLowerInvariant();
+
+            switch (command)
+            {
+                case "login":
+                    {
+                        if (chatState == ChatState.Admin)
+                        {
+                            await _botClient.SendMessage(chatId, "You are already logged in as admin.");
+                            return true;
+                        }
+                        var password = segments.Length >= 2 ? segments[1] : string.Empty;
+                        if (_registrationService.TryAdminLogin(userId, password))
+                        {
+                            _registrationService.SetChatState(userId, chatId, Models.ChatState.Admin);
+                            await _botClient.SendMessage(chatId, "Admin access granted.");
+                        }
+                        else
+                        {
+                            await _botClient.SendMessage(chatId, "Invalid admin password.");
+                        }
+                        return true;
+                    }
+                case "logout":
+                case "exit":
+                case "quit":
+                case "stop":
+                    {
+                        _registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                        await _botClient.SendMessage(chatId, "Admin access revoked.");
+                        return true;
+                    }
+                case "nodeinfo":
+                    {
+                        var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(nodeId)
+                            || !_meshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
+                        {
+                            await _botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                            return true;
+                        }
+
+                        var device = await _registrationService.GetDeviceAsync(parsedNodeId);
+                        if (device == null)
+                        {
+                            await _botClient.SendMessage(chatId, "Not found.");
+                            return true;
+                        }
+
+                        var json = JsonSerializer.Serialize(device);
+
+                        await _botClient.SendMessage(
+                            chatId,
+                            $"Found node:\r\n\r\n" +
+                            json);
+
+                        return true;
+                    }
+
+                default:
+                    {
+                        await _botClient.SendMessage(chatId, $"Unknown admin command: {command}");
+                        return true;
+                    }
+            }
         }
 
         private async Task HandleText(

@@ -23,6 +23,7 @@ public class TBotOptions
     public int MeshtasticNodeId { get; set; }
     public string MeshtasticNodeNameShort { get; set; }
     public string MeshtasticNodeNameLong { get; set; }
+    public string AdminPassword { get; set; }
 
 
     public string MeshtasticPrimaryChannelName { get; set; }

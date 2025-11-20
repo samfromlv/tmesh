@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TBot.Database;
 using TBot.Database.Models;
 using TBot.Models;
@@ -22,15 +23,18 @@ namespace TBot
         private readonly TBotDbContext _db;
         private readonly ILogger<RegistrationService> _logger;
         private readonly IMemoryCache _memoryCache;
+        private readonly TBotOptions _options;
 
         public RegistrationService(
             TBotDbContext db,
             IMemoryCache memoryCache,
+            IOptions<TBotOptions> options,
             ILogger<RegistrationService> logger)
         {
             _db = db;
             _logger = logger;
             _memoryCache = memoryCache;
+            _options = options.Value;
         }
 
         public async Task EnsureMigratedAsync()
@@ -93,6 +97,31 @@ namespace TBot
             else
             {
                 _memoryCache.Set(key, state, DateTime.UtcNow.AddMinutes(10));
+            }
+        }
+
+        public bool TryAdminLogin(long telegramUserId, string password)
+        {
+            var key = $"AdminPasswordTries#{telegramUserId}";
+            if (!_memoryCache.TryGetValue(key, out int tries))
+            {
+                tries = 0;
+            }
+            if (tries > MaxCodeVerificationTries)
+            {
+                return false;
+            }
+
+            tries++;
+            if (password == _options.AdminPassword)
+            {
+                _memoryCache.Remove(key);
+                return true;
+            }
+            else
+            {
+                _memoryCache.Set(key, tries, DateTimeOffset.UtcNow.AddHours(1));
+                return false;
             }
         }
 
