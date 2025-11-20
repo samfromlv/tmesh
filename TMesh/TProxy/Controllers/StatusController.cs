@@ -32,7 +32,7 @@ namespace TProxy.Controllers
         }
 
         [HttpGet("bot/health")]
-        public IActionResult BotHealth()
+        public IActionResult BotHealth(int? gatewayDeadMinutes, string gatewayCheckMode = "all")
         {
             var started = _publisher.Started;
             if ((DateTime.UtcNow - started).TotalMinutes < 5)
@@ -49,7 +49,23 @@ namespace TProxy.Controllers
             {
                 return StatusCode(503, "No recent updates");
             }
+            if (status.GatewaysLastSeen.Length == 0)
+            {
+                return StatusCode(503, "No gateways connected");
+            }
+            bool gatewayCheckAny = gatewayCheckMode.ToLower() == "any";
+            var border = DateTime.UtcNow.AddMinutes(-1 * (gatewayDeadMinutes ?? 60));
+            if (gatewayCheckAny && status.GatewaysLastSeen.Any(t => t < border))
+            {
+                var unhealthCount = status.GatewaysLastSeen.Count(t => t < border);
+                return StatusCode(503, $"Some gateways offline - {unhealthCount}");
+            }
+            else if (!gatewayCheckAny && status.GatewaysLastSeen.All(t => t < border))
+            {
+                return StatusCode(503, "All gateways offline");
+            }
             return Ok("Healthy");
         }
+
     }
 }
