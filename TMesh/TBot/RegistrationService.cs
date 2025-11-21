@@ -165,7 +165,6 @@ namespace TBot
 
         public async Task<bool> TryCreateRegistrationWithCode(
             long telegramUserId,
-            string userName,
             long chatId,
             string code)
         {

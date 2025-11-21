@@ -139,7 +139,7 @@ namespace TBot
             {
                 case ChatState.Adding_NeedDeviceId:
                 case ChatState.Adding_NeedCode:
-                    await HandleDeviceAdd(userId, userName, chatId, msg, chatState.Value);
+                    await HandleDeviceAdd(userId, chatId, msg, chatState.Value);
                     break;
                 case ChatState.RemovingDevice:
                     {
@@ -156,7 +156,6 @@ namespace TBot
 
         private async Task HandleDeviceAdd(
             long userId,
-            string userName,
             long chatId,
             Message message,
             ChatState chatState)
@@ -174,7 +173,7 @@ namespace TBot
             }
             else if (chatState == ChatState.Adding_NeedCode)
             {
-                await ProcessNeedCode(userId, userName, chatId, message);
+                await ProcessNeedCode(userId, chatId, message);
             }
             else
             {
@@ -546,7 +545,7 @@ namespace TBot
             await SetQueuedStatus(queueResults);
         }
 
-        private async Task ProcessNeedCode(long userId, string userName, long chatId, Message message)
+        private async Task ProcessNeedCode(long userId, long chatId, Message message)
         {
             var maybeCode = message.Text?.Trim();
             if (!string.IsNullOrWhiteSpace(maybeCode)
@@ -554,7 +553,6 @@ namespace TBot
             {
                 if (await _registrationService.TryCreateRegistrationWithCode(
                     userId,
-                    userName,
                     chatId,
                     maybeCode))
                 {
