@@ -20,6 +20,6 @@ namespace Shared.Models
 
         public DateTime Started { get; set; }
 
-        public DateTime?[] GatewaysLastSeen { get; set; }
+        public Dictionary<string, DateTime?> GatewaysLastSeen { get; set; }
     }
 }

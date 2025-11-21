@@ -126,10 +126,9 @@ public class MessageLoopService : IHostedService
         await _mqttService.PublishStatus(botStats);
     }
 
-    private async ValueTask<DateTime?[]> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
+    private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
     {
-        var stat = new DateTime?[_options.GatewayNodeIds.Length];
-        var i = 0;
+        var stat = new Dictionary<string, DateTime?>(_options.GatewayNodeIds.Length);
         foreach (var gwId in _options.GatewayNodeIds.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
@@ -144,8 +143,7 @@ public class MessageLoopService : IHostedService
                     lastSeen = gw.UpdatedUtc;
                 }
             }
-            stat[i] = lastSeen == DateTime.MinValue ? null : lastSeen;
-            i++;
+            stat[MeshtasticService.GetMeshtasticNodeHexId(gwId)] = lastSeen == DateTime.MinValue ? null : lastSeen;
         }
         return stat;
     }

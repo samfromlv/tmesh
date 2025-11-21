@@ -49,18 +49,19 @@ namespace TProxy.Controllers
             {
                 return StatusCode(503, "No recent updates");
             }
-            if (status.GatewaysLastSeen.Length == 0)
+            if (status.GatewaysLastSeen.Count == 0
+                || status.GatewaysLastSeen.Values.All(x => x == null))
             {
                 return StatusCode(503, "No gateways connected");
             }
             bool gatewayCheckAny = gatewayCheckMode.ToLower() == "any";
             var border = DateTime.UtcNow.AddMinutes(-1 * (gatewayDeadMinutes ?? 60));
-            if (gatewayCheckAny && status.GatewaysLastSeen.Any(t => t < border))
+            if (gatewayCheckAny && status.GatewaysLastSeen.Values.Any(t => t < border))
             {
-                var unhealthCount = status.GatewaysLastSeen.Count(t => t < border);
+                var unhealthCount = status.GatewaysLastSeen.Values.Count(t => t < border);
                 return StatusCode(503, $"Some gateways offline - {unhealthCount}");
             }
-            else if (!gatewayCheckAny && status.GatewaysLastSeen.All(t => t < border))
+            else if (!gatewayCheckAny && status.GatewaysLastSeen.Values.All(t => t < border))
             {
                 return StatusCode(503, "All gateways offline");
             }
