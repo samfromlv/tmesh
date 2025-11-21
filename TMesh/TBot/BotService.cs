@@ -903,30 +903,83 @@ namespace TBot
 
         public async Task ProcessInboundMeshtasticMessage(MeshMessage message, Device deviceOrNull)
         {
-            if (message.MessageType == MeshMessageType.NodeInfo)
+            switch (message.MessageType)
             {
-                await ProcessInboundNodeInfo((NodeInfoMessage)message);
+                case MeshMessageType.NodeInfo:
+                    await ProcessInboundNodeInfo((NodeInfoMessage)message);
+                    break;
+                case MeshMessageType.Text:
+                    await ProcessInboundMeshTextMessage((TextMessage)message, deviceOrNull);
+                    break;
+                case MeshMessageType.EncryptedDirectMessage:
+                    if (message.NeedAck)
+                    {
+                        _meshtasticService.NakNoPubKeyMeshtasticMessage(message);
+                    }
+                    break;
+                case MeshMessageType.TraceRoute:
+                    await ProcessInboundTraceRoute((TraceRouteMessage)message, deviceOrNull);
+                    break;
+                case MeshMessageType.Position:
+                    await ProcessInboundPositionMessage((PositionMessage)message, deviceOrNull);
+                    break;
+                case MeshMessageType.AckMessage:
+                default:
+                    _logger.LogWarning("Received unsupported Meshtastic message type: {MessageType}", message.MessageType);
+                    break;
             }
-            else if (message.MessageType == MeshMessageType.EncryptedDirectMessage)
+        }
+
+        private async Task ProcessInboundPositionMessage(PositionMessage message, Device deviceOrNull)
+        {
+            if (message.NeedAck)
             {
-                _meshtasticService.NakNoPubKeyMeshtasticMessage(message);
+                _meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message);
             }
-            else if (message.MessageType == MeshMessageType.TraceRoute)
+            deviceOrNull ??= await _registrationService.GetDeviceAsync(message.DeviceId);
+
+            if (deviceOrNull == null)
             {
-                await ProcessInboundTraceRoute((TraceRouteMessage)message, deviceOrNull);
+                throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
             }
-            else if (message.MessageType == MeshMessageType.Text)
+            _logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+            var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
+            if (registrations.Count == 0)
             {
-                await ProcessInboundMeshTextMessage((TextMessage)message, deviceOrNull);
+                SendNotRegisteredResponse(message, deviceOrNull);
+                return;
             }
-            else
+
+            foreach (var reg in registrations)
             {
-                _logger.LogWarning("Received unsupported Meshtastic message type: {MessageType}", message.MessageType);
+                await _botClient.SendMessage(
+                    reg.ChatId,
+                    $"{deviceOrNull.NodeName} sent a location:");
+                await _botClient.SendLocation(
+                    reg.ChatId,
+                    message.Latitude,
+                    message.Longitude,
+                    heading: message.HeadingDegrees,
+                    horizontalAccuracy: Math.Min(message.AccuracyMeters, 1500));
             }
+
+        }
+
+        private void SendNotRegisteredResponse(MeshMessage message, Device device)
+        {
+            _meshtasticService.SendTextMessage(
+                message.DeviceId,
+                device.PublicKey,
+                $"{StringHelper.Truncate(device.NodeName, 20)} is not registered with @{_options.TelegramBotUserName} (Telegram)");
         }
 
         private async Task ProcessInboundMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
+            if (message.NeedAck)
+            {
+                _meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message);
+            }
+
             if (deviceOrNull == null)
             {
                 throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
@@ -944,11 +997,7 @@ namespace TBot
             var registrations = await _registrationService.GetRegistrationsByDeviceId(message.DeviceId);
             if (registrations.Count == 0)
             {
-                _meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message);
-                _meshtasticService.SendTextMessage(
-                    message.DeviceId,
-                    deviceOrNull.PublicKey,
-                    $"{StringHelper.Truncate(deviceOrNull.NodeName, 20)} is not registered with @{_options.TelegramBotUserName} (Telegram)");
+                SendNotRegisteredResponse(message, deviceOrNull);
                 return;
             }
 
@@ -1025,14 +1074,14 @@ namespace TBot
                                     }
                                 }
                             },
-                        BotReplyId = null};
+                        BotReplyId = null
+                    };
 
                     StoreTelegramMessageStatus(reg.ChatId, msg.Id, status);
                     StoreMeshMessageStatus(message.Id, status);
                 }
             }
 
-            _meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message);
         }
 
         private async Task ProcessInboundTraceRoute(TraceRouteMessage message, Device deviceOrNull)
@@ -1056,6 +1105,11 @@ namespace TBot
 
         private async Task ProcessInboundNodeInfo(NodeInfoMessage message)
         {
+            if (message.NeedAck)
+            {
+                _meshtasticService.AckMeshtasticMessage(message.PublicKey, message);
+            }
+
             await _registrationService.SetDeviceAsync(
                 message.DeviceId,
                 message.NodeName,

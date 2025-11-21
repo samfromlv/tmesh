@@ -8,6 +8,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using Shared.Models;
 using System.Text;
+using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.MeshMessages;
 
@@ -58,23 +59,23 @@ namespace TBot
             string text,
             long? replyToMessageId = null)
         {
-            return SendTextMessage(GenerateNewMessageId(), 
-                deviceId, 
+            return SendTextMessage(GenerateNewMessageId(),
+                deviceId,
                 publicKey,
                 text,
                 replyToMessageId);
         }
 
         public QueueResult SendTextMessage(
-            long newMessageId, 
-            long deviceId, 
+            long newMessageId,
+            long deviceId,
             byte[] publicKey,
             string text,
             long? replyToMessageId = null)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(
-                newMessageId, 
+                newMessageId,
                 deviceId,
                 publicKey,
                 text,
@@ -164,7 +165,7 @@ namespace TBot
         }
 
         private ServiceEnvelope PackTextMessage(
-            long newMessageId, 
+            long newMessageId,
             long deviceId,
             byte[] publicKey,
             string text,
@@ -655,10 +656,64 @@ namespace TBot
                     return (true, new TraceRouteMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        NeedAck = envelope.Packet.WantAck
+                             && envelope.Packet.From != uint.MaxValue
+                             && envelope.Packet.To != uint.MaxValue,
                         HopLimit = (int)envelope.Packet.HopLimit,
                         HopStart = (int)envelope.Packet.HopStart,
                         Id = envelope.Packet.Id,
                         RouteDiscovery = routeDiscovery,
+                    });
+                }
+                else if (packet.Decoded.Portnum == PortNum.PositionApp
+                    && packet.To == _options.MeshtasticNodeId)
+                {
+                    var position = Position.Parser.ParseFrom(packet.Decoded.Payload);
+
+                    if (position == null
+                        || !position.HasLatitudeI
+                        || !position.HasLongitudeI)
+                    {
+                        return default;
+                    }
+
+                    var accuracyMeters = MeshtasticPositionUtils.PrecisionBitsToAccuracyMeters((int)position.PrecisionBits);
+
+                    if (position.HDOP != 0)
+                    {
+                        var hdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.HDOP);
+                        if (hdopAccuracy > accuracyMeters)
+                        {
+                            accuracyMeters = hdopAccuracy;
+                        }
+                    }
+                    else if (position.PDOP != 0)
+                    {
+                        var pdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.PDOP);
+                        if (pdopAccuracy > accuracyMeters)
+                        {
+                            accuracyMeters = pdopAccuracy;
+                        }
+                    }
+
+                    return (true, new PositionMessage
+                    {
+                        DeviceId = envelope.Packet.From,
+                        NeedAck = envelope.Packet.WantAck
+                             && envelope.Packet.From != uint.MaxValue
+                             && envelope.Packet.To != uint.MaxValue,
+                        HopLimit = (int)envelope.Packet.HopLimit,
+                        HopStart = (int)envelope.Packet.HopStart,
+                        Id = envelope.Packet.Id,
+                        Latitude = position.LatitudeI / 1e7,
+                        Longitude = position.LongitudeI / 1e7,
+                        HeadingDegrees = position.HasGroundTrack
+                            ? MeshtasticPositionUtils.GroundTrackToHeading((int)position.GroundTrack)
+                            : null,
+                        Altitude = position.HasAltitude
+                            ? position.Altitude
+                            : null,
+                        AccuracyMeters = accuracyMeters
                     });
                 }
                 else
@@ -674,6 +729,9 @@ namespace TBot
             {
                 return (true, new EncryptedDirectMessage
                 {
+                    NeedAck = envelope.Packet.WantAck
+                        && envelope.Packet.From != uint.MaxValue
+                        && envelope.Packet.To != uint.MaxValue,
                     DeviceId = envelope.Packet.From,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
@@ -694,6 +752,9 @@ namespace TBot
             {
                 var res = new TextMessage
                 {
+                    NeedAck = envelope.Packet.WantAck
+                        && envelope.Packet.From != uint.MaxValue
+                        && envelope.Packet.To != uint.MaxValue,
                     Id = envelope.Packet.Id,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
@@ -723,6 +784,19 @@ namespace TBot
             return default;
         }
 
+
+        public static double PrecisionBitsToAccuracyMeters(int precisionBits)
+        {
+            const double EarthCircumference = 40075016.0; // meters
+            if (precisionBits < 1 || precisionBits > 32)
+                throw new ArgumentOutOfRangeException(nameof(precisionBits), "precisionBits must be between 1 and 32.");
+
+            int possibleValues = 1 << precisionBits;
+            double degreeStep = 180.0 / possibleValues;
+            double metersPerDegree = EarthCircumference / 360.0;
+            double accuracyMeters = (degreeStep * metersPerDegree) / 2.0;
+            return accuracyMeters;
+        }
         private static int RoundSnrForTrace(float snr)
         {
             return (int)Math.Round(snr * 4);
@@ -744,6 +818,7 @@ namespace TBot
             return (true, new AckMessage
             {
                 DeviceId = envelope.Packet.From,
+                NeedAck = false,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
                 Id = envelope.Packet.Id,
@@ -773,6 +848,9 @@ namespace TBot
             return (true, new NodeInfoMessage
             {
                 DeviceId = deviceId,
+                NeedAck = envelope.Packet.WantAck
+                    && envelope.Packet.To != uint.MaxValue
+                    && deviceId != uint.MaxValue,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
                 Id = envelope.Packet.Id,

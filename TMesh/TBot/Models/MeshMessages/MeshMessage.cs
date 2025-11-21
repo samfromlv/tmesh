@@ -14,5 +14,7 @@ namespace TBot.Models.MeshMessages
 
         public int HopLimit { get; set; }
         public int HopStart { get; set; }
+
+        public bool NeedAck { get; set; }
     }
 }

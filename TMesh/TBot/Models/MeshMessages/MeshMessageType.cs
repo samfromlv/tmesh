@@ -12,6 +12,7 @@ namespace TBot.Models.MeshMessages
         Text,
         EncryptedDirectMessage,
         AckMessage,
-        TraceRoute
+        TraceRoute,
+        Position
     }
 }
