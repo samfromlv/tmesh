@@ -448,6 +448,10 @@ namespace TBot
 
             // Remove the command part and trim
             var text = commandText.Substring(command.Length).Trim();
+            if (text == $"@{_options.TelegramBotUserName}")
+            {
+                return null;
+            }
 
             // Return null if empty (no device ID provided)
             if (string.IsNullOrWhiteSpace(text))
