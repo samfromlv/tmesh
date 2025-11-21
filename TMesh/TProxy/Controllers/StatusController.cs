@@ -31,8 +31,8 @@ namespace TProxy.Controllers
             return Json(status, _jsonOptions);
         }
 
-        [HttpGet("bot/health")]
-        public IActionResult BotHealth(int? gatewayDeadMinutes, string gatewayCheckMode = "all")
+        [HttpGet("gateway/{id}")]
+        public IActionResult GatewayHealth(string id)
         {
             var started = _publisher.Started;
             if ((DateTime.UtcNow - started).TotalMinutes < 5)
@@ -45,7 +45,39 @@ namespace TProxy.Controllers
             {
                 return NotFound();
             }
-            if (status.LastUpdate < DateTime.UtcNow.AddMinutes(-10))
+            if (status == null || status.LastUpdate < DateTime.UtcNow.AddMinutes(-10))
+            {
+                return StatusCode(503, "No recent updates");
+            }
+
+            if (!status.GatewaysLastSeen.ContainsKey(id))
+            {
+                return NotFound("Gateway ID not found");
+            }
+            var lastSeen = status.GatewaysLastSeen[id];
+            if (lastSeen == null)
+            {
+                return StatusCode(503, "Gateway offline. No last activity");
+            }
+            if (lastSeen < DateTime.UtcNow.AddMinutes(-60))
+            {
+                return StatusCode(503, $"Gateway offline. Last seen at {lastSeen.Value:u}");
+            }
+            return Ok("Healthy");
+        }
+
+
+        [HttpGet("bot/health")]
+        public IActionResult BotHealth(int? gatewayDeadMinutes, string gatewayCheckMode = "all")
+        {
+            var started = _publisher.Started;
+            if ((DateTime.UtcNow - started).TotalMinutes < 5)
+            {
+                return Ok("Starting up");
+            }
+
+            var status = _publisher.LastStatusPayload;
+            if (status == null || status.LastUpdate < DateTime.UtcNow.AddMinutes(-10))
             {
                 return StatusCode(503, "No recent updates");
             }
