@@ -20,12 +20,12 @@ namespace TBot
         private readonly int _delayMs;
         private DateTime _lastSentTime = DateTime.MinValue;
         private Task _processingTask;
-        private readonly CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+        private readonly CancellationTokenSource _cancellationTokenSource = new();
 
-        private readonly ConcurrentQueue<QueuedMessage> _highPriorityQueue = new ConcurrentQueue<QueuedMessage>();
-        private readonly ConcurrentQueue<QueuedMessage> _normalPriorityQueue = new ConcurrentQueue<QueuedMessage>();
-        private readonly ConcurrentQueue<QueuedMessage> _lowPriorityQueue = new ConcurrentQueue<QueuedMessage>();
-        private readonly SemaphoreSlim _messageSemaphore = new SemaphoreSlim(0);
+        private readonly ConcurrentQueue<QueuedMessage> _highPriorityQueue = new();
+        private readonly ConcurrentQueue<QueuedMessage> _normalPriorityQueue = new();
+        private readonly ConcurrentQueue<QueuedMessage> _lowPriorityQueue = new();
+        private readonly SemaphoreSlim _messageSemaphore = new(0);
 
         public event Func<DataEventArgs<QueuedMessage>, Task> SendMessage;
 
@@ -114,7 +114,7 @@ namespace TBot
             return TimeSpan.FromMilliseconds(estimatedMs);
         }
 
-        private async Task<bool> Loop(CancellationToken token)
+        private async ValueTask<bool> Loop(CancellationToken token)
         {
             if (!TryDequeueMessage(out var message))
             {

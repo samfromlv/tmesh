@@ -1,5 +1,6 @@
 ﻿using Google.Protobuf;
 using Meshtastic.Protobufs;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,8 +24,9 @@ namespace TBot
         private const int ReplyHopsMargin = 2;
         private const int KeepStatsForMinutes = 60;
         private const int TraceRouteSNRDefault = sbyte.MinValue;
-
-        private LinkedList<MeshStat> _meshStatsQueue = new LinkedList<MeshStat>();
+        private const uint BroadcastDeviceId = uint.MaxValue;
+        private static readonly LinkedList<MeshStat> meshStats = new();
+        private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
 
 
         public MeshtasticService(
@@ -39,12 +41,14 @@ namespace TBot
             _logger = logger;
             _memoryCache = memoryCache;
             _options = options.Value;
-            _localMessageQueueService.SendMessage += _localMessageQueueService_SendMessage;
+            _localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
         }
 
-        private Task _localMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
+        private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
         {
-            return _mqttService.PublishMeshtasticMessage(arg.Data.Message);
+            return _mqttService.PublishMeshtasticMessage(
+                arg.Data.Message,
+                arg.Data.RelayThroughGatewayId);
         }
 
         private readonly MqttService _mqttService;
@@ -57,13 +61,15 @@ namespace TBot
             long deviceId,
             byte[] publicKey,
             string text,
-            long? replyToMessageId = null)
+            long? replyToMessageId,
+            long? relayGatewayId)
         {
             return SendTextMessage(GenerateNewMessageId(),
                 deviceId,
                 publicKey,
                 text,
-                replyToMessageId);
+                replyToMessageId,
+                relayGatewayId);
         }
 
         public QueueResult SendTextMessage(
@@ -71,7 +77,8 @@ namespace TBot
             long deviceId,
             byte[] publicKey,
             string text,
-            long? replyToMessageId = null)
+            long? replyToMessageId,
+            long? relayGatewayId)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(
@@ -84,7 +91,7 @@ namespace TBot
             {
                 TextMessagesSent = 1,
             });
-            var delay = QueueMessage(envelope, MessagePriority.Normal);
+            var delay = QueueMessage(envelope, MessagePriority.Normal, relayGatewayId);
             return new QueueResult
             {
                 MessageId = envelope.Packet.Id,
@@ -92,7 +99,10 @@ namespace TBot
             };
         }
 
-        public void AckMeshtasticMessage(byte[] publicKey, MeshMessage msg)
+        public void AckMeshtasticMessage(
+            byte[] publicKey,
+            MeshMessage msg,
+            long? relayGatewayId)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
@@ -101,15 +111,16 @@ namespace TBot
             {
                 AckSent = 1
             });
-            QueueMessage(envelope, MessagePriority.High);
+            QueueMessage(envelope, MessagePriority.High, relayGatewayId);
         }
 
-        public bool IsBroadcastDeviceId(long deviceId)
+        public static bool IsBroadcastDeviceId(long deviceId)
         {
-            return deviceId == UInt32.MaxValue;
+            return deviceId == BroadcastDeviceId;
         }
 
-        public void SendTraceRouteResponse(TraceRouteMessage msg)
+        public void SendTraceRouteResponse(TraceRouteMessage msg, 
+            long? relayGatewayId)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
@@ -124,10 +135,11 @@ namespace TBot
             {
                 TraceRoutes = 1
             });
-            QueueMessage(envelope, MessagePriority.Low);
+            QueueMessage(envelope, MessagePriority.Low, relayGatewayId);
         }
 
-        public void NakNoPubKeyMeshtasticMessage(MeshMessage msg)
+        public void NakNoPubKeyMeshtasticMessage(MeshMessage msg,
+            long? relayGatewayId)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
@@ -136,27 +148,35 @@ namespace TBot
             {
                 NakSent = 1
             });
-            QueueMessage(envelope, MessagePriority.Low);
+            QueueMessage(envelope, MessagePriority.Low, relayGatewayId);
         }
 
-        public void AckMeshtasticMessage(long deviceId, byte[] publicKey, MeshPacket packet)
+        public void AckMeshtasticMessage(
+            long deviceId,
+            byte[] publicKey,
+            MeshPacket packet,
+            long? relayGatewayId)
         {
             var hopsUsed = packet.HopStart - packet.HopLimit;
             var hopsForReply = (int)Math.Max(1, hopsUsed + ReplyHopsMargin);
             var envelope = PackAckMessage(deviceId, publicKey, packet.Id, hopsForReply);
-            QueueMessage(envelope, MessagePriority.High);
+            QueueMessage(envelope, MessagePriority.High, relayGatewayId);
         }
 
 
 
-        private TimeSpan QueueMessage(ServiceEnvelope envelope, MessagePriority messagePriority)
+        private TimeSpan QueueMessage(
+            ServiceEnvelope envelope,
+            MessagePriority messagePriority,
+            long? relayThroughGatewayId)
         {
             var id = envelope.Packet.Id;
             StoreNoDup(id);
             return _localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
-                Message = envelope
-            }, MessagePriority.High);
+                Message = envelope,
+                RelayThroughGatewayId = relayThroughGatewayId
+            }, messagePriority);
         }
 
         private static string GetNoDupMessageKey(uint id)
@@ -278,7 +298,7 @@ namespace TBot
             return (uint)Math.Floor(Random.Shared.Next() * 1e9);
         }
 
-        public long GetNextMeshtasticMessageId()
+        public static long GetNextMeshtasticMessageId()
         {
             return GenerateNewMessageId();
         }
@@ -339,7 +359,7 @@ namespace TBot
         {
             while (routeDiscovery.Route.Count < hopsUsed)
             {
-                routeDiscovery.Route.Add(uint.MaxValue);
+                routeDiscovery.Route.Add(BroadcastDeviceId);
                 routeDiscovery.SnrTowards.Add(sbyte.MinValue);
             }
 
@@ -402,7 +422,7 @@ namespace TBot
         }
 
 
-        public bool TryParseDeviceId(string input, out long deviceId)
+        public static bool TryParseDeviceId(string input, out long deviceId)
         {
             if (string.IsNullOrEmpty(input))
             {
@@ -414,7 +434,7 @@ namespace TBot
             if (input.StartsWith("!", StringComparison.OrdinalIgnoreCase)
                 || input.StartsWith("#", StringComparison.OrdinalIgnoreCase))
             {
-                if (long.TryParse(input.Substring(1),
+                if (long.TryParse(input.AsSpan(1),
                     System.Globalization.NumberStyles.HexNumber,
                     null,
                     out deviceId))
@@ -428,13 +448,18 @@ namespace TBot
             return false;
         }
 
-        public (string publicKeyBase64, string privateKeyBase64) GenerateKeyPair()
+        public static long PraseDeviceHexId(string input) =>
+            long.Parse(input.AsSpan(1),
+                   System.Globalization.NumberStyles.HexNumber,
+                   null);
+
+        public static (string publicKeyBase64, string privateKeyBase64) GenerateKeyPair()
         {
-            var keyPair = Meshtastic.Crypto.PKIEncryption.GenerateKeyPair();
-            return (Convert.ToBase64String(keyPair.publicKey), Convert.ToBase64String(keyPair.privateKey));
+            var (privateKey, publicKey) = Meshtastic.Crypto.PKIEncryption.GenerateKeyPair();
+            return (Convert.ToBase64String(publicKey), Convert.ToBase64String(privateKey));
         }
 
-        public bool CanSendMessage(string text)
+        public static bool CanSendMessage(string text)
         {
             var byteCount = Encoding.UTF8.GetByteCount(text);
             return byteCount <= MaxTextMessageBytes;
@@ -474,7 +499,7 @@ namespace TBot
             {
                 Channel = 0,
                 WantAck = false,
-                To = uint.MaxValue,
+                To = BroadcastDeviceId,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Background,
                 Id = GenerateNewMessageId(),
@@ -568,7 +593,7 @@ namespace TBot
             return cipher.DoFinal(input);
         }
 
-        public (bool isPki, long senderDeviceId, long receiverDeviceId) GetMessageSenderDeviceId(
+        public static (bool isPki, long senderDeviceId, long receiverDeviceId) GetMessageSenderDeviceId(
             ServiceEnvelope envelope)
         {
             if (envelope?.Packet == null)
@@ -656,9 +681,10 @@ namespace TBot
                     return (true, new TraceRouteMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
-                             && envelope.Packet.From != uint.MaxValue
-                             && envelope.Packet.To != uint.MaxValue,
+                             && envelope.Packet.From != BroadcastDeviceId
+                             && envelope.Packet.To != BroadcastDeviceId,
                         HopLimit = (int)envelope.Packet.HopLimit,
                         HopStart = (int)envelope.Packet.HopStart,
                         Id = envelope.Packet.Id,
@@ -699,9 +725,10 @@ namespace TBot
                     return (true, new PositionMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
-                             && envelope.Packet.From != uint.MaxValue
-                             && envelope.Packet.To != uint.MaxValue,
+                             && envelope.Packet.From != BroadcastDeviceId
+                             && envelope.Packet.To != BroadcastDeviceId,
                         HopLimit = (int)envelope.Packet.HopLimit,
                         HopStart = (int)envelope.Packet.HopStart,
                         Id = envelope.Packet.Id,
@@ -729,9 +756,10 @@ namespace TBot
             {
                 return (true, new EncryptedDirectMessage
                 {
+                    GatewayId = PraseDeviceHexId(envelope.GatewayId),
                     NeedAck = envelope.Packet.WantAck
-                        && envelope.Packet.From != uint.MaxValue
-                        && envelope.Packet.To != uint.MaxValue,
+                        && envelope.Packet.From != BroadcastDeviceId
+                        && envelope.Packet.To != BroadcastDeviceId,
                     DeviceId = envelope.Packet.From,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
@@ -752,9 +780,10 @@ namespace TBot
             {
                 var res = new TextMessage
                 {
+                    GatewayId = PraseDeviceHexId(envelope.GatewayId),
                     NeedAck = envelope.Packet.WantAck
-                        && envelope.Packet.From != uint.MaxValue
-                        && envelope.Packet.To != uint.MaxValue,
+                        && envelope.Packet.From != BroadcastDeviceId
+                        && envelope.Packet.To != BroadcastDeviceId,
                     Id = envelope.Packet.Id,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
@@ -820,6 +849,7 @@ namespace TBot
                 DeviceId = envelope.Packet.From,
                 NeedAck = false,
                 HopLimit = (int)envelope.Packet.HopLimit,
+                GatewayId = PraseDeviceHexId(envelope.GatewayId),
                 HopStart = (int)envelope.Packet.HopStart,
                 Id = envelope.Packet.Id,
                 AckedMessageId = packet.Decoded.RequestId,
@@ -849,8 +879,9 @@ namespace TBot
             {
                 DeviceId = deviceId,
                 NeedAck = envelope.Packet.WantAck
-                    && envelope.Packet.To != uint.MaxValue
-                    && deviceId != uint.MaxValue,
+                    && envelope.Packet.To != BroadcastDeviceId
+                    && deviceId != BroadcastDeviceId,
+                GatewayId = PraseDeviceHexId(envelope.GatewayId),
                 HopLimit = (int)envelope.Packet.HopLimit,
                 HopStart = (int)envelope.Packet.HopStart,
                 Id = envelope.Packet.Id,

@@ -14,45 +14,33 @@ using TBot.Models;
 
 namespace TBot
 {
-    public class RegistrationService
+    public class RegistrationService(
+        TBotDbContext db,
+        IMemoryCache memoryCache,
+        IOptions<TBotOptions> options,
+        ILogger<RegistrationService> logger)
     {
         public const int MaxCodeVerificationTries = 5;
         private const string DevicePublicKeyCachePrefix = "DevicePublicKey#";
         private static readonly TimeSpan DevicePublicKeyCacheDuration = TimeSpan.FromHours(1);
-
-        private readonly TBotDbContext _db;
-        private readonly ILogger<RegistrationService> _logger;
-        private readonly IMemoryCache _memoryCache;
-        private readonly TBotOptions _options;
-
-        public RegistrationService(
-            TBotDbContext db,
-            IMemoryCache memoryCache,
-            IOptions<TBotOptions> options,
-            ILogger<RegistrationService> logger)
-        {
-            _db = db;
-            _logger = logger;
-            _memoryCache = memoryCache;
-            _options = options.Value;
-        }
+        private readonly TBotOptions _options = options.Value;
 
         public async Task EnsureMigratedAsync()
         {
             try
             {
-                await _db.Database.MigrateAsync();
+                await db.Database.MigrateAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed applying migrations");
+                logger.LogError(ex, "Failed applying migrations");
                 throw;
             }
         }
 
         public async Task<bool> HasRegistrationAsync(long chatId, long deviceId)
         {
-            return await _db.Registrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
+            return await db.Registrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
         }
 
         public void StorePendingCodeAsync(
@@ -62,7 +50,7 @@ namespace TBot
             string code,
             DateTimeOffset expiresUtc)
         {
-            _memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
+            memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
             {
                 Code = code,
                 Tries = 0,
@@ -73,14 +61,14 @@ namespace TBot
 
         public int GetDeviceCodesSentRecently(long deviceId)
         {
-            return _memoryCache.Get<int?>($"DeviceCodesSent#{deviceId}")
+            return memoryCache.Get<int?>($"DeviceCodesSent#{deviceId}")
                 ?? 0;
         }
 
         public int IncrementDeviceCodesSentRecently(long deviceId)
         {
             var codesSent = GetDeviceCodesSentRecently(deviceId) + 1;
-            _memoryCache.Set($"DeviceCodesSent#{deviceId}", codesSent, DateTimeOffset.UtcNow.AddHours(1));
+            memoryCache.Set($"DeviceCodesSent#{deviceId}", codesSent, DateTimeOffset.UtcNow.AddHours(1));
             return codesSent;
         }
 
@@ -92,18 +80,18 @@ namespace TBot
             var key = $"ChatState#{telegramUserId}#{chatId}";
             if (state == ChatState.Default)
             {
-                _memoryCache.Remove(key);
+                memoryCache.Remove(key);
             }
             else
             {
-                _memoryCache.Set(key, state, DateTime.UtcNow.AddMinutes(10));
+                memoryCache.Set(key, state, DateTime.UtcNow.AddMinutes(10));
             }
         }
 
         public bool TryAdminLogin(long telegramUserId, string password)
         {
             var key = $"AdminPasswordTries#{telegramUserId}";
-            if (!_memoryCache.TryGetValue(key, out int tries))
+            if (!memoryCache.TryGetValue(key, out int tries))
             {
                 tries = 0;
             }
@@ -115,17 +103,17 @@ namespace TBot
             tries++;
             if (password == _options.AdminPassword)
             {
-                _memoryCache.Remove(key);
+                memoryCache.Remove(key);
                 return true;
             }
             else
             {
-                _memoryCache.Set(key, tries, DateTimeOffset.UtcNow.AddHours(1));
+                memoryCache.Set(key, tries, DateTimeOffset.UtcNow.AddHours(1));
                 return false;
             }
         }
 
-        public string GenerateRandomCode()
+        public static string GenerateRandomCode()
         {
             return Random.Shared.Next(0, 1_000_000)
                 .ToString("D6");
@@ -134,13 +122,13 @@ namespace TBot
         public ChatState? GetChatState(long telegramUserId, long chatId)
         {
             var key = $"ChatState#{telegramUserId}#{chatId}";
-            return _memoryCache.Get<ChatState?>(key);
+            return memoryCache.Get<ChatState?>(key);
         }
 
         public async Task<List<DeviceWithNameAndKey>> GetDevicesByChatId(long chatId)
         {
-            return await (from r in _db.Registrations
-                         join d in _db.Devices on r.DeviceId equals d.DeviceId
+            return await (from r in db.Registrations
+                         join d in db.Devices on r.DeviceId equals d.DeviceId
                          where r.ChatId == chatId
                          select new DeviceWithNameAndKey
                          {
@@ -152,12 +140,12 @@ namespace TBot
 
         public async Task<List<DeviceRegistration>> GetRegistrationsByDeviceId(long deviceId)
         {
-            return await _db.Registrations
+            return await db.Registrations
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
         }
 
-        public bool IsValidCodeFormat(string code)
+        public static bool IsValidCodeFormat(string code)
         {
             if (code.Length != 6) return false;
             return code.All(c => char.IsDigit(c));
@@ -169,23 +157,23 @@ namespace TBot
             string code)
         {
             string key = GetPendingCodeCacheKey(telegramUserId, chatId);
-            var storedCode = _memoryCache.Get<PendingCode>(key);
+            var storedCode = memoryCache.Get<PendingCode>(key);
             if (storedCode == null) return false;
             if (storedCode.ExpiresUtc < DateTime.UtcNow) return false;
 
             storedCode.Tries++;
             if (storedCode.Tries >= MaxCodeVerificationTries)
             {
-                _memoryCache.Remove(key);
+                memoryCache.Remove(key);
                 return false;
             }
             if (!string.Equals(storedCode.Code, code, StringComparison.OrdinalIgnoreCase))
             {
-                _memoryCache.Set(key, storedCode, storedCode.ExpiresUtc);
+                memoryCache.Set(key, storedCode, storedCode.ExpiresUtc);
                 return false;
             }
 
-            var reg = await _db.Registrations.FirstOrDefaultAsync(x =>
+            var reg = await db.Registrations.FirstOrDefaultAsync(x =>
                 x.ChatId == chatId
                 && x.DeviceId == storedCode.DeviceId);
             var now = DateTime.UtcNow;
@@ -198,15 +186,15 @@ namespace TBot
                     DeviceId = storedCode.DeviceId,
                     CreatedUtc = now
                 };
-                _db.Registrations.Add(reg);
+                db.Registrations.Add(reg);
             }
             else
             {
                 reg.TelegramUserId = telegramUserId;
                 reg.CreatedUtc = now;
             }
-            await _db.SaveChangesAsync();
-            _memoryCache.Remove(key);
+            await db.SaveChangesAsync();
+            memoryCache.Remove(key);
             return true;
         }
 
@@ -216,21 +204,21 @@ namespace TBot
         }
 
         // Device public key storage and lookup
-        private string GetDeviceCacheKey(long deviceId) => DevicePublicKeyCachePrefix + deviceId;
+        private static string GetDeviceCacheKey(long deviceId) => DevicePublicKeyCachePrefix + deviceId;
 
         public async Task<Device> GetDeviceAsync(long deviceId)
         {
-            if (_memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cached))
+            if (memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cached))
             {
                 return cached;
             }
 
-            var entity = await _db.Devices.AsNoTracking()
+            var entity = await db.Devices.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.DeviceId == deviceId);
 
             if (entity?.PublicKey != null)
             {
-                _memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+                memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
                 return entity;
             }
             return null;
@@ -243,7 +231,7 @@ namespace TBot
                 throw new ArgumentException("Public key must be 32 bytes", nameof(publicKey));
             }
 
-            var entity = await _db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
+            var entity = await db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
             var now = DateTime.UtcNow;
             if (entity == null)
             {
@@ -255,7 +243,7 @@ namespace TBot
                     CreatedUtc = now,
                     UpdatedUtc = now
                 };
-                _db.Devices.Add(entity);
+                db.Devices.Add(entity);
             }
             else
             {
@@ -264,42 +252,42 @@ namespace TBot
                 entity.UpdatedUtc = now;
             }
 
-            await _db.SaveChangesAsync();
-            _memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+            await db.SaveChangesAsync();
+            memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
         }
 
         public async Task<bool> HasDeviceAsync(long deviceId)
         {
-            if (_memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cachedDevice))
+            if (memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cachedDevice))
             {
                 return true;
             }
-            return await _db.Devices.AnyAsync(p => p.DeviceId == deviceId);
+            return await db.Devices.AnyAsync(p => p.DeviceId == deviceId);
         }
 
         // Remove all registrations for a device in a chat (any user can remove)
         public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)
         {
-            var regs = await _db.Registrations
+            var regs = await db.Registrations
                 .Where(r => r.ChatId == chatId && r.DeviceId == deviceId)
                 .ToListAsync();
             if (regs.Count == 0)
             {
                 return false;
             }
-            _db.Registrations.RemoveRange(regs);
-            await _db.SaveChangesAsync();
+            db.Registrations.RemoveRange(regs);
+            await db.SaveChangesAsync();
             return true;
         }
 
         public async Task<int> GetTotalRegistrationsCount()
         {
-            return await _db.Registrations.CountAsync();
+            return await db.Registrations.CountAsync();
         }
 
         public async Task<int> GetTotalDevicesCount()
         {
-            return await _db.Devices.CountAsync();
+            return await db.Devices.CountAsync();
         }
     }
 }

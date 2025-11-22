@@ -16,5 +16,7 @@ namespace TBot.Models.MeshMessages
         public int HopStart { get; set; }
 
         public bool NeedAck { get; set; }
+
+        public long GatewayId { get; set; }
     }
 }

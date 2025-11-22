@@ -10,5 +10,7 @@ namespace TBot.Models
     public class QueuedMessage
     {
         public ServiceEnvelope Message { get; set; }
+
+        public long? RelayThroughGatewayId { get; set; }
     }
 }

@@ -37,5 +37,7 @@ public class TBotOptions
 
     public long[] GatewayNodeIds { get; set; }
 
+    public int DirectGatewayRoutingSeconds { get; set; }
+
 
 }

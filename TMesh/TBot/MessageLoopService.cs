@@ -12,52 +12,38 @@ using TBot.Models.MeshMessages;
 
 namespace TBot;
 
-public class MessageLoopService : IHostedService
+public class MessageLoopService(
+    ILogger<MessageLoopService> logger,
+    LocalMessageQueueService localMessageQueueService,
+    MqttService mqttService,
+    MeshtasticService meshtasticService,
+    IOptions<TBotOptions> options,
+    IServiceProvider services) : IHostedService
 {
     private const int CheckGatewayNodeInfoLAstSeenAfterMinutes = 60;
-
-    private readonly ILogger<MessageLoopService> _logger;
-    private readonly TBotOptions _options;
-    private readonly IServiceProvider _services;
-    private readonly MqttService _mqttService;
-    private readonly MeshtasticService _meshtasticService;
-    private readonly LocalMessageQueueService _localMessageQueueService;
+    private readonly TBotOptions _options = options.Value;
     private System.Timers.Timer _serviceInfoTimer;
     private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
     private DateTime _started;
-    private ConcurrentDictionary<long, DateTime> _gatewayLastSeen = new ConcurrentDictionary<long, DateTime>();
+    private readonly ConcurrentDictionary<long, DateTime> _gatewayLastSeen = new();
 
     private BlockingCollection<AckMessage> _ackQueue;
-    private SemaphoreSlim _ackQueueSemaphore = new SemaphoreSlim(0);
+    private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
     private Task _ackWorker;
-
-    public MessageLoopService(
-        ILogger<MessageLoopService> logger,
-        LocalMessageQueueService localMessageQueueService,
-        MqttService mqttService,
-        MeshtasticService meshtasticService,
-        IOptions<TBotOptions> options,
-        IServiceProvider services)
-    {
-        _logger = logger;
-        _options = options.Value;
-        _services = services;
-        _mqttService = mqttService;
-        _meshtasticService = meshtasticService;
-        _localMessageQueueService = localMessageQueueService;
-    }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _started = DateTime.UtcNow;
-        _mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
-        _mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
-        _mqttService.MessageSent += HandleMessageSent;
-        await _mqttService.EnsureMqttConnectedAsync(cancellationToken);
-        _localMessageQueueService.Start();
+        mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
+        mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
+        mqttService.MessageSent += HandleMessageSent;
+        await mqttService.EnsureMqttConnectedAsync(cancellationToken);
+        localMessageQueueService.Start();
         StartServiceInfoInfoTimer();
 
+#pragma warning disable IDE0028 // Simplify collection initialization
         _ackQueue = new BlockingCollection<AckMessage>();
+#pragma warning restore IDE0028 // Simplify collection initialization
         _ackWorker = AckWorker(_ackQueue);
         SendVirtualNodeInfo();
         await PublishStats();
@@ -66,12 +52,12 @@ public class MessageLoopService : IHostedService
     private void SendVirtualNodeInfo()
     {
         _lastVirtualNodeInfoSent = DateTime.UtcNow;
-        _meshtasticService.SendVirtualNodeInfo();
+        meshtasticService.SendVirtualNodeInfo();
     }
 
     private async Task HandleMessageSent(DataEventArgs<long> args)
     {
-        using var scope = _services.CreateScope();
+        using var scope = services.CreateScope();
         var botService = scope.ServiceProvider.GetRequiredService<BotService>();
         await botService.ProcessMessageSent(args.Data);
     }
@@ -79,12 +65,12 @@ public class MessageLoopService : IHostedService
     private void StartServiceInfoInfoTimer()
     {
         _serviceInfoTimer = new System.Timers.Timer(60 * 1000);
-        _serviceInfoTimer.Elapsed += _serviceInfoTimer_Elapsed;
+        _serviceInfoTimer.Elapsed += ServiceInfoTimer_Elapsed;
         _serviceInfoTimer.AutoReset = true;
         _serviceInfoTimer.Enabled = true;
     }
 
-    private async void _serviceInfoTimer_Elapsed(object sender, ElapsedEventArgs e)
+    private async void ServiceInfoTimer_Elapsed(object sender, ElapsedEventArgs e)
     {
         try
         {
@@ -97,7 +83,7 @@ public class MessageLoopService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in ServiceInfo timer");
+            logger.LogError(ex, "Error in ServiceInfo timer");
         }
     }
 
@@ -110,20 +96,20 @@ public class MessageLoopService : IHostedService
 
         var botStats = new BotStats
         {
-            Mesh5Min = _meshtasticService.AggregateStartFrom(min5ago),
-            Mesh15Min = _meshtasticService.AggregateStartFrom(min15ago),
-            Mesh1Hour = _meshtasticService.AggregateStartFrom(hour1ago),
+            Mesh5Min = meshtasticService.AggregateStartFrom(min5ago),
+            Mesh15Min = meshtasticService.AggregateStartFrom(min15ago),
+            Mesh1Hour = meshtasticService.AggregateStartFrom(hour1ago),
             LastUpdate = now,
             Started = _started
         };
 
-        using var scope = _services.CreateScope();
+        using var scope = services.CreateScope();
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
 
         botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
         botStats.Devices = await registrationService.GetTotalDevicesCount();
         botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
-        await _mqttService.PublishStatus(botStats);
+        await mqttService.PublishStatus(botStats);
     }
 
     private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
@@ -157,11 +143,11 @@ public class MessageLoopService : IHostedService
         _ackQueue = null;
         _ackWorker = null;
         _serviceInfoTimer.Enabled = false;
-        await _localMessageQueueService.Stop();
-        _mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
-        _mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
-        _mqttService.MessageSent -= HandleMessageSent;
-        await _mqttService.DisposeAsync();
+        await localMessageQueueService.Stop();
+        mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
+        mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
+        mqttService.MessageSent -= HandleMessageSent;
+        await mqttService.DisposeAsync();
     }
 
     private void EnqueueAckMessage(AckMessage ackMessage)
@@ -191,20 +177,20 @@ public class MessageLoopService : IHostedService
                         }
                         if (batch.Count > 0)
                         {
-                            using var scope = _services.CreateScope();
+                            using var scope = services.CreateScope();
                             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
                             await botService.ProcessAckMessages(batch);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error in AckWorker");
+                        logger.LogError(ex, "Error in AckWorker");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in AckWorker outer");
+                logger.LogError(ex, "Error in AckWorker outer");
             }
         });
     }
@@ -217,33 +203,33 @@ public class MessageLoopService : IHostedService
         {
             if (msg.Data == null)
             {
-                _logger.LogWarning("Received Meshtastic message with null data");
+                logger.LogWarning("Received Meshtastic message with null data");
                 return;
             }
 
-            if (!_meshtasticService.TryParseDeviceId(msg.Data.GatewayId, out var gatewayId))
+            if (!MeshtasticService.TryParseDeviceId(msg.Data.GatewayId, out var gatewayId))
             {
-                _logger.LogWarning("Received Meshtastic message with invalid gateway ID format: {GatewayId}", msg.Data.GatewayId);
+                logger.LogWarning("Received Meshtastic message with invalid gateway ID format: {GatewayId}", msg.Data.GatewayId);
                 return;
             }
 
             if (!_options.GatewayNodeIds.Contains(gatewayId))
             {
-                _logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
+                logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
                 return;
             }
             UpdateGatewayLastSeen(gatewayId);
-            var (isPki, senderDeviceId, receiverDeviceId) = _meshtasticService.GetMessageSenderDeviceId(msg.Data);
+            var (isPki, senderDeviceId, receiverDeviceId) = MeshtasticService.GetMessageSenderDeviceId(msg.Data);
 
             Device device = null;
             if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
             {
-                scope = _services.CreateScope();
+                scope = services.CreateScope();
                 var _registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
                 device = await _registrationService.GetDeviceAsync(senderDeviceId);
             }
 
-            var res = _meshtasticService.TryDecryptMessage(msg.Data, device?.PublicKey);
+            var res = meshtasticService.TryDecryptMessage(msg.Data, device?.PublicKey);
 
             if (!res.success)
                 return;
@@ -255,14 +241,14 @@ public class MessageLoopService : IHostedService
                 return;
             }
 
-            scope ??= _services.CreateScope();
+            scope ??= services.CreateScope();
 
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling MQTT message");
+            logger.LogError(ex, "Error handling MQTT message");
         }
         finally
         {
@@ -280,13 +266,13 @@ public class MessageLoopService : IHostedService
     {
         try
         {
-            using var scope = _services.CreateScope();
+            using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundTelegramMessage(msg.Data);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling MQTT message");
+            logger.LogError(ex, "Error handling MQTT message");
         }
     }
 }

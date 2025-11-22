@@ -27,6 +27,7 @@ namespace TBot
         private IMqttClient _client;
         private readonly SemaphoreSlim _connectLock = new(1, 1);
         private string _ourGatewayMeshtasicTopic;
+        private string _directGatewayPrefix;
 
         public event Func<DataEventArgs<string>, Task> TelegramMessageReceivedAsync;
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
@@ -38,6 +39,10 @@ namespace TBot
                 _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
                 "/PKI/",
                 MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId));
+            
+            _directGatewayPrefix = string.Concat(
+                _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
+                "/PKI/");
         }
 
         public async Task EnsureMqttConnectedAsync(CancellationToken ct = default)
@@ -100,26 +105,23 @@ namespace TBot
                 await _client.SubscribeAsync(
                     new MqttClientSubscribeOptions
                     {
-                        TopicFilters = new List<MqttTopicFilter>
-                         {
-                             new MqttTopicFilter
-                             {
+                        TopicFilters =
+                         [
+                             new() {
                                  Topic = _options.MqttTelegramTopic,
                                  QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                              },
-                             new MqttTopicFilter
-                             {
+                             new() {
                                  NoLocal = true,
                                  Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/PKI/#",
                                  QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                              },
-                             new MqttTopicFilter
-                             {
+                             new() {
                                  NoLocal = true,
                                  Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
                                  QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                              }
-                         }
+                         ]
                     }, ct);
 
                 _logger.LogInformation("Subscribed to mqtt topics");
@@ -133,13 +135,21 @@ namespace TBot
 
 
         //Todo: all messages are published to PKI topic this work only for testing or one gateway
-        public async Task PublishMeshtasticMessage(ServiceEnvelope envelope)
+        public async Task PublishMeshtasticMessage(
+            ServiceEnvelope envelope,
+            long? relayThroughGatewayId)
         {
+            var topic = relayThroughGatewayId == null 
+                ? _ourGatewayMeshtasicTopic
+                : string.Concat(_directGatewayPrefix,
+                    MeshtasticService.GetMeshtasticNodeHexId(relayThroughGatewayId.Value));
+
             var message = new MqttApplicationMessageBuilder()
-                .WithTopic(_ourGatewayMeshtasicTopic)
+                .WithTopic(topic)
                 .WithPayload(envelope.ToByteArray())
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
+
             await EnsureMqttConnectedAsync();
             await _client.PublishAsync(message);
             if (MessageSent != null)
@@ -183,6 +193,13 @@ namespace TBot
 
                     var payload = arg.ApplicationMessage.Payload;
                     var env = ServiceEnvelope.Parser.ParseFrom(payload);
+                    if (env.GatewayId == MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+                    {
+                        //This can happen when we sent a message using direct gateway topic
+                        _logger.LogDebug("Ignoring Meshtastic message sent by ourselves");
+                        return;
+                    }
+
                     await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<ServiceEnvelope>(env));
                 }
                 else
@@ -204,6 +221,7 @@ namespace TBot
                 _client.Dispose();
                 _client = null;
             }
+            GC.SuppressFinalize(this);
         }
     }
 }
