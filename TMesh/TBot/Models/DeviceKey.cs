@@ -6,10 +6,9 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public class DeviceWithNameAndKey
+    public class DeviceKey
     {
         public long DeviceId { get; set; }
-        public string NodeName { get; set; }
         public byte[] PublicKey { get; set; }
     }
 }

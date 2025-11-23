@@ -125,24 +125,65 @@ namespace TBot
             return memoryCache.Get<ChatState?>(key);
         }
 
-        public async Task<List<DeviceWithNameAndKey>> GetDevicesByChatId(long chatId)
+        private async Task<List<DeviceKey>> GetDeviceKeysByChatId(long chatId)
         {
             return await (from r in db.Registrations
                          join d in db.Devices on r.DeviceId equals d.DeviceId
                          where r.ChatId == chatId
-                         select new DeviceWithNameAndKey
+                         select new DeviceKey
                          {
                              DeviceId = r.DeviceId,
                              PublicKey = d.PublicKey,
-                             NodeName = d.NodeName,
                          }).ToListAsync();
         }
 
-        public async Task<List<DeviceRegistration>> GetRegistrationsByDeviceId(long deviceId)
+        public Task<List<DeviceKey>> GetDeviceKeysByChatIdCached(long chatId)
+        {
+            return memoryCache.GetOrCreateAsync($"DeviceKeysByChatId#{chatId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return await GetDeviceKeysByChatId(chatId);
+            });
+        }
+
+        public void InvalidateDeviceKeysByChatIdCache(long chatId)
+        {
+            memoryCache.Remove($"DeviceKeysByChatId#{chatId}");
+        }
+
+        public async Task<List<DeviceName>> GetDeviceNamesByChatId(long chatId)
+        {
+            return await (from r in db.Registrations
+                          join d in db.Devices on r.DeviceId equals d.DeviceId
+                          where r.ChatId == chatId
+                          select new DeviceName
+                          {
+                              DeviceId = r.DeviceId,
+                              NodeName = d.NodeName,
+                              LastSeen = d.UpdatedUtc
+                          }).ToListAsync();
+        }
+
+        private async Task<List<long>> GetChatsByDeviceId(long deviceId)
         {
             return await db.Registrations
                 .Where(r => r.DeviceId == deviceId)
+                .Select(r => r.ChatId)
                 .ToListAsync();
+        }
+
+        public Task<List<long>> GetChatsByDeviceIdCached(long deviceId)
+        {
+            return memoryCache.GetOrCreateAsync($"ChatsByDeviceId#{deviceId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return await GetChatsByDeviceId(deviceId);
+            });
+        }
+
+        public void InvalidateChatsByDeviceIdCache(long deviceId)
+        {
+            memoryCache.Remove($"ChatsByDeviceId#{deviceId}");
         }
 
         public static bool IsValidCodeFormat(string code)
@@ -195,6 +236,8 @@ namespace TBot
             }
             await db.SaveChangesAsync();
             memoryCache.Remove(key);
+            InvalidateDeviceKeysByChatIdCache(chatId);
+            InvalidateChatsByDeviceIdCache(storedCode.DeviceId);
             return true;
         }
 
@@ -277,6 +320,8 @@ namespace TBot
             }
             db.Registrations.RemoveRange(regs);
             await db.SaveChangesAsync();
+            InvalidateDeviceKeysByChatIdCache(chatId);
+            InvalidateChatsByDeviceIdCache(deviceId);
             return true;
         }
 

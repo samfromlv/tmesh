@@ -513,7 +513,7 @@ namespace TBot
         }
 
         private async Task SendAndTrackMeshtasticMessages(
-            List<DeviceWithNameAndKey> devices,
+            List<DeviceKey> devices,
             long chatId,
             int messageId,
             int? replyToTelegramMsgId,
@@ -758,7 +758,7 @@ namespace TBot
                 return;
             }
 
-            var registrations = await registrationService.GetDevicesByChatId(chatId);
+            var registrations = await registrationService.GetDeviceKeysByChatIdCached(chatId);
             if (registrations.Count == 0)
             {
                 await botClient.SendMessage(
@@ -783,14 +783,15 @@ namespace TBot
 
         private async Task HandleStatus(long chatId)
         {
-            var devices = await registrationService.GetDevicesByChatId(chatId);
+            var devices = await registrationService.GetDeviceNamesByChatId(chatId);
             if (devices.Count == 0)
             {
                 await botClient.SendMessage(chatId, "No registered devices. You can register a new device with the /add command.");
             }
             else
             {
-                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)})");
+                var now = DateTime.UtcNow;
+                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last seen: {now - d.LastSeen:d\\:hh\\:mm\\:ss} ago");
                 var text = "Registered devices:\r\n" + string.Join("\r\n", lines);
                 await botClient.SendMessage(chatId, text);
             }
@@ -957,20 +958,20 @@ namespace TBot
                 throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
-            var registrations = await registrationService.GetRegistrationsByDeviceId(message.DeviceId);
-            if (registrations.Count == 0)
+            var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
+            if (chatIds.Count == 0)
             {
                 SendNotRegisteredResponse(message, deviceOrNull);
                 return;
             }
 
-            foreach (var reg in registrations)
+            foreach (var chatId in chatIds)
             {
                 await botClient.SendMessage(
-                    reg.ChatId,
+                    chatId,
                     $"{deviceOrNull.NodeName} sent a location:");
                 await botClient.SendLocation(
-                    reg.ChatId,
+                    chatId,
                     message.Latitude,
                     message.Longitude,
                     heading: message.HeadingDegrees,
@@ -1011,8 +1012,8 @@ namespace TBot
                     relayGatewayId: message.GatewayId);
                 return;
             }
-            var registrations = await registrationService.GetRegistrationsByDeviceId(message.DeviceId);
-            if (registrations.Count == 0)
+            var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
+            if (chatIds.Count == 0)
             {
                 SendNotRegisteredResponse(message, deviceOrNull);
                 return;
@@ -1032,7 +1033,7 @@ namespace TBot
             {
                 var replyToStatus = GetMeshMessageStatus(message.ReplyTo);
                 if (replyToStatus != null
-                        && registrations.Any(x => x.ChatId == replyToStatus.TelegramChatId))
+                        && chatIds.Any(x => x == replyToStatus.TelegramChatId))
                 {
                     var msg = await botClient.SendMessage(
                         replyToStatus.TelegramChatId,
@@ -1072,15 +1073,15 @@ namespace TBot
 
             if (!sentReply)
             {
-                foreach (var reg in registrations)
+                foreach (var chatId in chatIds)
                 {
                     var msg = await botClient.SendMessage(
-                        reg.ChatId,
+                        chatId,
                         $"{deviceOrNull.NodeName}: {text}");
 
                     var status = new MeshtasticMessageStatus
                     {
-                        TelegramChatId = reg.ChatId,
+                        TelegramChatId = chatId,
                         TelegramMessageId = msg.Id,
                         MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
                             {
@@ -1094,7 +1095,7 @@ namespace TBot
                         BotReplyId = null
                     };
 
-                    StoreTelegramMessageStatus(reg.ChatId, msg.Id, status);
+                    StoreTelegramMessageStatus(chatId, msg.Id, status);
                     StoreMeshMessageStatus(message.Id, status);
                 }
             }
@@ -1111,11 +1112,11 @@ namespace TBot
             }
             var text = await FormatTraceRouteMessage(message);
 
-            var registrations = await registrationService.GetRegistrationsByDeviceId(message.DeviceId);
-            foreach (var reg in registrations)
+            var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
+            foreach (var chatId in chatIds)
             {
                 await botClient.SendMessage(
-                    reg.ChatId,
+                    chatId,
                     $"{deviceOrNull.NodeName} trace\r\n" + text);
             }
         }
