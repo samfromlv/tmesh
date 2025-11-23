@@ -287,8 +287,9 @@ namespace TBot
 
         private async Task ReportStatus(MeshtasticMessageStatus status)
         {
-            if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered
-                || x.Value.Status == DeliveryStatus.Unknown))
+            if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered)
+                || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Unknown)
+                || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Failed))
             {
                 var deliveryStatus = status.MeshMessages.First().Value;
                 string reactionEmoji = ConvertDeliveryStatusToString(deliveryStatus.Status);
