@@ -27,6 +27,8 @@ namespace TBot
         const int TrimUserNamesToLength = 8;
         private readonly TBotOptions _options = options.Value;
 
+        public List<MeshtasticMessageStatus> TrackedMessages { get; } = [];
+
         public async Task InstallWebhook()
         {
             await botClient.SetWebhook(
@@ -64,6 +66,7 @@ namespace TBot
             var currentDelay = meshtasticService.EstimateDelay(MessagePriority.Normal);
             var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
             memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
+            TrackedMessages.Add(status);
         }
 
         public MeshtasticMessageStatus GetTelegramMessageStatus(long chatId, int messageId)
@@ -91,12 +94,6 @@ namespace TBot
                 return status;
             }
             return null;
-        }
-
-        private void ClearMessageStatus(long meshtasticMessageId)
-        {
-            var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
-            memoryCache.Remove(cacheKey);
         }
 
         private void StoreDeviceGateway(MeshMessage msg)
@@ -249,6 +246,10 @@ namespace TBot
                     }
                 }
             }
+            var delay = status.EstimatedSendDate.Value
+                .AddMinutes(2)
+                .Subtract(DateTime.UtcNow);
+
             if (status.MeshMessages.Any(x => x.Value.Status != DeliveryStatus.Queued)
                 || status.EstimatedSendDate.Value.Subtract(DateTime.UtcNow).TotalSeconds < 3)
             {
@@ -284,33 +285,10 @@ namespace TBot
             await ReportStatus(status);
         }
 
-        public async Task SetAckMeshMessageStatus(long meshMessageId, long fromDeviceId)
-        {
-            var status = GetMeshMessageStatus(meshMessageId);
-            if (status == null)
-            {
-                return;
-            }
-            lock (status)
-            {
-                if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
-                {
-                    var newStatus = fromDeviceId == sts.DeviceId
-                        ? DeliveryStatus.Delivered
-                        : DeliveryStatus.Acknowledged;
-
-                    sts.Status = newStatus;
-                }
-            }
-            await ReportStatus(status);
-        }
-
-
-
-
         private async Task ReportStatus(MeshtasticMessageStatus status)
         {
-            if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered))
+            if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered
+                || x.Value.Status == DeliveryStatus.Unknown))
             {
                 var deliveryStatus = status.MeshMessages.First().Value;
                 string reactionEmoji = ConvertDeliveryStatusToString(deliveryStatus.Status);
@@ -320,20 +298,16 @@ namespace TBot
                           status.TelegramMessageId,
                           [reactionEmoji]);
 
-                int? deletedReplyId = null;
-                if (status.BotReplyId != null)
-                {
-                    if (deliveryStatus.Status != DeliveryStatus.Queued)
-                    {
-                        deletedReplyId = status.BotReplyId;
-                        status.BotReplyId = null;
-                    }
-                }
+                int? deletedReplyId = status.BotReplyId;
                 if (deletedReplyId != null)
                 {
                     await botClient.DeleteMessage(
                         status.TelegramChatId,
                         deletedReplyId.Value);
+                    if (deletedReplyId == status.BotReplyId)
+                    {
+                        status.BotReplyId = null;
+                    }
                 }
             }
             else
@@ -353,14 +327,17 @@ namespace TBot
                         sb.Append($". Queue wait: {waitTimeSeconds} seconds");
                     }
                 }
-
-                if (status.BotReplyId != null)
+                var editMsgId = status.BotReplyId;
+                if (editMsgId != null)
                 {
                     var replyMsg = await botClient.EditMessageText(
                         status.TelegramChatId,
-                        status.BotReplyId.Value, sb.ToString());
+                        editMsgId.Value, sb.ToString());
 
-                    status.BotReplyId = replyMsg.MessageId;
+                    if (status.BotReplyId == editMsgId)
+                    {
+                        status.BotReplyId = replyMsg.MessageId;
+                    }
                 }
                 else
                 {
@@ -386,7 +363,7 @@ namespace TBot
                 DeliveryStatus.Created => ReactionEmoji.WritingHand,
                 DeliveryStatus.Queued => ReactionEmoji.Eyes,
                 DeliveryStatus.SentToMqtt => ReactionEmoji.Dove,
-                DeliveryStatus.Acknowledged => ReactionEmoji.ManShrugging,
+                DeliveryStatus.Unknown => ReactionEmoji.ManShrugging,
                 DeliveryStatus.Delivered => ReactionEmoji.OkHand,
                 DeliveryStatus.Failed => ReactionEmoji.ThumbsDown,
                 _ => ReactionEmoji.ExplodingHead,
@@ -476,6 +453,7 @@ namespace TBot
             return parts.Length > 0 ? parts[0] : null;
         }
 
+
         private async Task SendAndTrackMeshtasticMessage(
             Device device,
             long chatId,
@@ -510,6 +488,30 @@ namespace TBot
                     relayGatewayId: gatewayId);
 
             await SetQueuedStatus([queueResult]);
+        }
+
+        public async Task ResolveMessageStatus(long chatId, int telegramMessageId)
+        {
+            var status = GetTelegramMessageStatus(chatId, telegramMessageId);
+            if (status != null)
+            {
+                bool madeChanged = false;
+                lock (status)
+                {
+                    foreach (var msg in status.MeshMessages.Values)
+                    {
+                        if (msg.Status == DeliveryStatus.SentToMqtt)
+                        {
+                            msg.Status = DeliveryStatus.Unknown;
+                            madeChanged = true;
+                        }
+                    }
+                }
+                if (madeChanged)
+                {
+                    await ReportStatus(status);
+                }
+            }
         }
 
         private async Task SendAndTrackMeshtasticMessages(
@@ -1149,14 +1151,10 @@ namespace TBot
             foreach (var item in batch)
             {
                 StoreDeviceGateway(item);
-                if (item.Success)
-                {
-                    await SetAckMeshMessageStatus(item.AckedMessageId, item.DeviceId);
-                }
-                else
-                {
-                    await UpdateMeshMessageStatus(item.AckedMessageId, DeliveryStatus.Failed);
-                }
+                await UpdateMeshMessageStatus(item.AckedMessageId,
+                    item.Success
+                    ? DeliveryStatus.Delivered
+                    : DeliveryStatus.Failed);
             }
         }
 

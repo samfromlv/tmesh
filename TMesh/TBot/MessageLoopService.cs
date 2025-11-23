@@ -18,7 +18,8 @@ public class MessageLoopService(
     MqttService mqttService,
     MeshtasticService meshtasticService,
     IOptions<TBotOptions> options,
-    IServiceProvider services) : IHostedService
+    IServiceProvider services,
+    SimpleScheduler scheduler) : IHostedService
 {
     private const int CheckGatewayNodeInfoLAstSeenAfterMinutes = 60;
     private readonly TBotOptions _options = options.Value;
@@ -136,6 +137,7 @@ public class MessageLoopService(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        scheduler.Dispose();
         _ackQueue.CompleteAdding();
         _ackQueueSemaphore.Release();
         await _ackWorker;
@@ -245,6 +247,8 @@ public class MessageLoopService(
 
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
+            ScheduleStatusResolve(botService.TrackedMessages);
+
         }
         catch (Exception ex)
         {
@@ -269,10 +273,40 @@ public class MessageLoopService(
             using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundTelegramMessage(msg.Data);
+            ScheduleStatusResolve(botService.TrackedMessages);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error handling MQTT message");
+        }
+    }
+
+    private void ScheduleStatusResolve(IEnumerable<MeshtasticMessageStatus> msgStatuses)
+    {
+        foreach (var msgStatus in msgStatuses)
+        {
+            var delay = msgStatus.EstimatedSendDate.Value
+                .AddMinutes(MeshtasticService.WaitForAckStatusMaxMinutes)
+                .Subtract(DateTime.UtcNow);
+
+            scheduler.Schedule(delay, () =>
+                ProcessResolveStatusOfMeshtasticMessage(
+                    msgStatus.TelegramChatId,
+                    msgStatus.TelegramMessageId));
+        }
+    }
+
+    private async Task ProcessResolveStatusOfMeshtasticMessage(long telegramChatId, int telegramMessageId)
+    {
+        try
+        {
+            using var scope = services.CreateScope();
+            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            await botService.ResolveMessageStatus(telegramChatId, telegramMessageId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error processing Meshtastic message status");
         }
     }
 }

@@ -3,9 +3,8 @@ using TBot.Database.Models;
 
 namespace TBot.Database;
 
-public class TBotDbContext : DbContext
+public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(options)
 {
-    public TBotDbContext(DbContextOptions<TBotDbContext> options) : base(options) {}
     public DbSet<DeviceRegistration> Registrations => Set<DeviceRegistration>();
     public DbSet<Device> Devices => Set<Device>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -45,6 +45,7 @@ namespace TBot
                     services.AddMemoryCache();
                     services.AddSingleton<LocalMessageQueueService>();
                     services.AddSingleton<MqttService>();
+                    services.AddSingleton<SimpleScheduler>();
                     services.AddHostedService<MessageLoopService>();
                     BotService.Register(services);
                 })
@@ -148,10 +149,10 @@ namespace TBot
             try
             {
                 var service = host.Services.GetRequiredService<MeshtasticService>();
-                var pair = MeshtasticService.GenerateKeyPair();
+                var (publicKeyBase64, privateKeyBase64) = MeshtasticService.GenerateKeyPair();
                 logger.LogInformation("Generated Key Pair:");
-                logger.LogInformation("PublicKey=[{PublicKey}]", pair.publicKeyBase64);
-                logger.LogInformation("PrivateKey=[{PrivateKey}]", pair.privateKeyBase64);
+                logger.LogInformation("PublicKey=[{PublicKey}]", publicKeyBase64);
+                logger.LogInformation("PrivateKey=[{PrivateKey}]", privateKeyBase64);
             }
             catch (Exception ex)
             {

@@ -18,6 +18,7 @@ namespace TBot
     public class MeshtasticService
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
+        public const int WaitForAckStatusMaxMinutes = 2;
         const int MESHTASTIC_PKC_OVERHEAD = 12;
         private const int NoDupExpirationMinutes = 3;
         private const int PkiKeyLength = 32;
