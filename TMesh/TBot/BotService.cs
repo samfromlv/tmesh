@@ -791,10 +791,17 @@ namespace TBot
             else
             {
                 var now = DateTime.UtcNow;
-                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last seen: {now - d.LastSeen:d\\:hh\\:mm\\:ss} ago");
+                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last seen {FormatTimeSpan(now - d.LastSeen)} ago");
                 var text = "Registered devices:\r\n" + string.Join("\r\n", lines);
                 await botClient.SendMessage(chatId, text);
             }
+        }
+
+        static string FormatTimeSpan(TimeSpan ts)
+        {
+            return ts.Days > 0
+                ? ts.ToString(@"d\:hh\:mm\:ss")
+                : ts.ToString(@"hh\:mm\:ss");
         }
 
         private async Task StartAdd(long userId, long chatId, string deviceIdText)
