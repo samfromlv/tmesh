@@ -842,6 +842,8 @@ namespace TBot
             return _localMessageQueueService.EstimateDelay(priority);
         }
 
+        public TimeSpan SingleMessageQueueDelay => _localMessageQueueService.SingleMessageQueueDelay;
+
         private static (bool success, MeshMessage msg) DecodeAck(ServiceEnvelope envelope, MeshPacket packet)
         {
             var routing = Routing.Parser.ParseFrom(packet.Decoded.Payload);

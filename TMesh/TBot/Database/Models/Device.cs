@@ -1,6 +1,6 @@
 namespace TBot.Database.Models;
 
-public class Device
+public class Device: IDeviceKey
 {
     // Primary key
     public long DeviceId { get; set; }

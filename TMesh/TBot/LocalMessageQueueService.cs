@@ -16,6 +16,8 @@ namespace TBot
             _delayMs = 60_000 / _options.MeshtasticMaxOutgoingMessagesPerMinute;
         }
 
+        public TimeSpan SingleMessageQueueDelay => TimeSpan.FromMilliseconds(_delayMs);
+
         private readonly TBotOptions _options;
         private readonly int _delayMs;
         private DateTime _lastSentTime = DateTime.MinValue;
@@ -106,10 +108,14 @@ namespace TBot
                     break;
             }
             var estimatedMs = queuedCount * _delayMs;
-            var elapsedMs = (int)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
+            var elapsedMs = (long)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
             if (_lastSentTime != DateTime.MinValue && elapsedMs < _delayMs)
             {
-                estimatedMs += (_delayMs - elapsedMs);
+                estimatedMs += _delayMs - (int)elapsedMs;
+            }
+            else if (estimatedMs >= _delayMs)
+            {
+                estimatedMs -= _delayMs;
             }
             return TimeSpan.FromMilliseconds(estimatedMs);
         }

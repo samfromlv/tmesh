@@ -225,38 +225,12 @@ namespace TBot
             registrationService.SetChatState(userId, chatId, ChatState.Default);
         }
 
-        private async Task SetQueuedStatus(List<QueueResult> queueResults)
+        private DateTime EstimateSendDelay(int messageCount)
         {
-            var first = queueResults[0];
-            var status = GetMeshMessageStatus(first.MessageId);
-            if (status == null)
-            {
-                return;
-            }
-
-            lock (status)
-            {
-                var longestQueueDelay = queueResults.Max(qr => qr.EstimatedSendDelay);
-                status.EstimatedSendDate = DateTime.UtcNow.Add(longestQueueDelay);
-                foreach (var qr in queueResults)
-                {
-                    if (status.MeshMessages[qr.MessageId].Status == DeliveryStatus.Created)
-                    {
-                        status.MeshMessages[qr.MessageId].Status = DeliveryStatus.Queued;
-                    }
-                }
-            }
-            var delay = status.EstimatedSendDate.Value
-                .AddMinutes(2)
-                .Subtract(DateTime.UtcNow);
-
-            if (status.MeshMessages.Any(x => x.Value.Status != DeliveryStatus.Queued)
-                || status.EstimatedSendDate.Value.Subtract(DateTime.UtcNow).TotalSeconds < 3)
-            {
-                return;
-            }
-
-            await ReportStatus(status);
+            var delay = meshtasticService.EstimateDelay(MessagePriority.Normal);
+            return DateTime.UtcNow
+                .Add(delay)
+                .Add(meshtasticService.SingleMessageQueueDelay * (messageCount - 1));
         }
 
         public async Task UpdateMeshMessageStatus(
@@ -314,7 +288,7 @@ namespace TBot
             else
             {
                 var sb = new StringBuilder("Status: ");
-                var statusesOrdered = status.MeshMessages.OrderBy(x => x.Key).ToList();
+                var statusesOrdered = status.MeshMessages.OrderBy(x => x.Value.DeviceId).ToList();
                 foreach (var (messageId, deliveryStatus) in statusesOrdered)
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
@@ -328,17 +302,12 @@ namespace TBot
                         sb.Append($". Queue wait: {waitTimeSeconds} seconds");
                     }
                 }
-                var editMsgId = status.BotReplyId;
-                if (editMsgId != null)
+                if (status.BotReplyId != null)
                 {
-                    var replyMsg = await botClient.EditMessageText(
+                    await botClient.EditMessageText(
                         status.TelegramChatId,
-                        editMsgId.Value, sb.ToString());
-
-                    if (status.BotReplyId == editMsgId)
-                    {
-                        status.BotReplyId = replyMsg.MessageId;
-                    }
+                        status.BotReplyId.Value,
+                        sb.ToString());
                 }
                 else
                 {
@@ -455,40 +424,18 @@ namespace TBot
         }
 
 
-        private async Task SendAndTrackMeshtasticMessage(
-            Device device,
+        private Task SendAndTrackMeshtasticMessage(
+            IDeviceKey device,
             long chatId,
             int messageId,
             string text)
         {
-            var newMeshMessageId = MeshtasticService.GetNextMeshtasticMessageId();
-
-            var status = new MeshtasticMessageStatus
-            {
-                TelegramChatId = chatId,
-                TelegramMessageId = messageId,
-                MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
-                    { {newMeshMessageId, new DeliveryStatusWithDeviceId
-                    {
-                        DeviceId = device.DeviceId,
-                        Status = DeliveryStatus.Created,
-                    } } },
-                BotReplyId = null,
-            };
-            StoreMeshMessageStatus(newMeshMessageId, status);
-            StoreTelegramMessageStatus(chatId, messageId, status);
-
-            var gatewayId = GetDeviceGateway(device.DeviceId);
-
-            var queueResult = meshtasticService.SendTextMessage(
-                    newMeshMessageId,
-                    device.DeviceId,
-                    device.PublicKey,
-                    text,
-                    replyToMessageId: null,
-                    relayGatewayId: gatewayId);
-
-            await SetQueuedStatus([queueResult]);
+            return SendAndTrackMeshtasticMessages(
+                [device],
+                chatId,
+                messageId,
+                null,
+                text);
         }
 
         public async Task ResolveMessageStatus(long chatId, int telegramMessageId)
@@ -516,7 +463,7 @@ namespace TBot
         }
 
         private async Task SendAndTrackMeshtasticMessages(
-            List<DeviceKey> devices,
+            IEnumerable<IDeviceKey> devices,
             long chatId,
             int messageId,
             int? replyToTelegramMsgId,
@@ -526,7 +473,8 @@ namespace TBot
             {
                 TelegramChatId = chatId,
                 TelegramMessageId = messageId,
-                MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>(devices.Count)
+                MeshMessages = [],
+                EstimatedSendDate = EstimateSendDelay(devices.Count())
             };
 
             var deviceMessageIds = new List<(long deviceId, long messageId, byte[] publicKey)>();
@@ -536,12 +484,14 @@ namespace TBot
                 status.MeshMessages.Add(newMeshMessageId, new DeliveryStatusWithDeviceId
                 {
                     DeviceId = device.DeviceId,
-                    Status = DeliveryStatus.Created
+                    Status = DeliveryStatus.Queued
                 });
                 StoreMeshMessageStatus(newMeshMessageId, status);
                 deviceMessageIds.Add((device.DeviceId, newMeshMessageId, device.PublicKey));
             }
             StoreTelegramMessageStatus(chatId, messageId, status);
+
+            await ReportStatus(status);
 
             var queueResults = new List<QueueResult>();
 
@@ -565,7 +515,6 @@ namespace TBot
                         replyToMeshMessageId,
                         gatewayId));
             }
-            await SetQueuedStatus(queueResults);
         }
 
         private async Task ProcessNeedCode(long userId, long chatId, Message message)
