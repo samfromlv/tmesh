@@ -646,6 +646,68 @@ namespace TBot
                         await botClient.SendMessage(chatId, "Admin access revoked.");
                         return true;
                     }
+                    case "public_text":
+                    {
+                        var announcement = noPrefix["public_text".Length..].Trim();
+                        if (string.IsNullOrWhiteSpace(announcement))
+                        {
+                            await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
+                            return true;
+                        }
+                        if (!MeshtasticService.CanSendMessage(announcement))
+                        {
+                            await botClient.SendMessage(
+                                chatId,
+                                $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
+                            return true;
+                        }
+                        meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null);
+                        await botClient.SendMessage(chatId, $"Announcement sent to {_options.MeshtasticPrimaryChannelName}.");
+                        return true;
+                    }
+                case "text":
+                    {
+                        var toDeviceID = segments.Length >= 2 ? segments[1] : string.Empty;
+                        var announcement = noPrefix[("text " + toDeviceID).Length..].Trim();
+                        if (string.IsNullOrWhiteSpace(toDeviceID))
+                        {
+                            await botClient.SendMessage(chatId, "Please specify the target device ID.");
+                            return true;
+                        }
+                        if (!MeshtasticService.TryParseDeviceId(toDeviceID, out var parsedDeviceId))
+                        {
+                            await botClient.SendMessage(chatId, $"Invalid device ID format: '{toDeviceID}'. The device ID can be decimal or hex (hex starts with ! or #).");
+                            return true;
+                        }
+                        if (string.IsNullOrWhiteSpace(announcement))
+                        {
+                            await botClient.SendMessage(chatId, "Message text cannot be empty.");
+                            return true;
+                        }
+                        if (!MeshtasticService.CanSendMessage(announcement))
+                        {
+                            await botClient.SendMessage(
+                                chatId,
+                                $"Message is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
+                            return true;
+                        }
+                        var device = await registrationService.GetDeviceAsync(parsedDeviceId);
+                        if (device == null)
+                        {
+                            await botClient.SendMessage(chatId, $"Device {toDeviceID} not found.");
+                            return true;
+                        }
+
+                        var msg = await botClient.SendMessage(chatId, $"Sending message to device {toDeviceID}...");
+
+                        await SendAndTrackMeshtasticMessage(
+                            device,
+                            chatId,
+                            msg.Id,
+                            announcement);
+                        return true;
+
+                    }
                 case "nodeinfo":
                     {
                         var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;

@@ -1,6 +1,5 @@
 ﻿using Google.Protobuf;
 using Meshtastic.Protobufs;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -58,6 +57,27 @@ namespace TBot
         private readonly TBotOptions _options;
         private readonly LocalMessageQueueService _localMessageQueueService;
 
+
+
+        public QueueResult SendPublicTextMessage(
+            string text,
+            long? relayGatewayId)
+        {
+            var envelope = PackPublicTextMessage(
+                GenerateNewMessageId(),
+                text,
+                null);
+            AddStat(new MeshStat
+            {
+                TextMessagesSent = 1,
+            });
+            var delay = QueueMessage(envelope, MessagePriority.Normal, relayGatewayId);
+            return new QueueResult
+            {
+                MessageId = envelope.Packet.Id,
+                EstimatedSendDelay = delay
+            };
+        }
         public QueueResult SendTextMessage(
             long deviceId,
             byte[] publicKey,
@@ -199,6 +219,22 @@ namespace TBot
                 text,
                 replyToMessageId);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            return envelope;
+        }
+
+        private ServiceEnvelope PackPublicTextMessage(
+            long newMessageId,
+            string text,
+            long? replyToMessageId)
+        {
+            var packet = CreateTextMessagePacket(
+                newMessageId,
+                deviceId: BroadcastDeviceId,
+                null,
+                text,
+                replyToMessageId);
+            packet = EncryptPacketWithPsk(packet);
+            var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
             return envelope;
         }
 
