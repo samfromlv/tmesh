@@ -236,10 +236,13 @@ public class MessageLoopService(
             if (!res.success)
             {
                 if (_options.BridgeDirectMessagesToGateways
-                    && _options.GatewayNodeIds.Contains(receiverDeviceId))
+                    && _options.GatewayNodeIds.Contains(receiverDeviceId)
+                    && msg.Data.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
                 {
+                    var newMsg = msg.Data.Clone();
+                    newMsg.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
                     meshtasticService.IncreaseBridgeDirectMessagesToGatewaysStat();
-                    await mqttService.PublishMeshtasticMessage(msg.Data, receiverDeviceId);
+                    await mqttService.PublishMeshtasticMessage(newMsg, receiverDeviceId);
                     return;
                 }
                 return;
