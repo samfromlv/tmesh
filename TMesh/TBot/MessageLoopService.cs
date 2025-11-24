@@ -223,6 +223,17 @@ public class MessageLoopService(
             UpdateGatewayLastSeen(gatewayId);
             var (isPki, senderDeviceId, receiverDeviceId) = MeshtasticService.GetMessageSenderDeviceId(msg.Data);
 
+            if (_options.BridgeDirectMessagesToGateways
+                   && _options.GatewayNodeIds.Contains(receiverDeviceId)
+                   && msg.Data.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+            {
+                var newMsg = msg.Data.Clone();
+                newMsg.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+                meshtasticService.IncreaseBridgeDirectMessagesToGatewaysStat();
+                await mqttService.PublishMeshtasticMessage(newMsg, receiverDeviceId);
+                return;
+            }
+
             Device device = null;
             if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
             {
@@ -235,16 +246,6 @@ public class MessageLoopService(
 
             if (!res.success)
             {
-                if (_options.BridgeDirectMessagesToGateways
-                    && _options.GatewayNodeIds.Contains(receiverDeviceId)
-                    && msg.Data.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
-                {
-                    var newMsg = msg.Data.Clone();
-                    newMsg.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                    meshtasticService.IncreaseBridgeDirectMessagesToGatewaysStat();
-                    await mqttService.PublishMeshtasticMessage(newMsg, receiverDeviceId);
-                    return;
-                }
                 return;
             }
 
