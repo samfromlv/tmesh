@@ -891,6 +891,14 @@ namespace TBot
             });
         }
 
+        public void IncreaseBridgeDirectMessagesToGatewaysStat()
+        {
+            AddStat(new MeshStat
+            {
+                BridgeDirectMessagesToGateways = 1
+            });
+        }
+
         public MeshStat AggregateStartFrom(DateTime fromUtc)
         {
             var aggregate = new MeshStat()

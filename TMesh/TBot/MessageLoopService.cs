@@ -238,10 +238,10 @@ public class MessageLoopService(
                 if (_options.BridgeDirectMessagesToGateways
                     && _options.GatewayNodeIds.Contains(receiverDeviceId))
                 {
+                    meshtasticService.IncreaseBridgeDirectMessagesToGatewaysStat();
                     await mqttService.PublishMeshtasticMessage(msg.Data, receiverDeviceId);
                     return;
                 }
-
                 return;
             }
 

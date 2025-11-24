@@ -16,6 +16,7 @@ namespace Shared.Models
         public int AckSent { get; set; }
         public int NakSent { get; set; }
         public int TraceRoutes { get; set; }
+        public int BridgeDirectMessagesToGateways { get; set; }
 
         public void Add(MeshStat other)
         {
@@ -27,6 +28,7 @@ namespace Shared.Models
             AckSent += other.AckSent;
             NakSent += other.NakSent;
             TraceRoutes += other.TraceRoutes;
+            BridgeDirectMessagesToGateways += other.BridgeDirectMessagesToGateways;
         }
 
         public DateTime IntervalStart { get; set; }
