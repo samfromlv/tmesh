@@ -234,7 +234,16 @@ public class MessageLoopService(
             var res = meshtasticService.TryDecryptMessage(msg.Data, device?.PublicKey);
 
             if (!res.success)
+            {
+                if (_options.BridgeDirectMessagesToGateways
+                    && _options.GatewayNodeIds.Contains(receiverDeviceId))
+                {
+                    await mqttService.PublishMeshtasticMessage(msg.Data, receiverDeviceId);
+                    return;
+                }
+
                 return;
+            }
 
             if (res.msg.MessageType == MeshMessageType.AckMessage)
             {
