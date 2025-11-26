@@ -535,7 +535,7 @@ namespace TBot
         private byte[] GetMacAddressFromNodeId()
         {
             var mac = new byte[6];
-            mac[0] = 0x32;
+            mac[0] = 0x32;//Private/local MAC address range
             mac[1] = 0x57;
             var nodeId = (uint)_options.MeshtasticNodeId;
             for (int i = 5; i >= 2; i--)
