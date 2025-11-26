@@ -27,6 +27,7 @@ namespace TBot
         private const uint BroadcastDeviceId = uint.MaxValue;
         private static readonly LinkedList<MeshStat> meshStats = new();
         private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
+        private byte[] _macAddress;
 
 
         public MeshtasticService(
@@ -42,6 +43,7 @@ namespace TBot
             _memoryCache = memoryCache;
             _options = options.Value;
             _localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
+            _macAddress = GetMacAddressFromNodeId();
         }
 
         private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
@@ -140,7 +142,7 @@ namespace TBot
             return deviceId == BroadcastDeviceId;
         }
 
-        public void SendTraceRouteResponse(TraceRouteMessage msg, 
+        public void SendTraceRouteResponse(TraceRouteMessage msg,
             long? relayGatewayId)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
@@ -530,6 +532,20 @@ namespace TBot
             return true;
         }
 
+        private byte[] GetMacAddressFromNodeId()
+        {
+            var mac = new byte[6];
+            mac[0] = 0x32;
+            mac[1] = 0x57;
+            var nodeId = (uint)_options.MeshtasticNodeId;
+            for (int i = 5; i >= 2; i--)
+            {
+                mac[i] = (byte)(nodeId & 0xFF);
+                nodeId >>= 8;
+            }
+            return mac;
+        }
+
         private MeshPacket CreateTMeshVirtualNodeInfo()
         {
             var packet = new MeshPacket()
@@ -547,9 +563,10 @@ namespace TBot
                     Portnum = PortNum.NodeinfoApp,
                     Payload = new User
                     {
-                        HwModel = HardwareModel.Unset,
+                        HwModel = HardwareModel.DiyV1,
                         Id = GetMeshtasticNodeHexId(_options.MeshtasticNodeId),
                         IsLicensed = false,
+                        Macaddr = ByteString.CopyFrom(_macAddress),
                         LongName = _options.MeshtasticNodeNameLong,
                         IsUnmessagable = false, // Field name from external library kept as-is.
                         ShortName = _options.MeshtasticNodeNameShort,
