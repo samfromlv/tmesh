@@ -40,6 +40,7 @@ public class TBotOptions
     public int DirectGatewayRoutingSeconds { get; set; }
 
     public bool BridgeDirectMessagesToGateways { get; set; }
+    public bool ReplyToPublicPingsViaDirectMessage { get; set; }
 
 
 }

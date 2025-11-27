@@ -63,12 +63,14 @@ namespace TBot
 
         public QueueResult SendPublicTextMessage(
             string text,
-            long? relayGatewayId)
+            long? relayGatewayId,
+            int hopLimit)
         {
             var envelope = PackPublicTextMessage(
                 GenerateNewMessageId(),
                 text,
-                null);
+                null,
+                hopLimit);
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,
@@ -85,14 +87,16 @@ namespace TBot
             byte[] publicKey,
             string text,
             long? replyToMessageId,
-            long? relayGatewayId)
+            long? relayGatewayId,
+            int hopLimit)
         {
             return SendTextMessage(GenerateNewMessageId(),
                 deviceId,
                 publicKey,
                 text,
                 replyToMessageId,
-                relayGatewayId);
+                relayGatewayId,
+                hopLimit);
         }
 
         public QueueResult SendTextMessage(
@@ -101,7 +105,8 @@ namespace TBot
             byte[] publicKey,
             string text,
             long? replyToMessageId,
-            long? relayGatewayId)
+            long? relayGatewayId,
+            int hopLimit)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(
@@ -109,7 +114,8 @@ namespace TBot
                 deviceId,
                 publicKey,
                 text,
-                replyToMessageId);
+                replyToMessageId,
+                hopLimit);
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,
@@ -122,13 +128,19 @@ namespace TBot
             };
         }
 
+        public static int GetSuggestedReplyHopLimit(MeshMessage msg)
+        {
+            var hopsUsed = msg.HopStart - msg.HopLimit;
+            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            return hopsForReply;
+        }
+
         public void AckMeshtasticMessage(
             byte[] publicKey,
             MeshMessage msg,
             long? relayGatewayId)
         {
-            var hopsUsed = msg.HopStart - msg.HopLimit;
-            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var hopsForReply = msg.GetSuggestedReplyHopLimit();
             var envelope = PackAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
             AddStat(new MeshStat
             {
@@ -164,8 +176,7 @@ namespace TBot
         public void NakNoPubKeyMeshtasticMessage(MeshMessage msg,
             long? relayGatewayId)
         {
-            var hopsUsed = msg.HopStart - msg.HopLimit;
-            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var hopsForReply = msg.GetSuggestedReplyHopLimit();
             var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply);
             AddStat(new MeshStat
             {
@@ -173,19 +184,6 @@ namespace TBot
             });
             QueueMessage(envelope, MessagePriority.Low, relayGatewayId);
         }
-
-        public void AckMeshtasticMessage(
-            long deviceId,
-            byte[] publicKey,
-            MeshPacket packet,
-            long? relayGatewayId)
-        {
-            var hopsUsed = packet.HopStart - packet.HopLimit;
-            var hopsForReply = (int)Math.Max(1, hopsUsed + ReplyHopsMargin);
-            var envelope = PackAckMessage(deviceId, publicKey, packet.Id, hopsForReply);
-            QueueMessage(envelope, MessagePriority.High, relayGatewayId);
-        }
-
 
 
         private TimeSpan QueueMessage(
@@ -212,14 +210,16 @@ namespace TBot
             long deviceId,
             byte[] publicKey,
             string text,
-            long? replyToMessageId)
+            long? replyToMessageId,
+            int hopLimit)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
                 deviceId,
                 publicKey,
                 text,
-                replyToMessageId);
+                replyToMessageId,
+                hopLimit);
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -227,14 +227,16 @@ namespace TBot
         private ServiceEnvelope PackPublicTextMessage(
             long newMessageId,
             string text,
-            long? replyToMessageId)
+            long? replyToMessageId,
+            int hopLimit)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
                 deviceId: BroadcastDeviceId,
                 null,
                 text,
-                replyToMessageId);
+                replyToMessageId,
+                hopLimit);
             packet = EncryptPacketWithPsk(packet);
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
             return envelope;
@@ -243,6 +245,10 @@ namespace TBot
         private ServiceEnvelope PackAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
         {
             var packet = CreateAckMessagePacket(deviceId, publicKey, messageId, messageHopLimit);
+            if (publicKey == null)
+            {
+                packet = EncryptPacketWithPsk(packet);
+            }
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
         }
@@ -291,11 +297,14 @@ namespace TBot
             long deviceId,
             byte[] publicKey,
             string text,
-            long? replyToMessageId)
+            long? replyToMessageId,
+            int hopLimit)
         {
             var bytes = ByteString.CopyFromUtf8(text);
             if (bytes.Length > MaxTextMessageBytes)
                 throw new ArgumentException($"Message too long for Meshtastic ({bytes.Length} bytes, max {MaxTextMessageBytes})");
+
+            var hopLimitToUse = Math.Max(Math.Min(hopLimit, _options.OutgoingMessageHopLimit), 0);
 
             var packet = new MeshPacket()
             {
@@ -305,8 +314,8 @@ namespace TBot
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Default,
                 Id = (uint)newMessageId,
-                HopLimit = (uint)_options.OutgoingMessageHopLimit,
-                HopStart = (uint)_options.OutgoingMessageHopLimit,
+                HopLimit = (uint)hopLimitToUse,
+                HopStart = (uint)hopLimitToUse,
                 Decoded = new Data()
                 {
                     ReplyId = replyToMessageId.HasValue ? (uint)replyToMessageId.Value : 0,
@@ -797,6 +806,29 @@ namespace TBot
                         AccuracyMeters = accuracyMeters
                     });
                 }
+                else if (envelope.Packet.Decoded.Portnum == PortNum.TextMessageApp)
+                {
+                    var res = new TextMessage
+                    {
+                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
+                        NeedAck = envelope.Packet.WantAck
+                            && envelope.Packet.From != BroadcastDeviceId
+                            && envelope.Packet.To != BroadcastDeviceId,
+                        Id = envelope.Packet.Id,
+                        HopLimit = (int)envelope.Packet.HopLimit,
+                        HopStart = (int)envelope.Packet.HopStart,
+                        IsDirectMessage = false,
+                        Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
+                        DeviceId = envelope.Packet.From,
+                        ReplyTo = envelope.Packet.Decoded.ReplyId
+                    };
+                    AddStat(new MeshStat
+                    {
+                        PublicTextMessagesRecieved = 1,
+                    });
+
+                    return (true, res);
+                }
                 else
                 {
                     return default;
@@ -841,13 +873,14 @@ namespace TBot
                     Id = envelope.Packet.Id,
                     HopLimit = (int)envelope.Packet.HopLimit,
                     HopStart = (int)envelope.Packet.HopStart,
+                    IsDirectMessage = true,
                     Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
                     DeviceId = envelope.Packet.From,
                     ReplyTo = envelope.Packet.Decoded.ReplyId
                 };
                 AddStat(new MeshStat
                 {
-                    TextMessagesRecieved = 1,
+                    DirectTextMessagesRecieved = 1,
                 });
 
                 return (true, res);

@@ -513,7 +513,8 @@ namespace TBot
                         publicKey,
                         text,
                         replyToMeshMessageId,
-                        gatewayId));
+                        gatewayId,
+                        hopLimit: int.MaxValue));
             }
         }
 
@@ -646,7 +647,7 @@ namespace TBot
                         await botClient.SendMessage(chatId, "Admin access revoked.");
                         return true;
                     }
-                    case "public_text":
+                case "public_text":
                     {
                         var announcement = noPrefix["public_text".Length..].Trim();
                         if (string.IsNullOrWhiteSpace(announcement))
@@ -661,7 +662,7 @@ namespace TBot
                                 $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
                             return true;
                         }
-                        meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null);
+                        meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null, hopLimit: int.MaxValue);
                         await botClient.SendMessage(chatId, $"Announcement sent to {_options.MeshtasticPrimaryChannelName}.");
                         return true;
                     }
@@ -1008,21 +1009,73 @@ namespace TBot
                 device.PublicKey,
                 $"{StringHelper.Truncate(device.NodeName, 20)} is not registered with @{_options.TelegramBotUserName} (Telegram)",
                 replyToMessageId: null,
-                relayGatewayId: message.GatewayId);
+                relayGatewayId: message.GatewayId,
+                hopLimit: message.GetSuggestedReplyHopLimit());
         }
 
         private async Task ProcessInboundMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
-            if (message.NeedAck)
+            logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+            if (message.IsDirectMessage)
             {
-                meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message, message.GatewayId);
+                await ProcessInboundDirectMeshTextMessage(message, deviceOrNull);
+            }
+            else
+            {
+                ProcessInboundPublicMeshTextMessage(message, deviceOrNull);
+            }
+
+        }
+
+        private void ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
+        {
+            if (!_options.ReplyToPublicPingsViaDirectMessage)
+            {
+                return;
+            }
+
+            var text = message.Text.Trim();
+            bool isPing = string.Equals(text, "ping", StringComparison.OrdinalIgnoreCase);
+            if (!isPing || message.ReplyTo != 0)
+            {
+                return;
             }
 
             if (deviceOrNull == null)
             {
+                meshtasticService.NakNoPubKeyMeshtasticMessage(
+                    message,
+                    message.GatewayId);
+                return;
+            }
+
+            meshtasticService.SendTextMessage(
+                message.DeviceId,
+                deviceOrNull.PublicKey,
+                "pong",
+                replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
+                relayGatewayId: message.GatewayId,
+                hopLimit: message.GetSuggestedReplyHopLimit());
+
+            meshtasticService.AddStat(new Shared.Models.MeshStat
+            {
+                PongSent = 1,
+            });
+        }
+
+        private async Task ProcessInboundDirectMeshTextMessage(TextMessage message, Device deviceOrNull)
+        {
+            if (deviceOrNull == null)
+            {
                 throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
             }
-            logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+            if (message.NeedAck)
+            {
+                meshtasticService.AckMeshtasticMessage(
+                    deviceOrNull.PublicKey,
+                    message,
+                    message.GatewayId);
+            }
             if (string.Equals(message.Text, "/ping", StringComparison.OrdinalIgnoreCase))
             {
                 meshtasticService.SendTextMessage(
@@ -1030,7 +1083,8 @@ namespace TBot
                     deviceOrNull.PublicKey,
                     "pong",
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId);
+                    relayGatewayId: message.GatewayId,
+                    hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
             var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
@@ -1120,7 +1174,6 @@ namespace TBot
                     StoreMeshMessageStatus(message.Id, status);
                 }
             }
-
         }
 
         private async Task ProcessInboundTraceRoute(TraceRouteMessage message, Device deviceOrNull)

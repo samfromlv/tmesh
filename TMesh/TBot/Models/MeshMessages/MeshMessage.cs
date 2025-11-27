@@ -18,5 +18,7 @@ namespace TBot.Models.MeshMessages
         public bool NeedAck { get; set; }
 
         public long GatewayId { get; set; }
+
+        public int GetSuggestedReplyHopLimit() => MeshtasticService.GetSuggestedReplyHopLimit(this);
     }
 }
