@@ -1088,6 +1088,11 @@ namespace TBot
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());
+
+                meshtasticService.AddStat(new Shared.Models.MeshStat
+                {
+                    PongSent = 1,
+                });
                 return;
             }
             var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
