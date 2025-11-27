@@ -42,5 +42,7 @@ public class TBotOptions
     public bool BridgeDirectMessagesToGateways { get; set; }
     public bool ReplyToPublicPingsViaDirectMessage { get; set; }
 
+    public string[] PingWords { get; set; }
+
 
 }

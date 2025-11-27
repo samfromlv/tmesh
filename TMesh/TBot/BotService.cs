@@ -1022,24 +1022,27 @@ namespace TBot
             }
             else
             {
-                ProcessInboundPublicMeshTextMessage(message, deviceOrNull);
+                await ProcessInboundPublicMeshTextMessage(message, deviceOrNull);
             }
 
         }
 
-        private void ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
+        private async Task ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
-            if (!_options.ReplyToPublicPingsViaDirectMessage)
+            if (!_options.ReplyToPublicPingsViaDirectMessage
+                && !_options.PingWords.Any())
             {
                 return;
             }
 
             var text = message.Text.Trim();
-            bool isPing = string.Equals(text, "ping", StringComparison.OrdinalIgnoreCase);
+            bool isPing = _options.PingWords.Any(pingWord => string.Equals(text, pingWord, StringComparison.OrdinalIgnoreCase));
             if (!isPing || message.ReplyTo != 0)
             {
                 return;
             }
+
+            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
 
             if (deviceOrNull == null)
             {
