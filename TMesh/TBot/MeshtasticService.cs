@@ -48,6 +48,8 @@ namespace TBot
 
         private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
         {
+            StoreNoDup(arg.Data.Message.Packet.Id);
+
             return _mqttService.PublishMeshtasticMessage(
                 arg.Data.Message,
                 arg.Data.RelayThroughGatewayId);
@@ -192,7 +194,6 @@ namespace TBot
             long? relayThroughGatewayId)
         {
             var id = envelope.Packet.Id;
-            StoreNoDup(id);
             return _localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
                 Message = envelope,
@@ -654,6 +655,34 @@ namespace TBot
 
             // Perform the transformation
             return cipher.DoFinal(input);
+        }
+
+        public bool TryBridge(ServiceEnvelope envelope)
+        {
+            if (envelope.Packet == null)
+            {
+                return false;
+            }
+
+            var senderDeviceId = envelope.Packet.From;
+            var receiverDeviceId = envelope.Packet.To;
+
+            if (_options.BridgeDirectMessagesToGateways
+                   && senderDeviceId != receiverDeviceId
+                   && senderDeviceId != _options.MeshtasticNodeId
+                   && _options.GatewayNodeIds.Contains(receiverDeviceId)
+                   && envelope.GatewayId != GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+            {
+                if (TryStoreNoDup(envelope.Packet.Id))
+                {
+                    var newMsg = envelope.Clone();
+                    newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+                    IncreaseBridgeDirectMessagesToGatewaysStat();
+                    QueueMessage(newMsg, MessagePriority.High, receiverDeviceId);
+                }    
+                return true;
+            }
+            return false;
         }
 
         public static (bool isPki, long senderDeviceId, long receiverDeviceId) GetMessageSenderDeviceId(

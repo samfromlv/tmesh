@@ -220,20 +220,15 @@ public class MessageLoopService(
                 logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
                 return;
             }
-            UpdateGatewayLastSeen(gatewayId);
-            var (isPki, senderDeviceId, receiverDeviceId) = MeshtasticService.GetMessageSenderDeviceId(msg.Data);
 
-            if (_options.BridgeDirectMessagesToGateways
-                   && _options.GatewayNodeIds.Contains(receiverDeviceId)
-                   && msg.Data.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+            UpdateGatewayLastSeen(gatewayId);
+
+            if (meshtasticService.TryBridge(msg.Data))
             {
-                var newMsg = msg.Data.Clone();
-                newMsg.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                meshtasticService.IncreaseBridgeDirectMessagesToGatewaysStat();
-                await mqttService.PublishMeshtasticMessage(newMsg, receiverDeviceId);
                 return;
             }
 
+            var (isPki, senderDeviceId, receiverDeviceId) = MeshtasticService.GetMessageSenderDeviceId(msg.Data);
             Device device = null;
             if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
             {
