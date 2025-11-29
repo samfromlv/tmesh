@@ -1,0 +1,2 @@
+﻿1) Add to pwd file in mosquito container - mosquitto_add_user.sh
+2) Add gateway id to tbot appsettings.json to GatewayNodeIds
