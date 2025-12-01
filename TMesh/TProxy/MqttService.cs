@@ -65,15 +65,26 @@ public class MqttService : IAsyncDisposable
         try
         {
             if (_connected) return;
+
+            var sslOptions = new MqttClientTlsOptions
+            {
+                IgnoreCertificateChainErrors = _options.MqttAllowUntrustedCertificates,
+                IgnoreCertificateRevocationErrors = _options.MqttAllowUntrustedCertificates,
+                AllowUntrustedCertificates = _options.MqttAllowUntrustedCertificates,
+                UseTls = _options.MqttUseTls
+            };
+
+            if (_options.MqttAllowUntrustedCertificates)
+            {
+                sslOptions.CertificateValidationHandler = context =>
+                {
+                    // Additional custom validation can be added here if needed
+                    return true; // accept all for now if untrusted allowed
+                };
+            }
             var mqttOptions = new MqttClientOptionsBuilder()
                 .WithTcpServer(_options.MqttAddress, _options.MqttPort)
-                .WithTlsOptions(new MqttClientTlsOptions
-                {
-                    IgnoreCertificateChainErrors = _options.MqttAllowUntrustedCertificates,
-                    IgnoreCertificateRevocationErrors = _options.MqttAllowUntrustedCertificates,
-                    AllowUntrustedCertificates = _options.MqttAllowUntrustedCertificates,
-                    UseTls = _options.MqttUseTls,
-                })
+                .WithTlsOptions(sslOptions)
                 .WithCredentials(_options.MqttUser, _options.MqttPassword)
                 .WithCleanSession()
                 .Build();

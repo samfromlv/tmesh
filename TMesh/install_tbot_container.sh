@@ -3,7 +3,7 @@ docker rm -f tbot
 docker run -d \
   --name tbot \
   --restart unless-stopped \
-  -v /home/dev/tbot/config:/tbot/config \
   -v /home/dev/tbot/data:/tbot/data \
   --network host \
+  --env TBOT_CONFIG_PATH=/tbot/app/appsettings.json \
   <your docker server>/tbot

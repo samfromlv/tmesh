@@ -25,10 +25,9 @@ RUN dotnet publish "./TBot.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:Us
 FROM base AS final
 WORKDIR /tbot
 # Prepare writable directories (running as root simplifies volume permissions)
-RUN mkdir -p /tbot/app /tbot/data /tbot/config
+RUN mkdir -p /tbot/app /tbot/data
 COPY --from=publish /app/publish /tbot/app
-COPY --from=publish /app/publish/appsettings.sample.json /tbot/config/appsettings.json
 # Declare volumes for user-provided configuration and persistent data (SQLite db)
-VOLUME ["/tbot/config", "/tbot/data"]
+VOLUME ["/tbot/data"]
 # Entry point; command-line args appended (e.g. /installwebhook, /checkinstallwebhook, /updatedb)
 ENTRYPOINT ["dotnet", "/tbot/app/TBot.dll"]

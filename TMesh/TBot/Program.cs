@@ -18,14 +18,9 @@ namespace TBot
                 {
                     // Prefer external config volume /tbot/config or env TBOT_CONFIG_PATH
                     var configPath = Environment.GetEnvironmentVariable("TBOT_CONFIG_PATH")?.Trim();
-                    if (string.IsNullOrWhiteSpace(configPath)) configPath = "/tbot/config"; // default inside container
-                    var filePath = Path.Combine(configPath, "appsettings.json");
-
-                    // If running locally (not container) allow fallback to local appsettings.json
-                    var inContainer = Directory.Exists("/tbot");
-                    if (inContainer)
+                    if (configPath != null)
                     {
-                        config.AddJsonFile(filePath, optional: false, reloadOnChange: true);
+                        config.AddJsonFile(configPath, optional: false, reloadOnChange: true);
                     }
                     else
                     {
