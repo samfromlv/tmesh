@@ -1094,7 +1094,17 @@ namespace TBot
                     message,
                     message.GatewayId);
             }
-            if (string.Equals(message.Text, "/ping", StringComparison.OrdinalIgnoreCase))
+
+            string cmdText = null;
+            if (message.Text != null
+                && message.Text.Trim().Length > 1
+                && message.Text.StartsWith('/'))
+            {
+                cmdText = message.Text.Substring(1).Trim();
+            }
+
+            if (cmdText != null &&
+                _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
                 meshtasticService.SendTextMessage(
                     message.DeviceId,
