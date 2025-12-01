@@ -1,3 +1,5 @@
+using TBot.Models;
+
 namespace TBot;
 
 public class TBotOptions
@@ -44,5 +46,6 @@ public class TBotOptions
 
     public string[] PingWords { get; set; }
 
+    public Texts Texts { get; set; }
 
 }

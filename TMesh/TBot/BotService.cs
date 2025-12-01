@@ -1004,10 +1004,25 @@ namespace TBot
 
         private void SendNotRegisteredResponse(MeshMessage message, Device device)
         {
+            var template = _options.Texts.NotRegisteredDeviceReply ??
+                "{nodeName} is not registered with {botName} (Telegram)";
+
+            var nodeName = StringHelper.Truncate(device.NodeName, 20);
+            var botName = _options.TelegramBotUserName;
+            var text = template
+                .Replace("{nodeName}", nodeName)
+                .Replace("{botName}", botName);
+
+            if (!MeshtasticService.CanSendMessage(text))
+            {
+                throw new InvalidOperationException("Not registered response text is too long to send to Meshtastic device.");
+            }
+
+
             meshtasticService.SendTextMessage(
                 message.DeviceId,
                 device.PublicKey,
-                $"{StringHelper.Truncate(device.NodeName, 20)} is not registered with @{_options.TelegramBotUserName} (Telegram)",
+                text,
                 replyToMessageId: null,
                 relayGatewayId: message.GatewayId,
                 hopLimit: message.GetSuggestedReplyHopLimit());
@@ -1055,7 +1070,7 @@ namespace TBot
             meshtasticService.SendTextMessage(
                 message.DeviceId,
                 deviceOrNull.PublicKey,
-                "pong",
+                _options.Texts.PingReply ?? "pong",
                 replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
                 relayGatewayId: message.GatewayId,
                 hopLimit: message.GetSuggestedReplyHopLimit());
@@ -1084,7 +1099,7 @@ namespace TBot
                 meshtasticService.SendTextMessage(
                     message.DeviceId,
                     deviceOrNull.PublicKey,
-                    "pong",
+                    _options.Texts.PingReply ?? "pong",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());

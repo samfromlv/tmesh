@@ -1,2 +1,4 @@
 ﻿1) Add to pwd file in mosquito container - mosquitto_add_user.sh
 2) Add gateway id to tbot appsettings.json to GatewayNodeIds
+3) Add update IP restrictions for new Gateway if any
+4) Restart tbot and mosquitto containers
