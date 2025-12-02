@@ -22,7 +22,7 @@ public class TBotOptions
     public string SQLiteConnectionString { get; set; }
     public int OutgoingMessageHopLimit { get; set; }
     public int OwnNodeInfoMessageHopLimit { get; set; }
-    public int MeshtasticNodeId { get; set; }
+    public long MeshtasticNodeId { get; set; }
     public string MeshtasticNodeNameShort { get; set; }
     public string MeshtasticNodeNameLong { get; set; }
     public string AdminPassword { get; set; }

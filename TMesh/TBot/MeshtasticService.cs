@@ -290,7 +290,7 @@ namespace TBot
 
         public static string GetMeshtasticNodeHexId(long deviceId)
         {
-            return "!" + deviceId.ToString("X").ToLower();
+            return $"!{deviceId:x8}";
         }
 
         private MeshPacket CreateTextMessagePacket(

@@ -1,4 +1,4 @@
-﻿pattern read msh/RU/2/e/PKI/<your virtual node id in hex>
+﻿pattern read msh/RU/2/e/PKI/<your virtual node id in hex, ! 8 digits, zero padded>
 pattern readwrite msh/RU/2/e/PKI/%u
 pattern write msh/RU/2/e/LongFast/%u
 user tproxy
