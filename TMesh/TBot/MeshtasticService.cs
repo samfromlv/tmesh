@@ -29,6 +29,10 @@ namespace TBot
         private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
         private byte[] _macAddress;
 
+        private List<ChannelInternalInfo> _channels = new();
+        private ChannelInternalInfo _primaryChannel;
+
+
 
         public MeshtasticService(
             MqttService mqttService,
@@ -44,6 +48,49 @@ namespace TBot
             _options = options.Value;
             _localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
             _macAddress = GetMacAddressFromNodeId();
+            InitChannels();
+        }
+
+        private void InitChannels()
+        {
+            _channels.Clear();
+
+            _primaryChannel = ConvertChannel(
+                _options.MeshtasticPrimaryChannelName,
+                _options.MeshtasticPrimaryChannelPskBase64);
+
+            _channels.Add(_primaryChannel);
+
+            if (_options.MeshtasticSecondayChannels != null)
+            {
+                foreach (var ch in _options.MeshtasticSecondayChannels)
+                {
+                    _channels.Add(ConvertChannel(ch));
+                }
+            }
+        }
+
+        private static ChannelInternalInfo ConvertChannel(ChannelInfo ch) =>
+            ConvertChannel(ch.Name, ch.PskBase64);
+
+        private static ChannelInternalInfo ConvertChannel(string name, string pskBase64)
+        {
+            var psk = Convert.FromBase64String(pskBase64);
+            if (psk.Length == 1 && psk[0] == 1)
+            {
+                psk = Meshtastic.Resources.DEFAULT_PSK;
+            }
+            return new ChannelInternalInfo
+            {
+                Name = name,
+                Psk = psk,
+                Hash = GenerateChannelHash(name, psk)
+            };
+        }
+
+        public IEnumerable<ChannelInternalInfo> GetMatchingChannels(uint channelHash)
+        {
+            return _channels.Where(c => c.Hash == channelHash);
         }
 
         private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
@@ -62,17 +109,23 @@ namespace TBot
         private readonly LocalMessageQueueService _localMessageQueueService;
 
 
+        public bool IsPublicChannelConfigured(string name)
+        {
+            return _channels.Any(x => string.Equals(x.Name, name, StringComparison.InvariantCultureIgnoreCase));
+        }
 
         public QueueResult SendPublicTextMessage(
             string text,
             long? relayGatewayId,
-            int hopLimit)
+            int hopLimit,
+            string channelName = null)
         {
             var envelope = PackPublicTextMessage(
                 GenerateNewMessageId(),
                 text,
                 null,
-                hopLimit);
+                hopLimit,
+                channelName);
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,
@@ -229,7 +282,8 @@ namespace TBot
             long newMessageId,
             string text,
             long? replyToMessageId,
-            int hopLimit)
+            int hopLimit,
+            string channelName = null)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -238,7 +292,17 @@ namespace TBot
                 text,
                 replyToMessageId,
                 hopLimit);
-            packet = EncryptPacketWithPsk(packet);
+
+            var channel = channelName == null
+                ? _primaryChannel
+                : _channels.FirstOrDefault(x => string.Equals(x.Name, channelName));
+
+            if (channel == null)
+            {
+                throw new Exception($"Channel {channelName} not found");
+            }
+
+            packet = EncryptPacketWithPsk(packet, channel);
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
             return envelope;
         }
@@ -248,7 +312,7 @@ namespace TBot
             var packet = CreateAckMessagePacket(deviceId, publicKey, messageId, messageHopLimit);
             if (publicKey == null)
             {
-                packet = EncryptPacketWithPsk(packet);
+                packet = EncryptPacketWithPsk(packet, _primaryChannel);
             }
             var envelope = CreateMeshtasticEnvelope(packet, "PKI");
             return envelope;
@@ -432,7 +496,7 @@ namespace TBot
                     Payload = routeDiscovery.ToByteString(),
                 },
             };
-            packet = EncryptPacketWithPsk(packet);
+            packet = EncryptPacketWithPsk(packet, _primaryChannel);
             return packet;
         }
 
@@ -465,7 +529,7 @@ namespace TBot
                 },
             };
 
-            packet = EncryptPacketWithPsk(packet);
+            packet = EncryptPacketWithPsk(packet, _primaryChannel);
 
             return packet;
         }
@@ -586,23 +650,17 @@ namespace TBot
                 },
             };
 
-            packet = EncryptPacketWithPsk(packet);
+            packet = EncryptPacketWithPsk(packet, _primaryChannel);
             return packet;
         }
 
-        private MeshPacket EncryptPacketWithPsk(MeshPacket packet)
+        private MeshPacket EncryptPacketWithPsk(MeshPacket packet, ChannelInternalInfo channel)
         {
             var input = packet.Decoded.ToByteArray();
             var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
-            var key = Convert.FromBase64String(_options.MeshtasticPrimaryChannelPskBase64);
-            if (key.Length == 1 && key[0] == 1)
-            {
-                key = Meshtastic.Resources.DEFAULT_PSK;
-            }
-            var encrypted = TransformPacket(input, nonce.Create(), key, true);
+            var encrypted = TransformPacket(input, nonce.Create(), channel.Psk, true);
             packet.Encrypted = ByteString.CopyFrom(encrypted);
-            packet.Channel = GenerateChannelHash(_options.MeshtasticPrimaryChannelName, key);
-
+            packet.Channel = channel.Hash;
             return packet;
         }
 
@@ -630,25 +688,24 @@ namespace TBot
         {
             var input = packet.Encrypted.ToByteArray();
             var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
-            var key = Convert.FromBase64String(_options.MeshtasticPrimaryChannelPskBase64);
-            if (key.Length == 1 && key[0] == 1)
-            {
-                key = Meshtastic.Resources.DEFAULT_PSK;
-            }
-            var decrypted = TransformPacket(input, nonce.Create(), key, false);
-            packet.Decoded = Data.Parser.ParseFrom(decrypted);
-            if (packet.Decoded.Portnum == PortNum.UnknownApp)
-            {
-                return null;
-            }
 
-            return packet;
+            foreach (var channel in GetMatchingChannels(packet.Channel))
+            {
+                var decrypted = TransformPacket(input, nonce.Create(), channel.Psk, false);
+                var decoded = Data.Parser.ParseFrom(decrypted);
+                if (decoded.Portnum != PortNum.UnknownApp)
+                {
+                    packet.Decoded = decoded;
+                    return packet;
+                }
+            }
+            return null;
         }
 
         public static byte[] TransformPacket(byte[] input, byte[] nonce, byte[] key, bool forEncryption)
         {
             // Create a new cipher instance for each call
-            IBufferedCipher cipher = CipherUtilities.GetCipher("AES/CTR/NoPadding");
+            var cipher = CipherUtilities.GetCipher("AES/CTR/NoPadding");
 
             // Initialize for encryption or decryption
             cipher.Init(forEncryption, new ParametersWithIV(ParameterUtilities.CreateKeyParameter("AES", key), nonce));
@@ -679,7 +736,7 @@ namespace TBot
                     newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
                     IncreaseBridgeDirectMessagesToGatewaysStat();
                     QueueMessage(newMsg, MessagePriority.High, receiverDeviceId);
-                }    
+                }
                 return true;
             }
             return false;

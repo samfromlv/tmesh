@@ -39,7 +39,7 @@ namespace TBot
                 _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
                 "/PKI/",
                 MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId));
-            
+
             _directGatewayPrefix = string.Concat(
                 _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
                 "/PKI/");
@@ -102,26 +102,41 @@ namespace TBot
                 }
                 _logger.LogInformation("MQTT connected to {Host}:{Port}", _options.MqttAddress, _options.MqttPort);
 
+                var filters = new List<MqttTopicFilter>()
+                {
+                     new() {
+                        Topic = _options.MqttTelegramTopic,
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    },
+                    new() {
+                        NoLocal = true,
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/PKI/#",
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    },
+                    new() {
+                        NoLocal = true,
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    }
+                };
+
+                if (_options.MeshtasticSecondayChannels != null)
+                {
+                    foreach (var item in _options.MeshtasticSecondayChannels)
+                    {
+                        filters.Add(new MqttTopicFilter
+                        {
+                            NoLocal = true,
+                            Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + '/' + item.Name + "/#",
+                            QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                        });
+                    }
+                }
+
                 await _client.SubscribeAsync(
                     new MqttClientSubscribeOptions
                     {
-                        TopicFilters =
-                         [
-                             new() {
-                                 Topic = _options.MqttTelegramTopic,
-                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                             },
-                             new() {
-                                 NoLocal = true,
-                                 Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/PKI/#",
-                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                             },
-                             new() {
-                                 NoLocal = true,
-                                 Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
-                                 QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                             }
-                         ]
+                        TopicFilters = filters
                     }, ct);
 
                 _logger.LogInformation("Subscribed to mqtt topics");
@@ -139,7 +154,7 @@ namespace TBot
             ServiceEnvelope envelope,
             long? relayThroughGatewayId)
         {
-            var topic = relayThroughGatewayId == null 
+            var topic = relayThroughGatewayId == null
                 ? _ourGatewayMeshtasicTopic
                 : string.Concat(_directGatewayPrefix,
                     MeshtasticService.GetMeshtasticNodeHexId(relayThroughGatewayId.Value));

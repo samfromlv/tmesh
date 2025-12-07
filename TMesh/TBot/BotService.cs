@@ -647,9 +647,41 @@ namespace TBot
                         await botClient.SendMessage(chatId, "Admin access revoked.");
                         return true;
                     }
+                case "public_text_primary":
+                    {
+                        var announcement = noPrefix["public_text_primary".Length..].Trim();
+                        if (string.IsNullOrWhiteSpace(announcement))
+                        {
+                            await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
+                            return true;
+                        }
+                        if (!MeshtasticService.CanSendMessage(announcement))
+                        {
+                            await botClient.SendMessage(
+                                chatId,
+                                $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
+                            return true;
+                        }
+                        meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null, hopLimit: int.MaxValue);
+                        await botClient.SendMessage(chatId, $"Announcement sent to {_options.MeshtasticPrimaryChannelName}.");
+                        return true;
+                    }
                 case "public_text":
                     {
-                        var announcement = noPrefix["public_text".Length..].Trim();
+                        var cmd = noPrefix["public_text".Length..].Trim();
+                        var channelNameEndIndex = cmd.IndexOf(' ');
+                        if (channelNameEndIndex == -1)
+                        {
+                            await botClient.SendMessage(chatId, "Please specify the channel name and announcement text.");
+                            return true;
+                        }
+                        var channelName = cmd[..channelNameEndIndex].Trim();
+                        if (!meshtasticService.IsPublicChannelConfigured(channelName))
+                        {
+                            await botClient.SendMessage(chatId, $"Channel '{channelName}' is not configured as a public channel.");
+                            return true;
+                        }
+                        var announcement = cmd[channelNameEndIndex..].Trim();
                         if (string.IsNullOrWhiteSpace(announcement))
                         {
                             await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
