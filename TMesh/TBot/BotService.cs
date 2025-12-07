@@ -694,8 +694,13 @@ namespace TBot
                                 $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
                             return true;
                         }
-                        meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null, hopLimit: int.MaxValue);
-                        await botClient.SendMessage(chatId, $"Announcement sent to {_options.MeshtasticPrimaryChannelName}.");
+                        meshtasticService.SendPublicTextMessage(
+                            announcement, 
+                            relayGatewayId: null,
+                            hopLimit: int.MaxValue,
+                            channelName: channelName);
+
+                        await botClient.SendMessage(chatId, $"Announcement sent to {channelName}.");
                         return true;
                     }
                 case "text":
