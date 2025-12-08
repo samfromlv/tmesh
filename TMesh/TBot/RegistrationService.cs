@@ -128,13 +128,13 @@ namespace TBot
         private async Task<List<DeviceKey>> GetDeviceKeysByChatId(long chatId)
         {
             return await (from r in db.Registrations
-                         join d in db.Devices on r.DeviceId equals d.DeviceId
-                         where r.ChatId == chatId
-                         select new DeviceKey
-                         {
-                             DeviceId = r.DeviceId,
-                             PublicKey = d.PublicKey,
-                         }).ToListAsync();
+                          join d in db.Devices on r.DeviceId equals d.DeviceId
+                          where r.ChatId == chatId
+                          select new DeviceKey
+                          {
+                              DeviceId = r.DeviceId,
+                              PublicKey = d.PublicKey,
+                          }).ToListAsync();
         }
 
         public Task<List<DeviceKey>> GetDeviceKeysByChatIdCached(long chatId)
@@ -228,6 +228,12 @@ namespace TBot
                     CreatedUtc = now
                 };
                 db.Registrations.Add(reg);
+
+                var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == storedCode.DeviceId);
+                if (device != null)
+                {
+                    device.HasRegistrations = true;
+                }
             }
             else
             {
@@ -267,7 +273,7 @@ namespace TBot
             return null;
         }
 
-        public async Task SetDeviceAsync(long deviceId, string nodeName, byte[] publicKey)
+        public async Task<bool> SaveDeviceAsync(long deviceId, string nodeName, byte[] publicKey)
         {
             if (publicKey == null || publicKey.Length == 0 || publicKey.Length != 32)
             {
@@ -288,15 +294,27 @@ namespace TBot
                 };
                 db.Devices.Add(entity);
             }
-            else
+            else if (!entity.HasRegistrations)
             {
                 entity.PublicKey = publicKey;
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
             }
+            else if (entity.HasRegistrations 
+                    && entity.PublicKey != null 
+                    && entity.PublicKey.AsSpan().SequenceEqual(publicKey))
+            {
+                entity.NodeName = nodeName;
+                entity.UpdatedUtc = now;
+            }
+            else
+            {
+                return false;
+            }
 
             await db.SaveChangesAsync();
             memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+            return true;
         }
 
         public async Task<bool> HasDeviceAsync(long deviceId)
@@ -319,6 +337,13 @@ namespace TBot
                 return false;
             }
             db.Registrations.RemoveRange(regs);
+
+            var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+            if (device != null)
+            {
+                var totalRegCount = await db.Registrations.CountAsync(r => r.DeviceId == deviceId);
+                device.HasRegistrations = (totalRegCount - regs.Count) == 0;
+            }
             await db.SaveChangesAsync();
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
@@ -333,6 +358,11 @@ namespace TBot
         public async Task<int> GetTotalDevicesCount()
         {
             return await db.Devices.CountAsync();
+        }
+
+        public async Task<int> GetActiveDevicesCount(DateTime fromUtc)
+        {
+            return await db.Devices.CountAsync(d => d.UpdatedUtc >= fromUtc);
         }
     }
 }

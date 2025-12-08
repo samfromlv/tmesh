@@ -34,6 +34,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .IsRequired();
             e.Property(p => p.UpdatedUtc)
                 .IsRequired();
+
+            e.Property(p => p.HasRegistrations);
         });
     }
 }

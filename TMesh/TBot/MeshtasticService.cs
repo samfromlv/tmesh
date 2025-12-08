@@ -126,6 +126,7 @@ namespace TBot
                 null,
                 hopLimit,
                 channelName);
+
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,

@@ -11,4 +11,5 @@ public class Device: IDeviceKey
     public string NodeName { get; set; }
     public System.DateTime CreatedUtc { get; set; }
     public System.DateTime UpdatedUtc { get; set; }
+    public bool HasRegistrations { get; set; }
 }

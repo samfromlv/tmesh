@@ -1275,10 +1275,28 @@ namespace TBot
                     message.GatewayId);
             }
 
-            await registrationService.SetDeviceAsync(
+            var updated = await registrationService.SaveDeviceAsync(
                 message.DeviceId,
                 message.NodeName,
                 message.PublicKey);
+
+            if (!updated)
+            {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
+                if (device == null)
+                {
+                    return;
+                }
+                //Node public key do not match our records, delivery of messages to this node will not work
+                //we need to warn users that his public key was changed and he need to remove device and readded it
+                var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
+                foreach (var chatId in chatIds)
+                {
+                    await botClient.SendMessage(
+                        chatId,
+                        $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove command) and add it back for messaging to work. Public keys are not updated automaticly after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
+                }
+            }
         }
 
         public async Task ProcessAckMessages(List<AckMessage> batch)
