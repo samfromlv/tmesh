@@ -16,6 +16,20 @@ namespace TBot.Migrations
                 type: "INTEGER",
                 nullable: false,
                 defaultValue: false);
+
+            migrationBuilder.Sql(@"
+        UPDATE Devices
+        SET HasRegistrations = CASE
+            WHEN EXISTS (
+                SELECT 1 
+                FROM Registrations r 
+                WHERE r.DeviceId = Devices.DeviceId
+            )
+            THEN 1
+            ELSE 0
+        END;
+    ");
+
         }
 
         /// <inheritdoc />
