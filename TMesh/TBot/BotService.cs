@@ -51,7 +51,12 @@ namespace TBot
                 new BotCommand
                 {
                     Command = "status",
-                    Description = "Show list of registered Meshtastic devices"
+                    Description = "Show list of registered Meshtastic devices, supports filter by name (e.g. /status MyDevice)"
+                },
+                new BotCommand
+                {
+                    Command = "position",
+                    Description = "Show last known position of registered Meshtastic devices as map, supports filter by name (e.g. /position MyDevice)"
                 }
             ]);
         }
@@ -565,7 +570,12 @@ namespace TBot
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
             {
-                await HandleStatus(chatId);
+                await HandleStatus(chatId, message.Text);
+                return;
+            }
+            if (message.Text?.StartsWith("/position", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await HandlePosition(chatId, message.Text);
                 return;
             }
             if (message.Text?.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) == true)
@@ -695,7 +705,7 @@ namespace TBot
                             return true;
                         }
                         meshtasticService.SendPublicTextMessage(
-                            announcement, 
+                            announcement,
                             relayGatewayId: null,
                             hopLimit: int.MaxValue,
                             channelName: channelName);
@@ -833,7 +843,7 @@ namespace TBot
                 textToMesh);
         }
 
-        private async Task HandleStatus(long chatId)
+        private async Task HandleStatus(long chatId, string cmdText)
         {
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
             if (devices.Count == 0)
@@ -842,10 +852,93 @@ namespace TBot
             }
             else
             {
+                var filter = GetCmdParam(cmdText);
                 var now = DateTime.UtcNow;
-                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last seen {FormatTimeSpan(now - d.LastSeen)} ago");
-                var text = "Registered devices:\r\n" + string.Join("\r\n", lines);
+                bool hasFilter = !string.IsNullOrEmpty(filter);
+
+                if (hasFilter)
+                {
+                    devices = devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                if (hasFilter && devices.Count == 0)
+                {
+                    await botClient.SendMessage(chatId, $"No registered devices matching filter '{filter}'.");
+                    return;
+                }
+
+                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}");
+                var text = $"{(hasFilter ? "Filtered" : "Registered")} devices:\r\n" + string.Join("\r\n", lines);
                 await botClient.SendMessage(chatId, text);
+            }
+        }
+
+        private string GetCmdParam(string cmdFullText)
+        {
+            var firstSpaceIndex = cmdFullText.IndexOf(' ');
+            if (firstSpaceIndex == -1)
+            {
+                return null;
+            }
+            else
+            {
+                return cmdFullText[(firstSpaceIndex + 1)..].Trim();
+            }
+        }
+
+        private async Task HandlePosition(long chatId, string cmdText)
+        {
+            var devices = await registrationService.GetDevicePositionByChatId(chatId);
+            if (devices.Count == 0)
+            {
+                await botClient.SendMessage(chatId, "No registered devices. You can register a new device with the /add command.");
+            }
+            else
+            {
+                var filter = GetCmdParam(cmdText);
+                var now = DateTime.UtcNow;
+                bool hasFilter = !string.IsNullOrEmpty(filter);
+
+                if (hasFilter)
+                {
+                    devices = devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                if (hasFilter && devices.Count == 0)
+                {
+                    await botClient.SendMessage(chatId, $"No registered devices matching filter '{filter}'.");
+                    return;
+                }
+
+                var unknownPositionMsg = new StringBuilder();
+                foreach (var d in devices)
+                {
+                    if (d.LastPositionUpdate == null)
+                    {
+                        unknownPositionMsg.AppendLine($"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)})");
+                    }
+                    else
+                    {
+                        await botClient.SendMessage(
+                            chatId,
+                            $"Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last position update {FormatTimeSpan(now - d.LastPositionUpdate.Value)} ago:");
+
+                        await botClient.SendLocation(
+                            chatId,
+                            d.Latitude.Value,
+                            d.Longitude.Value,
+                            horizontalAccuracy: d.AccuracyMeters.HasValue ? Math.Min(d.AccuracyMeters.Value, 1500) : null,
+                            replyParameters: null);
+                    }
+                }
+
+                if (unknownPositionMsg.Length > 0)
+                {
+                    await botClient.SendMessage(
+                        chatId,
+                        "Devices without known position:\r\n" +
+                        unknownPositionMsg.ToString());
+                }
             }
         }
 
@@ -1011,12 +1104,21 @@ namespace TBot
                 meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message, message.GatewayId);
             }
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-
             if (deviceOrNull == null)
             {
-                throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
+                return;
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+            deviceOrNull.LocationUpdatedUtc = DateTime.UtcNow;
+            deviceOrNull.Longitude = message.Longitude;
+            deviceOrNull.Latitude = message.Latitude;
+            deviceOrNull.AccuracyMeters = (int)Math.Round(message.AccuracyMeters);
+            await registrationService.SaveAssumeChanged(deviceOrNull);
+            if (!message.SentToOurNodeId)
+            {
+                return;
+            }
+
             var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
             if (chatIds.Count == 0)
             {

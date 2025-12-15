@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,8 +15,8 @@ namespace TBot
         ILogger<RegistrationService> logger)
     {
         public const int MaxCodeVerificationTries = 5;
-        private const string DevicePublicKeyCachePrefix = "DevicePublicKey#";
-        private static readonly TimeSpan DevicePublicKeyCacheDuration = TimeSpan.FromHours(1);
+        private const string DeviceCachePrefix = "DeviceCache#";
+        private static readonly TimeSpan DeviceCacheDuration = TimeSpan.FromHours(1);
         private readonly TBotOptions _options = options.Value;
 
         public async Task EnsureMigratedAsync()
@@ -160,9 +154,28 @@ namespace TBot
                           {
                               DeviceId = r.DeviceId,
                               NodeName = d.NodeName,
-                              LastSeen = d.UpdatedUtc
+                              LastNodeInfo = d.UpdatedUtc,
+                              LastPositionUpdate = d.LocationUpdatedUtc,
                           }).ToListAsync();
         }
+
+        public async Task<List<DevicePosition>> GetDevicePositionByChatId(long chatId)
+        {
+            return await (from r in db.Registrations
+                          join d in db.Devices on r.DeviceId equals d.DeviceId
+                          where r.ChatId == chatId
+                          select new DevicePosition
+                          {
+                              DeviceId = r.DeviceId,
+                              NodeName = d.NodeName,
+                              LastPositionUpdate = d.LocationUpdatedUtc,
+                              Latitude = d.Latitude,
+                              Longitude = d.Longitude,
+                              AccuracyMeters = d.AccuracyMeters
+                          }).ToListAsync();
+        }
+
+
 
         private async Task<List<long>> GetChatsByDeviceId(long deviceId)
         {
@@ -253,7 +266,7 @@ namespace TBot
         }
 
         // Device public key storage and lookup
-        private static string GetDeviceCacheKey(long deviceId) => DevicePublicKeyCachePrefix + deviceId;
+        private static string GetDeviceCacheKey(long deviceId) => DeviceCachePrefix + deviceId;
 
         public async Task<Device> GetDeviceAsync(long deviceId)
         {
@@ -267,13 +280,25 @@ namespace TBot
 
             if (entity?.PublicKey != null)
             {
-                memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+                memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DeviceCacheDuration);
                 return entity;
             }
             return null;
         }
 
-        public async Task<bool> SaveDeviceAsync(long deviceId, string nodeName, byte[] publicKey)
+        public async Task SaveAssumeChanged(Device device)
+        {
+            var entry = db.Devices.Attach(device);
+            entry.State = EntityState.Modified;
+            await db.SaveChangesAsync();
+            memoryCache.Set(GetDeviceCacheKey(device.DeviceId), device, DeviceCacheDuration);
+        }
+
+
+        public async Task<bool> SaveDeviceAsync(
+            long deviceId,
+            string nodeName,
+            byte[] publicKey)
         {
             if (publicKey == null || publicKey.Length == 0 || publicKey.Length != 32)
             {
@@ -300,8 +325,8 @@ namespace TBot
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
             }
-            else if (entity.HasRegistrations 
-                    && entity.PublicKey != null 
+            else if (entity.HasRegistrations
+                    && entity.PublicKey != null
                     && entity.PublicKey.AsSpan().SequenceEqual(publicKey))
             {
                 entity.NodeName = nodeName;
@@ -313,7 +338,7 @@ namespace TBot
             }
 
             await db.SaveChangesAsync();
-            memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DevicePublicKeyCacheDuration);
+            memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DeviceCacheDuration);
             return true;
         }
 

@@ -12,4 +12,8 @@ public class Device: IDeviceKey
     public System.DateTime CreatedUtc { get; set; }
     public System.DateTime UpdatedUtc { get; set; }
     public bool HasRegistrations { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public DateTime? LocationUpdatedUtc { get; set; }
+    public int? AccuracyMeters { get; set; }
 }

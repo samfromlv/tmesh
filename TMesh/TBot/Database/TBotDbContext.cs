@@ -36,6 +36,11 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .IsRequired();
 
             e.Property(p => p.HasRegistrations);
+
+            e.Property(p => p.Latitude);
+            e.Property(p => p.Longitude);
+            e.Property(p => p.LocationUpdatedUtc);
+            e.Property(p => p.AccuracyMeters);
         });
     }
 }

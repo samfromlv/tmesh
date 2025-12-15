@@ -841,9 +841,14 @@ namespace TBot
                         RouteDiscovery = routeDiscovery,
                     });
                 }
-                else if (packet.Decoded.Portnum == PortNum.PositionApp
-                    && packet.To == _options.MeshtasticNodeId)
+                else if (packet.Decoded.Portnum == PortNum.PositionApp)
                 {
+                    if (packet.To != _options.MeshtasticNodeId
+                        && packet.To != BroadcastDeviceId)
+                    {
+                        return default;
+                    }
+
                     var position = Position.Parser.ParseFrom(packet.Decoded.Payload);
 
                     if (position == null
@@ -890,7 +895,8 @@ namespace TBot
                         Altitude = position.HasAltitude
                             ? position.Altitude
                             : null,
-                        AccuracyMeters = accuracyMeters
+                        AccuracyMeters = accuracyMeters,
+                        SentToOurNodeId = packet.To == _options.MeshtasticNodeId
                     });
                 }
                 else if (envelope.Packet.Decoded.Portnum == PortNum.TextMessageApp)

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using TBot.Database;
+using TBot.Helpers;
 
 namespace TBot
 {
@@ -38,6 +39,7 @@ namespace TBot
                         opt.UseSqlite(options.Value.SQLiteConnectionString);
                     });
                     services.AddMemoryCache();
+                    services.AddSingleton<TimeZoneHelper>();
                     services.AddSingleton<LocalMessageQueueService>();
                     services.AddSingleton<MqttService>();
                     services.AddSingleton<SimpleScheduler>();

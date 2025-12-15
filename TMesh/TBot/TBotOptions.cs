@@ -48,4 +48,6 @@ public class TBotOptions
 
     public Texts Texts { get; set; }
 
+    public string TimeZone { get; set; }
+
 }

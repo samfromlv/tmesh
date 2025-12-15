@@ -109,6 +109,7 @@ public class MessageLoopService(
 
         botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
         botStats.Devices = await registrationService.GetTotalDevicesCount();
+        botStats.Devices24h = await registrationService.GetActiveDevicesCount(DateTime.UtcNow.AddHours(-24));
         botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
         await mqttService.PublishStatus(botStats);
     }

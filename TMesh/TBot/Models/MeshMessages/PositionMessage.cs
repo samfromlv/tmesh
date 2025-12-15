@@ -15,5 +15,8 @@ namespace TBot.Models.MeshMessages
         public int? HeadingDegrees { get; set; }
 
         public double AccuracyMeters { get; set; }
+
+        public bool SentToOurNodeId { get; set; }
+
     }
 }

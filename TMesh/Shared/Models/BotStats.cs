@@ -14,6 +14,7 @@ namespace Shared.Models
 
         public int ChatRegistrations { get; set; }
 
+        public int Devices24h { get; set; }
         public int Devices { get; set; }
 
         public DateTime LastUpdate { get; set; }

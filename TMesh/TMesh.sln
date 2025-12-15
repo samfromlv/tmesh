@@ -17,6 +17,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Configs", "Configs", "{02EA
 		mosquitto_add_user.sh = mosquitto_add_user.sh
 		mosquitto_ssl.sh = mosquitto_ssl.sh
 		run_tbot_container.sh = run_tbot_container.sh
+		update_tbot_db.sh = update_tbot_db.sh
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shared", "Shared\Shared.csproj", "{3A4D9908-14D9-4D40-BE8C-81184BBA3F5A}"
