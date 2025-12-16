@@ -36,13 +36,21 @@ TMesh automatically collects device information from Meshtastic node info broadc
 |-----------|---------|------------------|
 | **Device Node ID** | Unique identifier for Meshtastic devices | Updated when new node info received |
 | **Node Name** | Display name of the Meshtastic device | Updated when new node info received |
-| **Public Key (32 bytes)** | Enable PKI encryption for secure messaging | Updated when new node info received |
+| **Public Key (32 bytes)** | Enable PKI encryption for secure messaging and MITM prevention via key pinning | Pinned on first registration, permanent |
 | **Last Update Timestamp** | Track when node info was last seen | Updated when new node info received |
+| **Last Position (Latitude/Longitude)** | Track device location for position display and mapping | Updated when position broadcast received |
+| **Position Accuracy** | GPS accuracy in meters | Updated with position data |
+| **Position Timestamp** | When location was last updated | Updated with position data |
+| **Gateway Association** | Which gateway last saw the device for routing optimization | Updated on message receipt |
 
 **Storage Location**: SQLite database file (`tbot.db`)  
 **Database Table**: `Devices`
 
-**Important**: Only devices with "OK to MQTT" setting enabled broadcast their information to MQTT. TMesh cannot see or collect information from devices that have this setting disabled.
+**Important Notes**: 
+- Only devices with "OK to MQTT" setting enabled broadcast their information to MQTT. TMesh cannot see or collect information from devices that have this setting disabled.
+- **Public keys are pinned** on first registration and cannot be changed without re-registration. This prevents man-in-the-middle attacks.
+- Position data is only collected if devices broadcast their location and is used for the `/position` command.
+- Gateway associations are used for intelligent message routing in multi-gateway setups.
 
 ### 3. Temporary Data (In-Memory Only)
 
@@ -64,15 +72,20 @@ This temporary data is **lost when the TMesh service restarts** and is never wri
 
 TMesh explicitly does **NOT** collect or permanently store:
 
-- ❌ Message content (Telegram or Meshtastic messages)
-- ❌ Message history or logs
-- ❌ Meshtastic location data
+- ❌ Message content (Telegram or Meshtastic messages) - messages are processed in real-time only
+- ❌ Message history or logs - no conversation archives
+- ❌ Historical position data - only latest position per device
 - ❌ Telegram phone numbers
 - ❌ Telegram usernames
 - ❌ Personal information beyond user ID and chat ID
 - ❌ IP addresses or connection logs
 - ❌ Analytics or usage statistics
 - ❌ Cookies or tracking identifiers
+- ❌ Device private keys (only public keys stored)
+- ❌ MQTT credentials in database (stored in configuration only)
+- ❌ Admin passwords in database (stored in configuration only)
+- ❌ Trace route paths (processed in real-time only)
+- ❌ Health monitoring data beyond current status
 
 ---
 
@@ -87,6 +100,20 @@ TMesh explicitly does **NOT** collect or permanently store:
 - **Purpose**: Encrypt messages end-to-end using Meshtastic PKI (X25519 elliptic curve cryptography)
 - **Processing**: Used to encrypt messages before sending to devices and to verify message authenticity
 - **Security**: Public keys are, by design, public information broadcast on the Meshtastic network
+- **Key Pinning**: Keys are pinned on first registration and validated on all subsequent messages to prevent MITM attacks
+
+### Device Position Data
+- **Purpose**: Display device locations on maps and track device movement
+- **Processing**: Automatically captured from Meshtastic position broadcasts when "OK to MQTT" is enabled
+- **Usage**: Used by `/position` command to show device locations on Telegram maps
+- **Access**: Only accessible to Telegram chats where the device is registered
+- **Retention**: Latest position stored indefinitely, older positions not retained
+
+### Gateway Association Data
+- **Purpose**: Optimize message routing in multi-gateway deployments
+- **Processing**: Tracks which gateway last saw each device to route messages efficiently
+- **Usage**: Automatically selects best gateway for message delivery and calculates dynamic hop limits
+- **Retention**: Updated continuously as devices communicate through different gateways
 
 ### Temporary Verification Codes
 - **Purpose**: Secure the device registration process to ensure only the legitimate device owner can register
@@ -120,23 +147,41 @@ TMesh does **NOT** share your data with third parties. However, please note:
 
 ### Encryption in Transit
 - **Telegram ↔ TMesh**: HTTPS for webhook communication
-- **TMesh ↔ MQTT Broker**: Can be configured to use TLS/SSL
+- **TMesh ↔ MQTT Broker**: TLS/SSL encryption (recommended for production)
 - **TMesh ↔ Meshtastic**: PKI encryption using X25519 curve25519
 
 ### Encryption at Rest
 - SQLite database is stored on disk unencrypted by default
 - Operators can implement disk encryption at the OS or container level
-- No sensitive cryptographic secrets stored in database (only public keys)
+- Device public keys stored (not private keys)
+- No sensitive authentication credentials stored in database
 
 ### Access Control
 - Only the TMesh application has access to the database
 - Docker volumes can be configured with appropriate permissions
 - Webhook endpoint protected by secret token validation
+- Admin commands protected by password authentication
+- Health monitoring endpoints are public but reveal no sensitive data
 
 ### Private Key Protection
-- TMesh virtual node's private key is stored in configuration file
-- Configuration should be protected with appropriate file permissions
+- TMesh virtual node's private key is stored in configuration file only
+- Configuration should be protected with appropriate file permissions (read-only for TMesh user)
 - Private key never transmitted or logged
+- Device private keys never stored or accessed by TMesh
+
+### Public Key Pinning
+- Device public keys are pinned on first registration
+- Subsequent messages validated against pinned key
+- Prevents man-in-the-middle attacks even if MQTT infrastructure compromised
+- Key cannot be changed without device re-registration
+- Pinning occurs automatically during verification code exchange
+
+### TLS/SSL for MQTT
+- Optional but strongly recommended for production
+- Supports certificate validation or self-signed certificates
+- Configurable via `MqttUseTls` and `MqttAllowUntrustedCertificates`
+- Protects MQTT credentials and message metadata in transit
+- Does not affect end-to-end message encryption (separate PKI layer)
 
 ---
 
