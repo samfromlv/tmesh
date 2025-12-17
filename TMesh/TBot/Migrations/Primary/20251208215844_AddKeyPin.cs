@@ -2,7 +2,7 @@
 
 #nullable disable
 
-namespace TBot.Migrations
+namespace TBot.Migrations.Primary
 {
     /// <inheritdoc />
     public partial class AddKeyPin : Migration

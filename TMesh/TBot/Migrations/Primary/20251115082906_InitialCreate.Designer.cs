@@ -2,17 +2,20 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TBot.Database;
 
 #nullable disable
 
-namespace TBot.Migrations
+namespace TBot.Migrations.Primary
 {
     [DbContext(typeof(TBotDbContext))]
-    partial class TBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251115082906_InitialCreate")]
+    partial class InitialCreate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.10");
@@ -23,23 +26,8 @@ namespace TBot.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int?>("AccuracyMeters")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("HasRegistrations")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("Latitude")
-                        .HasColumnType("REAL");
-
-                    b.Property<DateTime?>("LocationUpdatedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double?>("Longitude")
-                        .HasColumnType("REAL");
 
                     b.Property<string>("NodeName")
                         .HasColumnType("TEXT");

@@ -4,9 +4,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
-using Telegram.Bot;
 using TBot.Database;
 using TBot.Helpers;
+using TBot.Analytics;
 
 namespace TBot
 {
@@ -38,6 +38,17 @@ namespace TBot
                         var options = s.GetRequiredService<IOptions<TBotOptions>>();
                         opt.UseSqlite(options.Value.SQLiteConnectionString);
                     });
+
+                    var hasClickHouse = !string.IsNullOrWhiteSpace(ctx.Configuration.GetSection("TBot").GetValue<string>(nameof(TBotOptions.AnalyticsPostgresConnectionString)));
+                    if (hasClickHouse)
+                    {
+                        services.AddDbContext<AnalyticsDbContext>((s, opt) =>
+                        {
+                            var options = s.GetRequiredService<IOptions<TBotOptions>>();
+                            opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString);
+                        });
+                        services.AddScoped<AnalyticsService>();
+                    }
                     services.AddMemoryCache();
                     services.AddSingleton<TimeZoneHelper>();
                     services.AddSingleton<LocalMessageQueueService>();
@@ -130,6 +141,14 @@ namespace TBot
                 var regService = host.Services.GetRequiredService<RegistrationService>();
                 await regService.EnsureMigratedAsync();
                 logger.LogInformation("Database update completed successfully.");
+
+                bool hasAnalytics = !string.IsNullOrWhiteSpace(options.AnalyticsPostgresConnectionString);
+                if (hasAnalytics)
+                {
+                    var analyticsService = host.Services.GetRequiredService<AnalyticsService>();
+                    await analyticsService.EnsureMigratedAsync();
+                    logger.LogInformation("Analytics database update completed successfully.");
+                }
             }
             catch (Exception ex)
             {

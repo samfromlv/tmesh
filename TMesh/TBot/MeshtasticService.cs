@@ -196,6 +196,11 @@ namespace TBot
             MeshMessage msg,
             long? relayGatewayId)
         {
+            if (msg.DeviceId == BroadcastDeviceId)
+            {
+                throw new InvalidOperationException("No confirmation for broadcast devices");
+            }
+
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
             var envelope = PackAckMessage(msg.DeviceId, publicKey, msg.Id, hopsForReply);
             AddStat(new MeshStat
@@ -899,7 +904,7 @@ namespace TBot
                         SentToOurNodeId = packet.To == _options.MeshtasticNodeId
                     });
                 }
-                else if (envelope.Packet.Decoded.Portnum == PortNum.TextMessageApp)
+                else if (packet.Decoded.Portnum == PortNum.TextMessageApp)
                 {
                     var res = new TextMessage
                     {
@@ -921,6 +926,36 @@ namespace TBot
                     });
 
                     return (true, res);
+                }
+                else if (packet.Decoded.Portnum == PortNum.TelemetryApp)
+                {
+                    var telemetry = Telemetry.Parser.ParseFrom(packet.Decoded.Payload);
+                    
+                    if (telemetry == null
+                        || telemetry.DeviceMetrics == null
+                        || (!telemetry.DeviceMetrics.HasChannelUtilization
+                        && !telemetry.DeviceMetrics.HasAirUtilTx))
+                    {
+                        return default;
+                    }
+
+                    return (true, new DeviceMetricsMessage
+                    {
+                        DeviceId = envelope.Packet.From,
+                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
+                        NeedAck = envelope.Packet.WantAck
+                             && envelope.Packet.From != BroadcastDeviceId
+                             && envelope.Packet.To != BroadcastDeviceId,
+                        HopLimit = (int)envelope.Packet.HopLimit,
+                        HopStart = (int)envelope.Packet.HopStart,
+                        Id = envelope.Packet.Id,
+                        ChannelUtilization = telemetry.DeviceMetrics.HasChannelUtilization
+                            ? telemetry.DeviceMetrics.ChannelUtilization
+                            : null,
+                        AirUtilization = telemetry.DeviceMetrics.HasAirUtilTx 
+                            ? telemetry.DeviceMetrics.AirUtilTx
+                            : null
+                    });
                 }
                 else
                 {

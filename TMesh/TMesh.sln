@@ -9,6 +9,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TBot", "TBot\TBot.csproj", 
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Configs", "Configs", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 	ProjectSection(SolutionItems) = preProject
+		ef_migration_readme.txt = ef_migration_readme.txt
 		how_to_add_gateway.txt = how_to_add_gateway.txt
 		install_mosquitto_docker.sh = install_mosquitto_docker.sh
 		install_tbot_container.sh = install_tbot_container.sh
@@ -17,6 +18,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Configs", "Configs", "{02EA
 		mosquitto_add_user.sh = mosquitto_add_user.sh
 		mosquitto_ssl.sh = mosquitto_ssl.sh
 		run_tbot_container.sh = run_tbot_container.sh
+		postgres_install.sh = postgres_install.sh
 		update_tbot_db.sh = update_tbot_db.sh
 	EndProjectSection
 EndProject

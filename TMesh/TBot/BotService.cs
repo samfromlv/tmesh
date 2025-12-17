@@ -1,10 +1,11 @@
-﻿using Meshtastic.Protobufs;
-using Microsoft.Extensions.Caching.Memory;
+﻿using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
+using TBot.Analytics;
+using TBot.Analytics.Models;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
@@ -21,7 +22,8 @@ namespace TBot
         RegistrationService registrationService,
         MeshtasticService meshtasticService,
         IMemoryCache memoryCache,
-        ILogger<BotService> logger)
+        ILogger<BotService> logger,
+        IServiceProvider services)
     {
 
         const int TrimUserNamesToLength = 8;
@@ -65,6 +67,8 @@ namespace TBot
         {
             return await botClient.GetWebhookInfo();
         }
+
+
 
         private void StoreTelegramMessageStatus(long chatId, int messageId, MeshtasticMessageStatus status)
         {
@@ -1090,6 +1094,9 @@ namespace TBot
                 case MeshMessageType.Position:
                     await ProcessInboundPositionMessage((PositionMessage)message, deviceOrNull);
                     break;
+                case MeshMessageType.DeviceMetrics:
+                    await ProcessInboundDeviceMetricsMessage((DeviceMetricsMessage)message, deviceOrNull);
+                    break;
                 case MeshMessageType.AckMessage:
                 default:
                     logger.LogWarning("Received unsupported Meshtastic message type: {MessageType}", message.MessageType);
@@ -1097,11 +1104,46 @@ namespace TBot
             }
         }
 
-        private async Task ProcessInboundPositionMessage(PositionMessage message, Device deviceOrNull)
+        private async Task ProcessInboundDeviceMetricsMessage(DeviceMetricsMessage message, Device deviceOrNull)
         {
             if (message.NeedAck)
             {
                 meshtasticService.AckMeshtasticMessage(deviceOrNull.PublicKey, message, message.GatewayId);
+            }
+            var analyticsService = services.GetService<AnalyticsService>();
+            if (analyticsService == null)
+            {
+                return;
+            }
+
+            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
+            if (deviceOrNull?.LocationUpdatedUtc == null)
+            {
+                return;
+            }
+            logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
+       
+            var metrics = new DeviceMetric
+            {
+                DeviceId = (uint)message.DeviceId,
+                Timestamp = DateTime.UtcNow,
+                Latitude = deviceOrNull.Latitude ?? 0,
+                Longitude = deviceOrNull.Longitude ?? 0,
+                LocationUpdatedUtc = deviceOrNull.LocationUpdatedUtc.Value,
+                AccuracyMeters = deviceOrNull.AccuracyMeters,
+                ChannelUtil = message.ChannelUtilization,
+                AirUtil = message.AirUtilization,
+            };
+
+            await analyticsService.RecordEventAsync(metrics);
+        }
+
+
+        private async Task ProcessInboundPositionMessage(PositionMessage message, Device deviceOrNull)
+        {
+            if (message.NeedAck)
+            {
+                meshtasticService.AckMeshtasticMessage(deviceOrNull?.PublicKey, message, message.GatewayId);
             }
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull == null)

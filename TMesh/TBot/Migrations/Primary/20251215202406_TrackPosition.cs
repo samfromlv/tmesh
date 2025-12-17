@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace TBot.Migrations
+namespace TBot.Migrations.Primary
 {
     /// <inheritdoc />
     public partial class TrackPosition : Migration

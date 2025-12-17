@@ -20,6 +20,7 @@ public class TBotOptions
 
     public int TelegramBotMaxConnections { get; set; }
     public string SQLiteConnectionString { get; set; }
+    public string AnalyticsPostgresConnectionString { get; set; }
     public int OutgoingMessageHopLimit { get; set; }
     public int OwnNodeInfoMessageHopLimit { get; set; }
     public long MeshtasticNodeId { get; set; }

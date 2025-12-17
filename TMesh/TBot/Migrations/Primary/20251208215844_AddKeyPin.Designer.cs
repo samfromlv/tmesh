@@ -8,7 +8,7 @@ using TBot.Database;
 
 #nullable disable
 
-namespace TBot.Migrations
+namespace TBot.Migrations.Primary
 {
     [DbContext(typeof(TBotDbContext))]
     [Migration("20251208215844_AddKeyPin")]
