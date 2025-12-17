@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NodaTime;
 using System.Text;
 using System.Text.Json;
 using TBot.Analytics;
@@ -1126,11 +1127,11 @@ namespace TBot
             var metrics = new DeviceMetric
             {
                 DeviceId = (uint)message.DeviceId,
-                Timestamp = DateTime.UtcNow,
-                Latitude = deviceOrNull.Latitude ?? 0,
-                Longitude = deviceOrNull.Longitude ?? 0,
-                LocationUpdatedUtc = deviceOrNull.LocationUpdatedUtc.Value,
-                AccuracyMeters = deviceOrNull.AccuracyMeters,
+                Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow),
+                Latitude = deviceOrNull?.Latitude ?? 0,
+                Longitude = deviceOrNull?.Longitude ?? 0,
+                LocationUpdatedUtc = Instant.FromDateTimeUtc(deviceOrNull?.LocationUpdatedUtc ?? DateTime.UtcNow),
+                AccuracyMeters = deviceOrNull?.AccuracyMeters,
                 ChannelUtil = message.ChannelUtilization,
                 AirUtil = message.AirUtilization,
             };

@@ -16,10 +16,10 @@ namespace TBot.Migrations.Analytics
                 columns: table => new
                 {
                     DeviceId = table.Column<long>(type: "bigint", nullable: false),
-                    Timestamp = table.Column<DateTime>(type: "timestamp", nullable: false),
+                    Timestamp = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Latitude = table.Column<double>(type: "double precision", nullable: false),
                     Longitude = table.Column<double>(type: "double precision", nullable: false),
-                    LocationUpdatedUtc = table.Column<DateTime>(type: "timestamp", nullable: false),
+                    LocationUpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     AccuracyMeters = table.Column<int>(type: "integer", nullable: true),
                     ChannelUtil = table.Column<float>(type: "real", nullable: true),
                     AirUtil = table.Column<float>(type: "real", nullable: true)

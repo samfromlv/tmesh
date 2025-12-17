@@ -39,13 +39,13 @@ namespace TBot
                         opt.UseSqlite(options.Value.SQLiteConnectionString);
                     });
 
-                    var hasClickHouse = !string.IsNullOrWhiteSpace(ctx.Configuration.GetSection("TBot").GetValue<string>(nameof(TBotOptions.AnalyticsPostgresConnectionString)));
-                    if (hasClickHouse)
+                    var hasAnalytics = !string.IsNullOrWhiteSpace(ctx.Configuration.GetSection("TBot").GetValue<string>(nameof(TBotOptions.AnalyticsPostgresConnectionString)));
+                    if (hasAnalytics)
                     {
                         services.AddDbContext<AnalyticsDbContext>((s, opt) =>
                         {
                             var options = s.GetRequiredService<IOptions<TBotOptions>>();
-                            opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString);
+                            opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString, o => o.UseNodaTime());
                         });
                         services.AddScoped<AnalyticsService>();
                     }

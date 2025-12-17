@@ -14,13 +14,11 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
         {
             e.HasKey(r => new { r.DeviceId, r.Timestamp });
             e.Property(r => r.DeviceId);
-            e.Property(r => r.Timestamp)
-                .HasColumnType("timestamp");
+            e.Property(r => r.Timestamp);
             e.Property(r => r.Latitude);
             e.Property(r => r.Longitude);
             e.Property(r => r.AccuracyMeters);
-            e.Property(r => r.LocationUpdatedUtc)
-                .HasColumnType("timestamp");
+            e.Property(r => r.LocationUpdatedUtc);
             e.Property(r => r.ChannelUtil);
             e.Property(r => r.AirUtil);
         });

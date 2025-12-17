@@ -28,7 +28,7 @@ namespace TBot.Migrations.Analytics
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("Timestamp")
-                        .HasColumnType("timestamp");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("AccuracyMeters")
                         .HasColumnType("integer");
@@ -43,7 +43,7 @@ namespace TBot.Migrations.Analytics
                         .HasColumnType("double precision");
 
                     b.Property<DateTime>("LocationUpdatedUtc")
-                        .HasColumnType("timestamp");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<double>("Longitude")
                         .HasColumnType("double precision");
