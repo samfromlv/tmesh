@@ -17,6 +17,8 @@ namespace Shared.Models
         public int Devices24h { get; set; }
         public int Devices { get; set; }
 
+        public int TelemetrySaved24H { get; set; }
+
         public DateTime LastUpdate { get; set; }
 
         public DateTime Started { get; set; }

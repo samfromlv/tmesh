@@ -21,6 +21,8 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.LocationUpdatedUtc);
             e.Property(r => r.ChannelUtil);
             e.Property(r => r.AirUtil);
+
+            e.HasIndex(r => r.Timestamp);
         });
     }
 }

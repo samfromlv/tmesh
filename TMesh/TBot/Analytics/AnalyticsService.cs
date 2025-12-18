@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NodaTime;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,6 +16,14 @@ namespace TBot.Analytics
         {
             db.DeviceMetrics.Add(metrics);
             await db.SaveChangesAsync();
+        }
+
+        public async Task<int> GetStatistics(DateTime fromUtc)
+        {
+            var from = Instant.FromDateTimeUtc(DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc));
+            return await db.DeviceMetrics
+                .Where(m => m.Timestamp >= from)
+                 .CountAsync();
         }
 
         public async Task EnsureMigratedAsync()

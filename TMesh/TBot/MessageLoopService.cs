@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Shared.Models;
 using System.Collections.Concurrent;
 using System.Timers;
+using TBot.Analytics;
 using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.MeshMessages;
@@ -106,11 +107,18 @@ public class MessageLoopService(
 
         using var scope = services.CreateScope();
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
+        if (analyticsService != null)
+        {
+            botStats.TelemetrySaved24H = await analyticsService.GetStatistics(now.AddHours(-24));
+        }
 
         botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
         botStats.Devices = await registrationService.GetTotalDevicesCount();
-        botStats.Devices24h = await registrationService.GetActiveDevicesCount(DateTime.UtcNow.AddHours(-24));
+        botStats.Devices24h = await registrationService.GetActiveDevicesCount(now.AddHours(-24));
         botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
+        
+        
         await mqttService.PublishStatus(botStats);
     }
 

@@ -142,10 +142,9 @@ namespace TBot
                 await regService.EnsureMigratedAsync();
                 logger.LogInformation("Database update completed successfully.");
 
-                bool hasAnalytics = !string.IsNullOrWhiteSpace(options.AnalyticsPostgresConnectionString);
-                if (hasAnalytics)
+                var analyticsService = host.Services.GetService<AnalyticsService>();
+                if (analyticsService != null)
                 {
-                    var analyticsService = host.Services.GetRequiredService<AnalyticsService>();
                     await analyticsService.EnsureMigratedAsync();
                     logger.LogInformation("Analytics database update completed successfully.");
                 }
