@@ -1128,10 +1128,10 @@ namespace TBot
             {
                 DeviceId = (uint)message.DeviceId,
                 Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow),
-                Latitude = deviceOrNull?.Latitude ?? 0,
-                Longitude = deviceOrNull?.Longitude ?? 0,
-                LocationUpdatedUtc = Instant.FromDateTimeUtc(deviceOrNull?.LocationUpdatedUtc ?? DateTime.UtcNow),
-                AccuracyMeters = deviceOrNull?.AccuracyMeters,
+                Latitude = deviceOrNull.Latitude ?? 0,
+                Longitude = deviceOrNull.Longitude ?? 0,
+                LocationUpdatedUtc = Instant.FromDateTimeUtc(DateTime.SpecifyKind(deviceOrNull.LocationUpdatedUtc.Value, DateTimeKind.Utc)),
+                AccuracyMeters = deviceOrNull.AccuracyMeters,
                 ChannelUtil = message.ChannelUtilization,
                 AirUtil = message.AirUtilization,
             };
