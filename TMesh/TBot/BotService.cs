@@ -780,13 +780,9 @@ namespace TBot
                             return true;
                         }
 
-                        var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
-                        foreach (var id in registrations)
-                        {
-                            await registrationService.RemoveDeviceFromChatAsync(id, device.DeviceId);
-                        }
+                        await registrationService.DeleteDeviceAsync(device.DeviceId);
 
-                        await botClient.SendMessage(chatId, $"Removed device {device.NodeName} ({device.DeviceId}). Deleted {registrations.Count} registration(s).");
+                        await botClient.SendMessage(chatId, $"Deleted device {device.NodeName} ({device.DeviceId})");
                         return true;
                     }
 

@@ -351,6 +351,29 @@ namespace TBot
             return await db.Devices.AnyAsync(p => p.DeviceId == deviceId);
         }
 
+        public async Task<bool> DeleteDeviceAsync(long deviceId)
+        {
+            var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+            if (device == null)
+            {
+                return false;
+            }
+            var regs = await db.Registrations
+                .Where(r => r.DeviceId == deviceId)
+                .ToListAsync();
+            db.Registrations.RemoveRange(regs);
+            db.Devices.Remove(device);
+            await db.SaveChangesAsync();
+            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+            InvalidateChatsByDeviceIdCache(deviceId);
+            foreach (var reg in regs)
+            {
+                InvalidateDeviceKeysByChatIdCache(reg.ChatId);
+            }
+            return true;
+        }
+
+
         // Remove all registrations for a device in a chat (any user can remove)
         public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)
         {
