@@ -761,6 +761,35 @@ namespace TBot
                         return true;
 
                     }
+
+                case "removenode":
+                    {
+                        var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(nodeId)
+                            || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
+                        {
+                            await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                            return true;
+                        }
+
+                        var device = await registrationService.GetDeviceAsync(parsedNodeId);
+                        if (device == null)
+                        {
+                            await botClient.SendMessage(chatId, "Not found.");
+                            return true;
+                        }
+
+                        var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
+                        foreach (var id in registrations)
+                        {
+                            await registrationService.RemoveDeviceFromChatAsync(id, device.DeviceId);
+                        }
+
+                        await botClient.SendMessage(chatId, $"Removed device {device.NodeName} ({device.DeviceId}). Deleted {registrations.Count} registration(s).");
+                        return true;
+                    }
+
                 case "nodeinfo":
                     {
                         var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
@@ -779,12 +808,19 @@ namespace TBot
                             return true;
                         }
 
-                        var json = JsonSerializer.Serialize(device);
+                        //idented
+                        var json = JsonSerializer.Serialize(device, new JsonSerializerOptions
+                        {
+                            WriteIndented = true
+                        });
+
+                        var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
+
 
                         await botClient.SendMessage(
                             chatId,
                             $"Found node:\r\n\r\n" +
-                            json);
+                            json +"\r\n\r\nRegistrations: " + registrations.Count);
 
                         return true;
                     }
@@ -1123,7 +1159,7 @@ namespace TBot
                 return;
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
-       
+
             var metrics = new DeviceMetric
             {
                 DeviceId = (uint)message.DeviceId,
