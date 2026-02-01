@@ -51,4 +51,8 @@ public class TBotOptions
 
     public string TimeZone { get; set; }
 
+    public string DefaultMqttPasswordDeriveSecret { get; set; }
+
+    public Dictionary<string, string> MqttUserPasswordDeriveSecrets { get; set; }
+
 }

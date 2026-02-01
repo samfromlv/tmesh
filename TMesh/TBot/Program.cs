@@ -85,6 +85,19 @@ namespace TBot
                 GenerateKeys(host);
                 Console.ReadLine();
                 return;
+            } else if (args.Any(a => string.Equals(a, "/passwordgen", StringComparison.OrdinalIgnoreCase)))
+            {
+                //get next arg as username
+                var username = args.SkipWhile(a => !string.Equals(a, "/passwordgen", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault();
+                if (username == null)
+                {
+                     var logger = host.Services.GetRequiredService<ILogger<Program>>();
+                    logger.LogError("Missing username argument for /passwordgen.");
+                    return;
+                }
+                DerivePassword(username, host);
+                Console.ReadLine();
+                return;
             }
 
             await host.RunAsync();
@@ -153,6 +166,30 @@ namespace TBot
             {
                 var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
                 logger2.LogError(ex, "Database update failed.");
+            }
+            return; // exit after install
+        }
+
+        private static void DerivePassword(string username, IHost host)
+        {
+            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            try
+            {
+                var options = host.Services.GetRequiredService<IOptions<TBotOptions>>().Value;
+                var secret = options.DefaultMqttPasswordDeriveSecret;
+                if (options.MqttUserPasswordDeriveSecrets != null
+                    && options.MqttUserPasswordDeriveSecrets.TryGetValue(username, out var sec))
+                {
+                    secret = sec;
+                }
+
+                var password = MqttPasswordDerive.DerivePassword(username, secret);
+                logger.LogInformation("Derived password for user [{Username}] is: [{Password}]", username, password);
+            }
+            catch (Exception ex)
+            {
+                var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
+                logger2.LogError(ex, "Password derivation failed.");
             }
             return; // exit after install
         }
