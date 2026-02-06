@@ -378,19 +378,20 @@ namespace TBot
         public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)
         {
             var regs = await db.Registrations
-                .Where(r => r.ChatId == chatId && r.DeviceId == deviceId)
+                .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
-            if (regs.Count == 0)
+
+            var toRemove = regs.Where(r => r.ChatId == chatId).ToList();
+            if (toRemove.Count == 0)
             {
                 return false;
             }
-            db.Registrations.RemoveRange(regs);
+            db.Registrations.RemoveRange(toRemove);
 
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
             {
-                var totalRegCount = await db.Registrations.CountAsync(r => r.DeviceId == deviceId);
-                device.HasRegistrations = (totalRegCount - regs.Count) == 0;
+                device.HasRegistrations = regs.Count > toRemove.Count;
             }
             await db.SaveChangesAsync();
             InvalidateDeviceKeysByChatIdCache(chatId);
