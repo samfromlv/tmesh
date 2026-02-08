@@ -10,8 +10,9 @@ namespace TBot.Helpers
     public static class MqttPasswordDerive
     {
         /// <summary>
-        /// Derive password as: first 23 chars of base64url_no_padding(SHA256(username + secret)).
-        /// Matches the plugin logic exactly.
+        /// Derive password as: Last two characters of username uppercase than _ than first 23 chars of base64url_no_padding(SHA256(username + secret)).
+        /// Actual MQTT password is without first 3 characters
+        /// TMesh firmare removed first 3 characters when sendign mqtt password
         /// </summary>
         public static string DerivePassword(string username, string secret)
         {
@@ -30,7 +31,11 @@ namespace TBot.Helpers
                 .Replace('/', '_');  // url-safe
 
             // SHA256 => 32 bytes => base64url_no_pad length is always 43 chars, so 23 is safe
-            return b64.Length >= 23 ? b64.Substring(0, 23) : b64;
+            var pwd = b64.Length >= 23 ? b64.Substring(0, 23) : b64;
+
+            //last two characters of username uppercase
+            var prefix = username.Substring(username.Length - 2);
+            return $"{prefix}_{pwd}";
         }
 
         /// <summary>
