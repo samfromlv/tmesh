@@ -2,6 +2,7 @@
 pattern readwrite msh/RU/2/e/PKI/%u
 pattern write msh/RU/2/e/LongFast/%u
 pattern write msh/RU/2/e/Services/%u
+pattern write msh/RU/2/e/UCH/%u
 user tproxy
 topic read TBot/prod/status
 topic write TProxy/prod/telegram/update

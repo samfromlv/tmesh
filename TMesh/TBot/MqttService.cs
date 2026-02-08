@@ -171,7 +171,7 @@ namespace TBot
             {
                 await MessageSent.Invoke(new DataEventArgs<long>(envelope.Packet.Id));
             }
-            _logger.LogInformation("Published Meshtastic message to MQTT");
+            _logger.LogInformation($"Published MQTT message to {topic}");
         }
 
         public async Task PublishStatus(BotStats stats)
@@ -184,7 +184,7 @@ namespace TBot
                 .Build();
             await EnsureMqttConnectedAsync();
             await _client.PublishAsync(message);
-            _logger.LogInformation("Published status message to MQTT");
+            _logger.LogInformation($"Published MQTT status message to {_options.MqttStatusTopic}");
         }
 
         private async Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs arg)

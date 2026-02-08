@@ -17,6 +17,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Configs", "Configs", "{02EA
 		mosquitto_acl.txt = mosquitto_acl.txt
 		mosquitto_add_user.sh = mosquitto_add_user.sh
 		mosquitto_ssl.sh = mosquitto_ssl.sh
+		my.sh = my.sh
 		postgres_install.sh = postgres_install.sh
 		run_tbot_container.sh = run_tbot_container.sh
 		update_tbot_db.sh = update_tbot_db.sh
