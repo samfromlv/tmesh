@@ -394,6 +394,32 @@ namespace TBot
                 device.HasRegistrations = regs.Count > toRemove.Count;
             }
             await db.SaveChangesAsync();
+            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+            InvalidateDeviceKeysByChatIdCache(chatId);
+            InvalidateChatsByDeviceIdCache(deviceId);
+            return true;
+        }
+
+        public async Task<bool> RemoveDeviceFromAllChatsViaOneChatAsync(long chatId, long deviceId)
+        {
+            var regs = await db.Registrations
+                .Where(r => r.DeviceId == deviceId)
+                .ToListAsync();
+
+            if (!regs.Any(r => r.ChatId == chatId))
+            {
+                return false;
+            }
+
+            db.Registrations.RemoveRange(regs);
+
+            var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+            if (device != null)
+            {
+                device.HasRegistrations = false;
+            }
+            await db.SaveChangesAsync();
+            memoryCache.Remove(GetDeviceCacheKey(deviceId));
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
             return true;

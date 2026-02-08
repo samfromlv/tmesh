@@ -12,6 +12,7 @@ namespace TBot.Models
         Adding_NeedDeviceId,
         Adding_NeedCode,
         RemovingDevice,
+        RemovingDeviceFromAll,
         Admin
     }
 }

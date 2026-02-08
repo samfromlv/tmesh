@@ -53,6 +53,11 @@ namespace TBot
                 },
                 new BotCommand
                 {
+                    Command = "remove_from_all_chats",
+                    Description = "Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
+                },
+                new BotCommand
+                {
                     Command = "status",
                     Description = "Show list of registered Meshtastic devices, supports filter by name (e.g. /status MyDevice)"
                 },
@@ -163,8 +168,9 @@ namespace TBot
                     await HandleDeviceAdd(userId, chatId, msg, chatState.Value);
                     break;
                 case ChatState.RemovingDevice:
+                case ChatState.RemovingDeviceFromAll:
                     {
-                        await HandleDeviceRemove(userId, chatId, msg);
+                        await HandleDeviceRemove(userId, chatId, msg, isRemoveFromAll: chatState == ChatState.RemovingDeviceFromAll);
                         break;
                     }
                 default:
@@ -202,7 +208,7 @@ namespace TBot
             }
         }
 
-        private async Task HandleDeviceRemove(long userId, long chatId, Message message)
+        private async Task HandleDeviceRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
         {
             if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -223,15 +229,7 @@ namespace TBot
                 return;
             }
 
-            var removed = await registrationService.RemoveDeviceFromChatAsync(chatId, deviceId);
-            if (!removed)
-            {
-                await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat.");
-            }
-            else
-            {
-                await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} removed from this chat.");
-            }
+            await ExecuteRemoveDevice(chatId, deviceId, isRemoveFromAll);
             registrationService.SetChatState(userId, chatId, ChatState.Default);
         }
 
@@ -569,8 +567,9 @@ namespace TBot
             }
             if (message.Text?.StartsWith("/remove", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/remove");
-                await StartRemove(userId, chatId, deviceIdFromCommand);
+                bool isRemoveFromAll = message.Text.StartsWith("/remove_from_all_chats", StringComparison.OrdinalIgnoreCase);
+                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, isRemoveFromAll ? "/remove_from_all_chats" : "/remove");
+                await StartRemove(userId, chatId, deviceIdFromCommand, isRemoveFromAll);
                 return;
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
@@ -1013,13 +1012,14 @@ namespace TBot
             await ProcessDeviceIdForAdd(userId, chatId, deviceId);
         }
 
-        private async Task StartRemove(long userId, long chatId, string deviceIdText)
+        private async Task StartRemove(long userId, long chatId, string deviceIdText, bool isRemoveFromAll)
         {
             if (string.IsNullOrWhiteSpace(deviceIdText))
             {
                 // No device ID provided, ask for it
                 await botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
-                registrationService.SetChatState(userId, chatId, Models.ChatState.RemovingDevice);
+                registrationService.SetChatState(userId, chatId,
+                    isRemoveFromAll ? Models.ChatState.RemovingDeviceFromAll : Models.ChatState.RemovingDevice);
                 return;
             }
 
@@ -1036,15 +1036,36 @@ namespace TBot
                 return;
             }
 
-            // Process removal immediately
-            var removed = await registrationService.RemoveDeviceFromChatAsync(chatId, deviceId);
-            if (!removed)
+            await ExecuteRemoveDevice(chatId, deviceId, isRemoveFromAll);
+        }
+
+        private async Task ExecuteRemoveDevice(long chatId, long deviceId, bool isRemoveFromAll)
+        {
+            if (isRemoveFromAll)
             {
-                await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat.");
+                // Process removal from all chats
+                var removedFromAll = await registrationService.RemoveDeviceFromAllChatsViaOneChatAsync(chatId, deviceId);
+                if (!removedFromAll)
+                {
+                    await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat. To prove ownership of device please register it first in this chat then retry the command.");
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has been removed from all chats.");
+                }
             }
             else
             {
-                await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has been removed from this chat.");
+                // Process removal immediately
+                var removed = await registrationService.RemoveDeviceFromChatAsync(chatId, deviceId);
+                if (!removed)
+                {
+                    await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} is not registered in this chat.");
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has been removed from this chat.");
+                }
             }
         }
 
