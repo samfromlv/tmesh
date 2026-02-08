@@ -6,7 +6,9 @@ mkdir mosquitto/config
 mkdir mosquitto/data
 mkdir mosquitto/log
 
-docker run -d \
+sudo docker pull eclipse-mosquitto:latest
+sudo docker rm -f mosquitto
+sudo docker run -d \
 --name mosquitto \
 --restart unless-stopped \
 --network host \

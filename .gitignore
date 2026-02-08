@@ -421,3 +421,4 @@ FodyWeavers.xsd
 /TMesh/TBot/appsettings.json
 /TMesh/TBot/appsettings.Release.json
 /TMesh/TProxy/Properties/ServiceDependencies/*
+/TMesh/my.sh
