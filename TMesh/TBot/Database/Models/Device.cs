@@ -1,6 +1,6 @@
 namespace TBot.Database.Models;
 
-public class Device: IDeviceKey
+public class Device: IRecipient
 {
     // Primary key
     public long DeviceId { get; set; }
@@ -16,4 +16,12 @@ public class Device: IDeviceKey
     public double? Longitude { get; set; }
     public DateTime? LocationUpdatedUtc { get; set; }
     public int? AccuracyMeters { get; set; }
+
+    long? IRecipient.RecipientDeviceId => DeviceId;
+
+    byte[] IRecipient.RecipientKey => PublicKey;
+
+    byte? IRecipient.RecipientChannelXor => null;
+
+    long? IRecipient.RecipientChannelId => null;
 }

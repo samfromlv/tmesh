@@ -7,9 +7,17 @@ using TBot.Database.Models;
 
 namespace TBot.Models
 {
-    public class DeviceKey: IDeviceKey
+    public class DeviceKey: IRecipient
     {
         public long DeviceId { get; set; }
         public byte[] PublicKey { get; set; }
+
+        long? IRecipient.RecipientDeviceId => DeviceId;
+
+        byte[] IRecipient.RecipientKey => PublicKey;
+
+        byte? IRecipient.RecipientChannelXor => null;
+
+        long? IRecipient.RecipientChannelId => null;
     }
 }

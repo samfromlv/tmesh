@@ -32,12 +32,19 @@ namespace TBot
             }
         }
 
-        public async Task<bool> HasRegistrationAsync(long chatId, long deviceId)
+        public async Task<bool> HasDeviceRegistrationAsync(long chatId, long deviceId)
         {
-            return await db.Registrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
+            return await db.DeviceRegistrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
         }
 
-        public void StorePendingCodeAsync(
+        public async Task<bool> HasChannelRegistrationAsync(long chatId, int channelId)
+        {
+            return await db.ChannelRegistrations.AnyAsync(r => r.ChatId == chatId && r.ChannelId == channelId);
+        }
+
+
+
+        public void StoreDevicePendingCodeAsync(
             long telegramUserId,
             long chatId,
             long deviceId,
@@ -53,9 +60,39 @@ namespace TBot
             }, expiresUtc);
         }
 
+        public void StoreChannelPendingCodeAsync(
+            long telegramUserId,
+            long chatId,
+            string channelName,
+            byte[] channelKey,
+            string code,
+            DateTimeOffset expiresUtc)
+        {
+            memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
+            {
+                Code = code,
+                Tries = 0,
+                ChannelName = channelName,
+                ChannelKey = channelKey,
+                ExpiresUtc = expiresUtc.UtcDateTime
+            }, expiresUtc);
+        }
+
         public int GetDeviceCodesSentRecently(long deviceId)
         {
             return memoryCache.Get<int?>($"DeviceCodesSent#{deviceId}")
+                ?? 0;
+        }
+
+        public int GetChannelCodesSentRecently(string channelName, string channelKey)
+        {
+            return memoryCache.Get<int?>($"ChannelCodesSent#{channelName}#{channelKey}")
+                ?? 0;
+        }
+
+        public int GetUserCodesSentRecently(long telegramUserId)
+        {
+            return memoryCache.Get<int?>($"UserCodesSent#{telegramUserId}")
                 ?? 0;
         }
 
@@ -66,13 +103,38 @@ namespace TBot
             return codesSent;
         }
 
+        public int IncrementChannelCodesSentRecently(string channelName, string channelKey)
+        {
+            var codesSent = GetChannelCodesSentRecently(channelName, channelKey) + 1;
+            memoryCache.Set($"ChannelCodesSent#{channelName}#{channelKey}", codesSent, DateTimeOffset.UtcNow.AddHours(1));
+            return codesSent;
+        }
+
+        public int IncrementUserCodesSentRecently(long telegramUserId)
+        {
+            var codesSent = GetUserCodesSentRecently(telegramUserId) + 1;
+            memoryCache.Set($"UserCodesSent#{telegramUserId}", codesSent, DateTimeOffset.UtcNow.AddHours(1));
+            return codesSent;
+        }
+
         public void SetChatState(
             long telegramUserId,
             long chatId,
             ChatState state)
         {
+            SetChatStateWithData(telegramUserId, chatId, new ChatStateWithData
+            {
+                State = state,
+            });
+        }
+
+        public void SetChatStateWithData(
+          long telegramUserId,
+          long chatId,
+          ChatStateWithData state)
+        {
             var key = $"ChatState#{telegramUserId}#{chatId}";
-            if (state == ChatState.Default)
+            if (state.State == ChatState.Default)
             {
                 memoryCache.Remove(key);
             }
@@ -81,6 +143,8 @@ namespace TBot
                 memoryCache.Set(key, state, DateTime.UtcNow.AddMinutes(10));
             }
         }
+
+
 
         public bool TryAdminLogin(long telegramUserId, string password)
         {
@@ -113,21 +177,46 @@ namespace TBot
                 .ToString("D6");
         }
 
-        public ChatState? GetChatState(long telegramUserId, long chatId)
+        public ChatStateWithData GetChatState(long telegramUserId, long chatId)
         {
             var key = $"ChatState#{telegramUserId}#{chatId}";
-            return memoryCache.Get<ChatState?>(key);
+            return memoryCache.Get<ChatStateWithData>(key);
         }
 
         private async Task<List<DeviceKey>> GetDeviceKeysByChatId(long chatId)
         {
-            return await (from r in db.Registrations
+            return await (from r in db.DeviceRegistrations
                           join d in db.Devices on r.DeviceId equals d.DeviceId
                           where r.ChatId == chatId
                           select new DeviceKey
                           {
                               DeviceId = r.DeviceId,
                               PublicKey = d.PublicKey,
+                          }).ToListAsync();
+        }
+
+        private async Task<List<ChannelKey>> GetChannelKeysByChatId(long chatId)
+        {
+            return await (from r in db.ChannelRegistrations
+                          join c in db.Channels on r.ChannelId equals c.Id
+                          where r.ChatId == chatId
+                          select new ChannelKey
+                          {
+                              Id = c.Id,
+                              ChannelXor = c.XorHash,
+                              PreSharedKey = c.Key,
+                          }).ToListAsync();
+        }
+
+        private async Task<List<ChannelKey>> GetChannelKeysByHash(byte hash)
+        {
+            return await (from c in db.Channels
+                          where c.XorHash == hash
+                          select new ChannelKey
+                          {
+                              Id = c.Id,
+                              ChannelXor = c.XorHash,
+                              PreSharedKey = c.Key,
                           }).ToListAsync();
         }
 
@@ -140,14 +229,41 @@ namespace TBot
             });
         }
 
+        public Task<List<ChannelKey>> GetChannelKeysByChatIdCached(long chatId)
+        {
+            return memoryCache.GetOrCreateAsync($"ChannelKeysByChatId#{chatId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return await GetChannelKeysByChatId(chatId);
+            });
+        }
+
+        public Task<List<ChannelKey>> GetChannelKeysByHashCached(byte hash)
+        {
+            return memoryCache.GetOrCreateAsync($"GetChannelKeysByHash#{hash}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(3);
+                return await GetChannelKeysByHash(hash);
+            });
+        }
+
         public void InvalidateDeviceKeysByChatIdCache(long chatId)
         {
             memoryCache.Remove($"DeviceKeysByChatId#{chatId}");
         }
 
+        public void InvalidateChannelKeysByChatIdCache(long chatId)
+        {
+            memoryCache.Remove($"ChannelKeysByChatId#{chatId}");
+        }
+        public void InvalidateChannelKeysByHashCache(byte hash)
+        {
+            memoryCache.Remove($"GetChannelKeysByHash#{hash}");
+        }
+
         public async Task<List<DeviceName>> GetDeviceNamesByChatId(long chatId)
         {
-            return await (from r in db.Registrations
+            return await (from r in db.DeviceRegistrations
                           join d in db.Devices on r.DeviceId equals d.DeviceId
                           where r.ChatId == chatId
                           select new DeviceName
@@ -161,7 +277,7 @@ namespace TBot
 
         public async Task<List<DevicePosition>> GetDevicePositionByChatId(long chatId)
         {
-            return await (from r in db.Registrations
+            return await (from r in db.DeviceRegistrations
                           join d in db.Devices on r.DeviceId equals d.DeviceId
                           where r.ChatId == chatId
                           select new DevicePosition
@@ -179,8 +295,16 @@ namespace TBot
 
         private async Task<List<long>> GetChatsByDeviceId(long deviceId)
         {
-            return await db.Registrations
+            return await db.DeviceRegistrations
                 .Where(r => r.DeviceId == deviceId)
+                .Select(r => r.ChatId)
+                .ToListAsync();
+        }
+
+        private async Task<List<long>> GetChatsByChannelId(long channelId)
+        {
+            return await db.ChannelRegistrations
+                .Where(r => r.ChannelId == channelId)
                 .Select(r => r.ChatId)
                 .ToListAsync();
         }
@@ -194,9 +318,23 @@ namespace TBot
             });
         }
 
+        public Task<List<long>> GetChatsByChannelIdCached(long channelId)
+        {
+            return memoryCache.GetOrCreateAsync($"ChatsByChannelId#{channelId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return await GetChatsByChannelId(channelId);
+            });
+        }
+
         public void InvalidateChatsByDeviceIdCache(long deviceId)
         {
             memoryCache.Remove($"ChatsByDeviceId#{deviceId}");
+        }
+
+        public void InvalidateChatsByChannelIdCache(long channelId)
+        {
+            memoryCache.Remove($"ChatsByChannelId#{channelId}");
         }
 
         public static bool IsValidCodeFormat(string code)
@@ -227,37 +365,93 @@ namespace TBot
                 return false;
             }
 
-            var reg = await db.Registrations.FirstOrDefaultAsync(x =>
-                x.ChatId == chatId
-                && x.DeviceId == storedCode.DeviceId);
-            var now = DateTime.UtcNow;
-            if (reg == null)
+            if (storedCode.DeviceId != null)
             {
-                reg = new DeviceRegistration
+                var reg = await db.DeviceRegistrations.FirstOrDefaultAsync(x =>
+                    x.ChatId == chatId
+                    && x.DeviceId == storedCode.DeviceId);
+                var now = DateTime.UtcNow;
+                if (reg == null)
                 {
-                    TelegramUserId = telegramUserId,
-                    ChatId = chatId,
-                    DeviceId = storedCode.DeviceId,
-                    CreatedUtc = now
-                };
-                db.Registrations.Add(reg);
+                    reg = new DeviceRegistration
+                    {
+                        TelegramUserId = telegramUserId,
+                        ChatId = chatId,
+                        DeviceId = storedCode.DeviceId.Value,
+                        CreatedUtc = now
+                    };
+                    db.DeviceRegistrations.Add(reg);
 
-                var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == storedCode.DeviceId);
-                if (device != null)
-                {
-                    device.HasRegistrations = true;
+                    var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == storedCode.DeviceId);
+                    if (device != null)
+                    {
+                        device.HasRegistrations = true;
+                    }
                 }
+                else
+                {
+                    reg.TelegramUserId = telegramUserId;
+                    reg.CreatedUtc = now;
+                }
+                await db.SaveChangesAsync();
+                memoryCache.Remove(key);
+                InvalidateDeviceKeysByChatIdCache(chatId);
+                InvalidateChatsByDeviceIdCache(storedCode.DeviceId.Value);
+                return true;
+            }
+            else if (storedCode.ChannelName != null && storedCode.ChannelKey != null)
+            {
+                var channel = await db.Channels.FirstOrDefaultAsync(c =>
+                    c.Name == storedCode.ChannelName
+                    && c.Key == storedCode.ChannelKey);
+
+                var now = DateTime.UtcNow;
+
+                if (channel == null)
+                {
+                    channel = new Channel
+                    {
+                        Name = storedCode.ChannelName,
+                        Key = storedCode.ChannelKey,
+                        XorHash = MeshtasticService.GenerateChannelHash(storedCode.ChannelName, storedCode.ChannelKey),
+                        CreatedUtc = now
+                    };
+                    db.Channels.Add(channel);
+                    await db.SaveChangesAsync();
+                    InvalidateChannelKeysByHashCache(channel.XorHash);
+                }
+
+
+                var reg = await db.ChannelRegistrations.FirstOrDefaultAsync(x =>
+                    x.ChatId == chatId
+                    && x.ChannelId == channel.Id);
+
+                if (reg == null)
+                {
+                    reg = new ChannelRegistration
+                    {
+                        TelegramUserId = telegramUserId,
+                        ChatId = chatId,
+                        ChannelId = channel.Id,
+                        CreatedUtc = now,
+                    };
+                    db.ChannelRegistrations.Add(reg);
+                }
+                else
+                {
+                    reg.TelegramUserId = telegramUserId;
+                    reg.CreatedUtc = now;
+                }
+                await db.SaveChangesAsync();
+                memoryCache.Remove(key);
+                InvalidateChannelKeysByChatIdCache(chatId);
+                InvalidateChatsByChannelIdCache(channel.Id);
+                return true;
             }
             else
             {
-                reg.TelegramUserId = telegramUserId;
-                reg.CreatedUtc = now;
+                return false;
             }
-            await db.SaveChangesAsync();
-            memoryCache.Remove(key);
-            InvalidateDeviceKeysByChatIdCache(chatId);
-            InvalidateChatsByDeviceIdCache(storedCode.DeviceId);
-            return true;
         }
 
         private static string GetPendingCodeCacheKey(long telegramUserId, long chatId)
@@ -268,15 +462,15 @@ namespace TBot
         // Device public key storage and lookup
         private static string GetDeviceCacheKey(long deviceId) => DeviceCachePrefix + deviceId;
 
+
         public async Task<Device> GetDeviceAsync(long deviceId)
         {
             if (memoryCache.TryGetValue<Device>(GetDeviceCacheKey(deviceId), out var cached))
             {
                 return cached;
             }
-
             var entity = await db.Devices.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.DeviceId == deviceId);
+               .FirstOrDefaultAsync(p => p.DeviceId == deviceId);
 
             if (entity?.PublicKey != null)
             {
@@ -284,6 +478,21 @@ namespace TBot
                 return entity;
             }
             return null;
+        }
+
+        public async Task<Channel> GetChannelAsync(int channelId)
+        {
+            return await memoryCache.GetOrCreateAsync($"Channel#{channelId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
+                return await db.Channels.AsNoTracking().FirstOrDefaultAsync(p => p.Id == channelId);
+            });
+        }
+
+        public async Task<Channel> FindChannelAsync(string channelName, byte[] key)
+        {
+            return await db.Channels.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Name == channelName && p.Key == key);
         }
 
         public async Task SaveAssumeChanged(Device device)
@@ -358,13 +567,13 @@ namespace TBot
             {
                 return false;
             }
-            var regs = await db.Registrations
+            var regs = await db.DeviceRegistrations
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
-            db.Registrations.RemoveRange(regs);
+            db.DeviceRegistrations.RemoveRange(regs);
             db.Devices.Remove(device);
             await db.SaveChangesAsync();
-            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+            InvalidateDeviceCache(deviceId);
             InvalidateChatsByDeviceIdCache(deviceId);
             foreach (var reg in regs)
             {
@@ -373,11 +582,16 @@ namespace TBot
             return true;
         }
 
+        private void InvalidateDeviceCache(long deviceId)
+        {
+            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+        }
+
 
         // Remove all registrations for a device in a chat (any user can remove)
         public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)
         {
-            var regs = await db.Registrations
+            var regs = await db.DeviceRegistrations
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
 
@@ -386,7 +600,7 @@ namespace TBot
             {
                 return false;
             }
-            db.Registrations.RemoveRange(toRemove);
+            db.DeviceRegistrations.RemoveRange(toRemove);
 
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
@@ -394,7 +608,7 @@ namespace TBot
                 device.HasRegistrations = regs.Count > toRemove.Count;
             }
             await db.SaveChangesAsync();
-            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+            InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
             return true;
@@ -402,7 +616,7 @@ namespace TBot
 
         public async Task<bool> RemoveDeviceFromAllChatsViaOneChatAsync(long chatId, long deviceId)
         {
-            var regs = await db.Registrations
+            var regs = await db.DeviceRegistrations
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
 
@@ -411,7 +625,7 @@ namespace TBot
                 return false;
             }
 
-            db.Registrations.RemoveRange(regs);
+            db.DeviceRegistrations.RemoveRange(regs);
 
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
@@ -419,7 +633,7 @@ namespace TBot
                 device.HasRegistrations = false;
             }
             await db.SaveChangesAsync();
-            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+            InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
             return true;
@@ -427,7 +641,7 @@ namespace TBot
 
         public async Task<int> GetTotalRegistrationsCount()
         {
-            return await db.Registrations.CountAsync();
+            return await db.DeviceRegistrations.CountAsync();
         }
 
         public async Task<int> GetTotalDevicesCount()

@@ -3,11 +3,11 @@ using Meshtastic.Protobufs;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using Shared.Models;
 using System.Text;
+using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.MeshMessages;
@@ -21,15 +21,17 @@ namespace TBot
         const int MESHTASTIC_PKC_OVERHEAD = 12;
         private const int NoDupExpirationMinutes = 3;
         private const int PkiKeyLength = 32;
+        private const int PskKeyLengthShort = 16;
+        private const int PskKeyLength = 32;
         private const int ReplyHopsMargin = 2;
         private const int KeepStatsForMinutes = 60;
+        private const int MaxChannelNameBytes = 11;
         private const int TraceRouteSNRDefault = sbyte.MinValue;
         private const uint BroadcastDeviceId = uint.MaxValue;
         private static readonly LinkedList<MeshStat> meshStats = new();
         private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
-        private byte[] _macAddress;
 
-        private List<ChannelInternalInfo> _channels = new();
+        private readonly List<ChannelInternalInfo> _channels = [];
         private ChannelInternalInfo _primaryChannel;
 
 
@@ -47,7 +49,6 @@ namespace TBot
             _memoryCache = memoryCache;
             _options = options.Value;
             _localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
-            _macAddress = GetMacAddressFromNodeId();
             InitChannels();
         }
 
@@ -70,6 +71,11 @@ namespace TBot
             }
         }
 
+        public IEnumerable<IRecipient> GetAllPublicChannels()
+        {
+            return _channels;
+        }
+
         private static ChannelInternalInfo ConvertChannel(ChannelInfo ch) =>
             ConvertChannel(ch.Name, ch.PskBase64);
 
@@ -86,11 +92,6 @@ namespace TBot
                 Psk = psk,
                 Hash = GenerateChannelHash(name, psk)
             };
-        }
-
-        public IEnumerable<ChannelInternalInfo> GetMatchingChannels(uint channelHash)
-        {
-            return _channels.Where(c => c.Hash == channelHash);
         }
 
         private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
@@ -118,14 +119,44 @@ namespace TBot
             string text,
             long? relayGatewayId,
             int hopLimit,
-            string channelName = null)
+            string publicChannelName = null)
         {
+            var recipient = publicChannelName == null
+                ? _primaryChannel
+                : _channels.FirstOrDefault(x => string.Equals(x.Name, publicChannelName, StringComparison.InvariantCultureIgnoreCase));
+
             var envelope = PackPublicTextMessage(
                 GenerateNewMessageId(),
                 text,
                 null,
                 hopLimit,
-                channelName);
+                recipient);
+
+            AddStat(new MeshStat
+            {
+                TextMessagesSent = 1,
+            });
+            var delay = QueueMessage(envelope, MessagePriority.Normal, relayGatewayId);
+            return new QueueResult
+            {
+                MessageId = envelope.Packet.Id,
+                EstimatedSendDelay = delay
+            };
+        }
+
+        public QueueResult SendPrivateChannelTextMessage(
+            long newMessageId,
+            string text,
+            long? relayGatewayId,
+            int hopLimit,
+            IRecipient channel)
+        {
+            var envelope = PackPrivateTextMessage(
+                newMessageId,
+                text,
+                null,
+                hopLimit,
+                channel);
 
             AddStat(new MeshStat
             {
@@ -146,7 +177,7 @@ namespace TBot
             long? relayGatewayId,
             int hopLimit)
         {
-            return SendTextMessage(GenerateNewMessageId(),
+            return SendDirectTextMessage(GenerateNewMessageId(),
                 deviceId,
                 publicKey,
                 text,
@@ -155,7 +186,7 @@ namespace TBot
                 hopLimit);
         }
 
-        public QueueResult SendTextMessage(
+        public QueueResult SendDirectTextMessage(
             long newMessageId,
             long deviceId,
             byte[] publicKey,
@@ -252,7 +283,6 @@ namespace TBot
             MessagePriority messagePriority,
             long? relayThroughGatewayId)
         {
-            var id = envelope.Packet.Id;
             return _localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
                 Message = envelope,
@@ -289,7 +319,7 @@ namespace TBot
             string text,
             long? replyToMessageId,
             int hopLimit,
-            string channelName = null)
+            IRecipient recipient)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -299,14 +329,25 @@ namespace TBot
                 replyToMessageId,
                 hopLimit);
 
-            var channel = channelName == null
-                ? _primaryChannel
-                : _channels.FirstOrDefault(x => string.Equals(x.Name, channelName));
+            packet = EncryptPacketWithPsk(packet, recipient);
+            var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
+            return envelope;
+        }
 
-            if (channel == null)
-            {
-                throw new Exception($"Channel {channelName} not found");
-            }
+        private ServiceEnvelope PackPrivateTextMessage(
+           long newMessageId,
+           string text,
+           long? replyToMessageId,
+           int hopLimit,
+           IRecipient channel)
+        {
+            var packet = CreateTextMessagePacket(
+                newMessageId,
+                deviceId: BroadcastDeviceId,
+                null,
+                text,
+                replyToMessageId,
+                hopLimit);
 
             packet = EncryptPacketWithPsk(packet, channel);
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
@@ -540,6 +581,48 @@ namespace TBot
             return packet;
         }
 
+        public static bool IsValidChannelName(string name)
+        {
+            return !string.IsNullOrEmpty(name)
+                && Encoding.UTF8.GetByteCount(name) <= MaxChannelNameBytes;
+        }
+
+        public static bool IsValidChannelKey(string key)
+        {
+            return TryParseChannelKey(key, out _);
+        }
+
+        public static bool TryParseChannelKey(string key, out byte[] buffer)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                buffer = null;
+                return false;
+            }
+
+            if (key.Length > PskKeyLength * 2)
+            {
+                buffer = null;
+                return false;
+            }
+
+            //check if it's base64 and decodes to the correct length
+            var bufferLong = new byte[PskKeyLength];
+            if (!Convert.TryFromBase64String(key, bufferLong, out var bytesWritten))
+            {
+                buffer = null;
+                return false;
+            }
+            if (bytesWritten != PskKeyLength && bytesWritten != PskKeyLengthShort)
+            {
+                buffer = null;
+                return false;
+            }
+            buffer = new byte[bytesWritten];
+            Array.Copy(bufferLong, buffer, bytesWritten);
+            return true;
+        }
+
 
         public static bool TryParseDeviceId(string input, out long deviceId)
         {
@@ -646,7 +729,6 @@ namespace TBot
                         HwModel = HardwareModel.DiyV1,
                         Id = GetMeshtasticNodeHexId(_options.MeshtasticNodeId),
                         IsLicensed = false,
-                        Macaddr = ByteString.CopyFrom(_macAddress),
                         LongName = _options.MeshtasticNodeNameLong,
                         IsUnmessagable = false, // Field name from external library kept as-is.
                         ShortName = _options.MeshtasticNodeNameShort,
@@ -660,13 +742,18 @@ namespace TBot
             return packet;
         }
 
-        private MeshPacket EncryptPacketWithPsk(MeshPacket packet, ChannelInternalInfo channel)
+        private static MeshPacket EncryptPacketWithPsk(MeshPacket packet, IRecipient channel)
+        {
+            return EncryptPacketWithPsk(packet, channel.RecipientChannelXor.Value, channel.RecipientKey);
+        }
+
+        private static MeshPacket EncryptPacketWithPsk(MeshPacket packet, byte channelXorHash, byte[] channelPsk)
         {
             var input = packet.Decoded.ToByteArray();
             var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
-            var encrypted = TransformPacket(input, nonce.Create(), channel.Psk, true);
+            var encrypted = TransformPacket(input, nonce.Create(), channelPsk, true);
             packet.Encrypted = ByteString.CopyFrom(encrypted);
-            packet.Channel = channel.Hash;
+            packet.Channel = channelXorHash;
             return packet;
         }
 
@@ -679,7 +766,7 @@ namespace TBot
             return result;
         }
 
-        public static uint GenerateChannelHash(string name, byte[] key)
+        public static byte GenerateChannelHash(string name, byte[] key)
         {
             if (string.IsNullOrEmpty(name) || key == null || key.Length == 0)
                 return 0;
@@ -690,22 +777,22 @@ namespace TBot
             return h;
         }
 
-        public MeshPacket DecryptPacketWithPsk(MeshPacket packet)
+        public static (MeshPacket, IRecipient) DecryptPacketWithPsk(MeshPacket packet, IEnumerable<IRecipient> recipients)
         {
             var input = packet.Encrypted.ToByteArray();
             var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
 
-            foreach (var channel in GetMatchingChannels(packet.Channel))
+            foreach (var channel in recipients.Where(x => x.RecipientChannelXor == (byte)packet.Channel))
             {
-                var decrypted = TransformPacket(input, nonce.Create(), channel.Psk, false);
+                var decrypted = TransformPacket(input, nonce.Create(), channel.RecipientKey, false);
                 var decoded = Data.Parser.ParseFrom(decrypted);
                 if (decoded.Portnum != PortNum.UnknownApp)
                 {
                     packet.Decoded = decoded;
-                    return packet;
+                    return (packet, channel);
                 }
             }
-            return null;
+            return default;
         }
 
         public static byte[] TransformPacket(byte[] input, byte[] nonce, byte[] key, bool forEncryption)
@@ -748,26 +835,25 @@ namespace TBot
             return false;
         }
 
-        public static (bool isPki, long senderDeviceId, long receiverDeviceId) GetMessageSenderDeviceId(
+        public static MeshAddressInfo GetPacketAddresses(
             ServiceEnvelope envelope)
         {
             if (envelope?.Packet == null)
             {
-                return default;
+                return null;
             }
-            if (envelope.Packet.PkiEncrypted)
+            return new MeshAddressInfo
             {
-                return (true, envelope.Packet.From, envelope.Packet.To);
-            }
-            else
-            {
-                return (false, envelope.Packet.From, envelope.Packet.To);
-            }
+                From = envelope.Packet.From,
+                To = envelope.Packet.To,
+                IsPkiEncrypted = envelope.Packet.PkiEncrypted,
+                XorHash = (byte)envelope.Packet.Channel
+            };
         }
 
         public (bool success, MeshMessage msg) TryDecryptMessage(
             ServiceEnvelope envelope,
-            byte[] SenderPublicKey)
+            List<IRecipient> recipients)
         {
             if (envelope?.Packet == null)
             {
@@ -802,7 +888,7 @@ namespace TBot
 
             if (!envelope.Packet.PkiEncrypted)
             {
-                var packet = DecryptPacketWithPsk(envelope.Packet);
+                var (packet, recipient) = DecryptPacketWithPsk(envelope.Packet, recipients);
                 if (packet?.Decoded == null)
                 {
                     return default;
@@ -810,7 +896,7 @@ namespace TBot
 
                 if (packet.Decoded.Portnum == PortNum.NodeinfoApp)
                 {
-                    return DecodeNodeInfo(envelope, packet.Decoded);
+                    return DecodeNodeInfo(envelope, packet.Decoded, recipient);
                 }
                 else if (packet.Decoded.Portnum == PortNum.RoutingApp
                     && packet.To == _options.MeshtasticNodeId)
@@ -819,7 +905,7 @@ namespace TBot
                     {
                         AckRecieved = 1,
                     });
-                    return DecodeAck(envelope, packet);
+                    return DecodeAck(envelope, packet, recipient);
                 }
                 else if (packet.Decoded.Portnum == PortNum.TracerouteApp
                     && packet.To == _options.MeshtasticNodeId)
@@ -836,6 +922,7 @@ namespace TBot
                     return (true, new TraceRouteMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        ChannelId = recipient.RecipientChannelId,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -885,6 +972,7 @@ namespace TBot
                     return (true, new PositionMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        ChannelId = recipient.RecipientChannelId,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -918,6 +1006,7 @@ namespace TBot
                         IsDirectMessage = false,
                         Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
                         DeviceId = envelope.Packet.From,
+                        ChannelId = recipient.RecipientChannelId,
                         ReplyTo = envelope.Packet.Decoded.ReplyId
                     };
                     AddStat(new MeshStat
@@ -930,7 +1019,7 @@ namespace TBot
                 else if (packet.Decoded.Portnum == PortNum.TelemetryApp)
                 {
                     var telemetry = Telemetry.Parser.ParseFrom(packet.Decoded.Payload);
-                    
+
                     if (telemetry == null
                         || telemetry.DeviceMetrics == null
                         || (!telemetry.DeviceMetrics.HasChannelUtilization
@@ -942,6 +1031,7 @@ namespace TBot
                     return (true, new DeviceMetricsMessage
                     {
                         DeviceId = envelope.Packet.From,
+                        ChannelId = recipient.RecipientChannelId,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -952,7 +1042,7 @@ namespace TBot
                         ChannelUtilization = telemetry.DeviceMetrics.HasChannelUtilization
                             ? telemetry.DeviceMetrics.ChannelUtilization
                             : null,
-                        AirUtilization = telemetry.DeviceMetrics.HasAirUtilTx 
+                        AirUtilization = telemetry.DeviceMetrics.HasAirUtilTx
                             ? telemetry.DeviceMetrics.AirUtilTx
                             : null
                     });
@@ -966,7 +1056,11 @@ namespace TBot
             if (envelope.Packet.To != _options.MeshtasticNodeId)
                 return default;
 
-            if (SenderPublicKey == null)
+            var device = recipients.FirstOrDefault(x=>x.RecipientDeviceId != null);
+
+            var publicKey = device.RecipientKey;
+
+            if (publicKey == null)
             {
                 return (true, new EncryptedDirectMessage
                 {
@@ -983,7 +1077,7 @@ namespace TBot
 
             if (!Meshtastic.Crypto.PKIEncryption.Decrypt(
                  Convert.FromBase64String(_options.MeshtasticPrivateKeyBase64),
-                 SenderPublicKey,
+                 publicKey,
                  envelope.Packet
              ))
             {
@@ -1019,11 +1113,11 @@ namespace TBot
                 {
                     AckRecieved = 1,
                 });
-                return DecodeAck(envelope, envelope.Packet);
+                return DecodeAck(envelope, envelope.Packet, device);
             }
             else if (envelope.Packet.Decoded.Portnum == PortNum.NodeinfoApp)
             {
-                return DecodeNodeInfo(envelope, envelope.Packet.Decoded);
+                return DecodeNodeInfo(envelope, envelope.Packet.Decoded, device);
             }
             return default;
         }
@@ -1058,12 +1152,13 @@ namespace TBot
 
         public TimeSpan SingleMessageQueueDelay => _localMessageQueueService.SingleMessageQueueDelay;
 
-        private static (bool success, MeshMessage msg) DecodeAck(ServiceEnvelope envelope, MeshPacket packet)
+        private static (bool success, MeshMessage msg) DecodeAck(ServiceEnvelope envelope, MeshPacket packet, IRecipient recipient)
         {
             var routing = Routing.Parser.ParseFrom(packet.Decoded.Payload);
             return (true, new AckMessage
             {
                 DeviceId = envelope.Packet.From,
+                ChannelId = recipient.RecipientChannelId,
                 NeedAck = false,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 GatewayId = PraseDeviceHexId(envelope.GatewayId),
@@ -1075,7 +1170,7 @@ namespace TBot
             });
         }
 
-        private (bool success, MeshMessage msg) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded)
+        private (bool success, MeshMessage msg) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             var user = User.Parser.ParseFrom(decoded.Payload);
             if (user?.PublicKey == null
@@ -1095,6 +1190,7 @@ namespace TBot
             return (true, new NodeInfoMessage
             {
                 DeviceId = deviceId,
+                ChannelId = recipient.RecipientChannelId,
                 NeedAck = envelope.Packet.WantAck
                     && envelope.Packet.To != BroadcastDeviceId
                     && deviceId != BroadcastDeviceId,

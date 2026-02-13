@@ -237,17 +237,30 @@ public class MessageLoopService(
                 return;
             }
 
-            var (isPki, senderDeviceId, receiverDeviceId) = MeshtasticService.GetMessageSenderDeviceId(msg.Data);
+            var packetFromTo = MeshtasticService.GetPacketAddresses(msg.Data);
             Device device = null;
-            if (isPki && receiverDeviceId == _options.MeshtasticNodeId)
+            var recipients = new List<IRecipient>(8);
+            RegistrationService registrationService = null;
+            if (packetFromTo.IsPkiEncrypted && packetFromTo.To == _options.MeshtasticNodeId)
             {
-                scope = services.CreateScope();
-                var _registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-                device = await _registrationService.GetDeviceAsync(senderDeviceId);
+                scope ??= services.CreateScope();
+                registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
+                device = await registrationService.GetDeviceAsync(packetFromTo.From);
+                if (device != null)
+                {   
+                    recipients.Add(device);
+                }   
+            }
+            if (!packetFromTo.IsPkiEncrypted)
+            {
+                scope ??= services.CreateScope();
+                registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
+                recipients.AddRange(meshtasticService.GetAllPublicChannels());
+                var channelRecipients = await registrationService.GetChannelKeysByHashCached(packetFromTo.XorHash);
+                recipients.AddRange(channelRecipients);
             }
 
-            var res = meshtasticService.TryDecryptMessage(msg.Data, device?.PublicKey);
-
+            var res = meshtasticService.TryDecryptMessage(msg.Data, recipients);
             if (!res.success)
             {
                 return;

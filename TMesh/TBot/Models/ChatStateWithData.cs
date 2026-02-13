@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public class DeliveryStatusWithDeviceId
+    public class ChatStateWithData
     {
-        public long DeviceId { get; set; }
-        public DeliveryStatus Status { get; set; }
+        public ChatState State { get; set; }
+
+        public string ChannelName { get; set; }
     }
 }

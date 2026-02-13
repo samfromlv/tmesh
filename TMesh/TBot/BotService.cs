@@ -28,7 +28,12 @@ namespace TBot
     {
 
         const int TrimUserNamesToLength = 8;
+        private const string NoDeviceMessage = "No registered devices or channels. You can register a new device with the /add_device command or channel with /add_channel command. Please remove the bot from the group if you don't need it.";
         private readonly TBotOptions _options = options.Value;
+        private static readonly JsonSerializerOptions IdentedOptions = new()
+        {
+            WriteIndented = true,
+        };
 
         public List<MeshtasticMessageStatus> TrackedMessages { get; } = [];
 
@@ -43,18 +48,33 @@ namespace TBot
             [
                 new BotCommand
                 {
-                    Command = "add",
-                    Description = "Register a Meshtastic device (e.g., /add !aabbcc11)"
+                    Command = "add_device",
+                    Description = "Register a Meshtastic device (e.g., /add_device !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "remove",
-                    Description = "Unregister a Meshtastic device (e.g., /remove !aabbcc11)"
+                    Command = "add_channel",
+                    Description = "Register a Meshtastic private channel (e.g., /add_channel !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "remove_from_all_chats",
+                    Command = "remove_device",
+                    Description = "Unregister a Meshtastic device (e.g., /remove_device !aabbcc11)"
+                },
+                 new BotCommand
+                {
+                    Command = "remove_channel",
+                    Description = "Unregister a Meshtastic private channel (e.g., /remove_channel <ChannelName> or <ChannelID>)"
+                },
+                new BotCommand
+                {
+                    Command = "remove_device_from_all_chats",
                     Description = "Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
+                },
+                new BotCommand
+                {
+                    Command = "remove_channel_from_all_chats",
+                    Description = "Unregister a Meshtastic private channel from all chats. Useful when you have no access to chats where channel is registered. (e.g., /remove_channel_from_all_chats <ChannelName> or <ChannelID>)"
                 },
                 new BotCommand
                 {
@@ -112,7 +132,9 @@ namespace TBot
         }
 
         private void StoreDeviceGateway(MeshMessage msg)
-            => StoreDeviceGateway(msg.DeviceId, msg.GatewayId);
+        { 
+            StoreDeviceGateway(msg.DeviceId, msg.GatewayId);
+        }
 
         private void StoreDeviceGateway(long deviceId, long gatewayId)
         {
@@ -159,18 +181,23 @@ namespace TBot
             var userName = msg.From.Username ?? $"{msg.From.FirstName} {msg.From.LastName}".Trim();
 
 
-            var chatState = registrationService.GetChatState(userId, chatId);
+            var chatStateWithData = registrationService.GetChatState(userId, chatId);
 
-            switch (chatState)
+            switch (chatStateWithData?.State)
             {
-                case ChatState.Adding_NeedDeviceId:
-                case ChatState.Adding_NeedCode:
-                    await HandleDeviceAdd(userId, chatId, msg, chatState.Value);
+                case ChatState.AddingDevice_NeedId:
+                case ChatState.AddingDevice_NeedCode:
+                    await ProceedDeviceAdd(userId, chatId, msg, chatStateWithData);
+                    break;
+                case ChatState.AddingChannel_NeedName:
+                case ChatState.AddingChannel_NeedKey:
+                case ChatState.AddingChannel_NeedCode:
+                    await ProceedChannelAdd(userId, chatId, msg, chatStateWithData);
                     break;
                 case ChatState.RemovingDevice:
                 case ChatState.RemovingDeviceFromAll:
                     {
-                        await HandleDeviceRemove(userId, chatId, msg, isRemoveFromAll: chatState == ChatState.RemovingDeviceFromAll);
+                        await ProceedDeviceRemove(userId, chatId, msg, isRemoveFromAll: chatStateWithData.State == ChatState.RemovingDeviceFromAll);
                         break;
                     }
                 default:
@@ -181,11 +208,11 @@ namespace TBot
             }
         }
 
-        private async Task HandleDeviceAdd(
-            long userId,
-            long chatId,
-            Message message,
-            ChatState chatState)
+        private async Task ProceedChannelAdd(
+           long userId,
+           long chatId,
+           Message message,
+           ChatStateWithData chatState)
         {
             if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -194,13 +221,17 @@ namespace TBot
                 return;
             }
 
-            if (chatState == ChatState.Adding_NeedDeviceId)
+            if (chatState.State == ChatState.AddingChannel_NeedName)
             {
-                await ProcessNeedDeviceId(userId, chatId, message);
+                await ProceedNeedChannelName(userId, chatId, message);
             }
-            else if (chatState == ChatState.Adding_NeedCode)
+            else if (chatState.State == ChatState.AddingChannel_NeedKey)
             {
-                await ProcessNeedCode(userId, chatId, message);
+                await ProceedNeedChannelKey(userId, chatId, message, chatState);
+            }
+            else if (chatState.State == ChatState.AddingChannel_NeedCode)
+            {
+                await ProceedNeedCode(userId, chatId, message);
             }
             else
             {
@@ -208,7 +239,34 @@ namespace TBot
             }
         }
 
-        private async Task HandleDeviceRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
+        private async Task ProceedDeviceAdd(
+            long userId,
+            long chatId,
+            Message message,
+            ChatStateWithData chatState)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Registration canceled.");
+                registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            if (chatState.State == ChatState.AddingDevice_NeedId)
+            {
+                await ProceedNeedDeviceId(userId, chatId, message);
+            }
+            else if (chatState.State == ChatState.AddingDevice_NeedCode)
+            {
+                await ProceedNeedCode(userId, chatId, message);
+            }
+            else
+            {
+                logger.LogWarning("Unexpected chat state {ChatState} in HandleDeviceAdd", chatState);
+            }
+        }
+
+        private async Task ProceedDeviceRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
         {
             if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -296,7 +354,7 @@ namespace TBot
             else
             {
                 var sb = new StringBuilder("Status: ");
-                var statusesOrdered = status.MeshMessages.OrderBy(x => x.Value.DeviceId).ToList();
+                var statusesOrdered = status.MeshMessages.OrderBy(x => x.Value.RecipientId).ThenBy(x => x.Key).ToList();
                 foreach (var (messageId, deliveryStatus) in statusesOrdered)
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
@@ -348,7 +406,7 @@ namespace TBot
             };
         }
 
-        private async Task ProcessNeedDeviceId(long userId, long chatId, Message message)
+        private async Task ProceedNeedDeviceId(long userId, long chatId, Message message)
         {
             if (!string.IsNullOrWhiteSpace(message.Text)
                                 && MeshtasticService.TryParseDeviceId(message.Text, out var deviceId))
@@ -359,6 +417,80 @@ namespace TBot
             {
                 await botClient.SendMessage(chatId, "Invalid device ID. Please send a valid Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
             }
+        }
+
+        private async Task ProceedNeedChannelName(long userId, long chatId, Message message)
+        {
+            if (!string.IsNullOrWhiteSpace(message.Text)
+                                && MeshtasticService.IsValidChannelName(message.Text))
+            {
+                await SendNeedChannelKeyTgMsg(chatId);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                     State = ChatState.AddingChannel_NeedKey,
+                     ChannelName = message.Text
+                });
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                   $"Invalid channel name format: '{message.Text}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
+                   "Please try again or type /stop to cancell the registration.");
+            }
+        }
+
+        private async Task ProceedNeedChannelKey(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            if (!string.IsNullOrWhiteSpace(message.Text)
+                                && MeshtasticService.TryParseChannelKey(message.Text, out var key))
+            {
+                await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text);
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                                $"Invalid channel key format: '{message.Text}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).\n\n" +
+                                "Please try again or type /stop to cancell the registration.");
+            }
+        }
+
+        private async Task ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64)
+        {
+            var dbChannel = await registrationService.FindChannelAsync(channelName, channelKey);
+            if (dbChannel != null && await registrationService.HasChannelRegistrationAsync(chatId, dbChannel.Id))
+            {
+                await botClient.SendMessage(chatId, $"Channel {channelName} with same key is already registered in this chat. Registration aborted.");
+                registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var codesSent = registrationService.IncrementChannelCodesSentRecently(channelName, channelKeyBase64);
+            if (codesSent > RegistrationService.MaxCodeVerificationTries)
+            {
+                await botClient.SendMessage(chatId, $"Channel {channelName} has reached the maximum number of verification codes sent. Please wait at least 1 hour before trying again to add the same channel to any chats. Registration aborted.");
+                registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var code = RegistrationService.GenerateRandomCode();
+            registrationService.StoreChannelPendingCodeAsync(userId, chatId, channelName, channelKey, code, DateTimeOffset.UtcNow.AddMinutes(5));
+
+            var msg = await botClient.SendMessage(chatId,
+                $"Verification code sent to channel {channelName}. Please reply with the received code here. The code is valid for 5 minutes.");
+
+            var channel = new ChannelKey
+            {
+                ChannelXor = MeshtasticService.GenerateChannelHash(channelName, channelKey),
+                PreSharedKey = channelKey
+            };
+
+            await SendAndTrackMeshtasticMessage(
+                channel,
+                chatId,
+                msg.MessageId,
+                $"TMesh verification code is: {code}");
+
+            registrationService.SetChatState(userId, chatId, Models.ChatState.AddingDevice_NeedCode);
         }
 
         private async Task ProcessDeviceIdForAdd(long userId, long chatId, long deviceId)
@@ -376,7 +508,7 @@ namespace TBot
                 return;
             }
 
-            if (await registrationService.HasRegistrationAsync(chatId, deviceId))
+            if (await registrationService.HasDeviceRegistrationAsync(chatId, deviceId))
             {
                 await botClient.SendMessage(chatId, $"Device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is already registered in this chat. Registration aborted.");
                 registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
@@ -392,7 +524,7 @@ namespace TBot
             }
 
             var code = RegistrationService.GenerateRandomCode();
-            registrationService.StorePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
+            registrationService.StoreDevicePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
 
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}). Please reply with the received code here. The code is valid for 5 minutes.");
@@ -403,7 +535,7 @@ namespace TBot
                 msg.MessageId,
                 $"TMesh verification code is: {code}");
 
-            registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedCode);
+            registrationService.SetChatState(userId, chatId, Models.ChatState.AddingDevice_NeedCode);
         }
 
         private string ExtractDeviceIdFromCommand(string commandText, string command)
@@ -431,15 +563,51 @@ namespace TBot
             return parts.Length > 0 ? parts[0] : null;
         }
 
+        private (string name, string key) ExtractChannelFromCommand(string commandText, string command)
+        {
+            if (string.IsNullOrWhiteSpace(commandText))
+            {
+                return default;
+            }
+
+            // Remove the command part and trim
+            var text = commandText[command.Length..].Trim();
+            if (text == $"@{_options.TelegramBotUserName}")
+            {
+                return default;
+            }
+
+            // Return null if empty (no device ID provided)
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return default;
+            }
+
+            // Extract first word (device ID should not have spaces)
+            var parts = text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                return default;
+            }
+            else if (parts.Length == 1)
+            {
+                return (parts[0], null);
+            }
+            else
+            {
+                return (parts[0], parts[1]);
+            }
+        }
+
 
         private Task SendAndTrackMeshtasticMessage(
-            IDeviceKey device,
+            IRecipient recipient,
             long chatId,
             int messageId,
             string text)
         {
             return SendAndTrackMeshtasticMessages(
-                [device],
+                [recipient],
                 chatId,
                 messageId,
                 null,
@@ -471,7 +639,7 @@ namespace TBot
         }
 
         private async Task SendAndTrackMeshtasticMessages(
-            IEnumerable<IDeviceKey> devices,
+            IEnumerable<IRecipient> recipients,
             long chatId,
             int messageId,
             int? replyToTelegramMsgId,
@@ -482,51 +650,68 @@ namespace TBot
                 TelegramChatId = chatId,
                 TelegramMessageId = messageId,
                 MeshMessages = [],
-                EstimatedSendDate = EstimateSendDelay(devices.Count())
+                EstimatedSendDate = EstimateSendDelay(recipients.Count())
             };
 
-            var deviceMessageIds = new List<(long deviceId, long messageId, byte[] publicKey)>();
-            foreach (var device in devices)
+            var messages = new List<(IRecipient recipient, long messageId)>();
+            foreach (var recipient in recipients)
             {
                 var newMeshMessageId = MeshtasticService.GetNextMeshtasticMessageId();
-                status.MeshMessages.Add(newMeshMessageId, new DeliveryStatusWithDeviceId
+                var recStatus = new DeliveryStatusWithRecipientId
                 {
-                    DeviceId = device.DeviceId,
+                    RecipientId = recipient.RecipientDeviceId ?? recipient.RecipientChannelId,
+                    IsDevice = recipient.RecipientDeviceId != null,
                     Status = DeliveryStatus.Queued
-                });
+                };
+                status.MeshMessages.Add(newMeshMessageId, recStatus);
                 StoreMeshMessageStatus(newMeshMessageId, status);
-                deviceMessageIds.Add((device.DeviceId, newMeshMessageId, device.PublicKey));
+                messages.Add((recipient, newMeshMessageId));
             }
             StoreTelegramMessageStatus(chatId, messageId, status);
 
             await ReportStatus(status);
 
-            var queueResults = new List<QueueResult>();
-
             var replyToStatus = replyToTelegramMsgId.HasValue
                 ? GetTelegramMessageStatus(chatId, replyToTelegramMsgId.Value)
                 : null;
 
-            foreach (var (deviceId, newMeshMessageId, publicKey) in deviceMessageIds)
+            foreach (var (recipient, newMeshMessageId) in messages)
             {
                 var replyToMeshMessageId = replyToStatus?.MeshMessages
-                    .FirstOrDefault(kv => kv.Value.DeviceId == deviceId).Key;
+                    .FirstOrDefault(kv =>
+                        kv.Value.RecipientId != null &&
+                        kv.Value.RecipientId == (recipient.RecipientDeviceId ?? recipient.RecipientChannelId) &&
+                        kv.Value.IsDevice == (recipient.RecipientDeviceId != null)).Key;
 
-                var gatewayId = GetDeviceGateway(deviceId);
-
-                queueResults.Add(
-                    meshtasticService.SendTextMessage(
-                        newMeshMessageId,
-                        deviceId,
-                        publicKey,
-                        text,
-                        replyToMeshMessageId,
-                        gatewayId,
-                        hopLimit: int.MaxValue));
+                if (recipient.RecipientDeviceId != null)
+                {
+                    var gatewayId = GetDeviceGateway(recipient.RecipientDeviceId.Value);
+                    meshtasticService.SendDirectTextMessage(
+                            newMeshMessageId,
+                            recipient.RecipientDeviceId.Value,
+                            recipient.RecipientKey,
+                            text,
+                            replyToMeshMessageId,
+                            gatewayId,
+                            hopLimit: int.MaxValue);
+                }
+                else
+                {
+                    meshtasticService.SendPrivateChannelTextMessage(
+                            newMeshMessageId,
+                            text,
+                            relayGatewayId: null,
+                            hopLimit: int.MaxValue,
+                            new ChannelInternalInfo
+                            {
+                                Psk = recipient.RecipientKey,
+                                Hash = recipient.RecipientChannelXor.Value
+                            });
+                }
             }
         }
 
-        private async Task ProcessNeedCode(long userId, long chatId, Message message)
+        private async Task ProceedNeedCode(long userId, long chatId, Message message)
         {
             var maybeCode = message.Text?.Trim();
             if (!string.IsNullOrWhiteSpace(maybeCode)
@@ -559,17 +744,23 @@ namespace TBot
             long chatId,
             Message message)
         {
-            if (message.Text?.StartsWith("/add", StringComparison.OrdinalIgnoreCase) == true)
+            if (message.Text?.StartsWith("/add_device", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/add");
-                await StartAdd(userId, chatId, deviceIdFromCommand);
+                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/add_device");
+                await StartAddDevice(userId, chatId, deviceIdFromCommand);
                 return;
             }
-            if (message.Text?.StartsWith("/remove", StringComparison.OrdinalIgnoreCase) == true)
+            if (message.Text?.StartsWith("/add_channel", StringComparison.OrdinalIgnoreCase) == true)
             {
-                bool isRemoveFromAll = message.Text.StartsWith("/remove_from_all_chats", StringComparison.OrdinalIgnoreCase);
-                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, isRemoveFromAll ? "/remove_from_all_chats" : "/remove");
-                await StartRemove(userId, chatId, deviceIdFromCommand, isRemoveFromAll);
+                var (name, key) = ExtractChannelFromCommand(message.Text, "/add_channel");
+                await StartAddChannel(userId, chatId, name, key);
+                return;
+            }
+            if (message.Text?.StartsWith("/remove_device", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                bool isRemoveFromAll = message.Text.StartsWith("/remove_device_from_all_chats", StringComparison.OrdinalIgnoreCase);
+                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, isRemoveFromAll ? "/remove_device_from_all_chats" : "/remove_device");
+                await StartRemoveDevice(userId, chatId, deviceIdFromCommand, isRemoveFromAll);
                 return;
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
@@ -608,7 +799,8 @@ namespace TBot
             long chatId,
             string text)
         {
-            var chatState = registrationService.GetChatState(userId, chatId);
+            var chatStateWithData = registrationService.GetChatState(userId, chatId);
+            var chatState = chatStateWithData?.State;
 
             var noPrefix = text["/admin".Length..].Trim();
             var segments = noPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -712,7 +904,7 @@ namespace TBot
                             announcement,
                             relayGatewayId: null,
                             hopLimit: int.MaxValue,
-                            channelName: channelName);
+                            publicChannelName: channelName);
 
                         await botClient.SendMessage(chatId, $"Announcement sent to {channelName}.");
                         return true;
@@ -804,10 +996,7 @@ namespace TBot
                         }
 
                         //idented
-                        var json = JsonSerializer.Serialize(device, new JsonSerializerOptions
-                        {
-                            WriteIndented = true
-                        });
+                        var json = JsonSerializer.Serialize(device, IdentedOptions);
 
                         var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
 
@@ -815,7 +1004,7 @@ namespace TBot
                         await botClient.SendMessage(
                             chatId,
                             $"Found node:\r\n\r\n" +
-                            json +"\r\n\r\nRegistrations: " + registrations.Count);
+                            json + "\r\n\r\nRegistrations: " + registrations.Count);
 
                         return true;
                     }
@@ -856,12 +1045,14 @@ namespace TBot
                 return;
             }
 
-            var registrations = await registrationService.GetDeviceKeysByChatIdCached(chatId);
-            if (registrations.Count == 0)
+            var channelRegs = await registrationService.GetChannelKeysByChatIdCached(chatId);
+            var devRegs = await registrationService.GetDeviceKeysByChatIdCached(chatId);
+            if (devRegs.Count == 0
+                && channelRegs.Count == 0)
             {
                 await botClient.SendMessage(
                     chatId,
-                    "No registered devices. You can register a new device with the /add command. Please remove the bot from the group if you don't need it.",
+                    NoDeviceMessage,
                     replyParameters: new ReplyParameters
                     {
                         AllowSendingWithoutReply = false,
@@ -872,7 +1063,7 @@ namespace TBot
             }
 
             await SendAndTrackMeshtasticMessages(
-                registrations,
+                channelRegs.AsEnumerable<IRecipient>().Concat(devRegs),
                 chatId,
                 msgId,
                 replyToTelegramMessageId,
@@ -884,7 +1075,7 @@ namespace TBot
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
             if (devices.Count == 0)
             {
-                await botClient.SendMessage(chatId, "No registered devices. You can register a new device with the /add command.");
+                await botClient.SendMessage(chatId, NoDeviceMessage);
             }
             else
             {
@@ -894,7 +1085,7 @@ namespace TBot
 
                 if (hasFilter)
                 {
-                    devices = devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                    devices = [.. devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase))];
                 }
 
                 if (hasFilter && devices.Count == 0)
@@ -909,7 +1100,7 @@ namespace TBot
             }
         }
 
-        private string GetCmdParam(string cmdFullText)
+        private static string GetCmdParam(string cmdFullText)
         {
             var firstSpaceIndex = cmdFullText.IndexOf(' ');
             if (firstSpaceIndex == -1)
@@ -927,7 +1118,7 @@ namespace TBot
             var devices = await registrationService.GetDevicePositionByChatId(chatId);
             if (devices.Count == 0)
             {
-                await botClient.SendMessage(chatId, "No registered devices. You can register a new device with the /add command.");
+                await botClient.SendMessage(chatId, NoDeviceMessage);
             }
             else
             {
@@ -937,7 +1128,7 @@ namespace TBot
 
                 if (hasFilter)
                 {
-                    devices = devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                    devices = [.. devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase))];
                 }
 
                 if (hasFilter && devices.Count == 0)
@@ -985,13 +1176,68 @@ namespace TBot
                 : ts.ToString(@"hh\:mm\:ss");
         }
 
-        private async Task StartAdd(long userId, long chatId, string deviceIdText)
+        private async Task StartAddChannel(long userId, long chatId, string channelNameText, string channelKey)
+        {
+            if (string.IsNullOrWhiteSpace(channelNameText))
+            {
+                // No channel name provided, ask for it
+                await botClient.SendMessage(chatId, "Please send your Meshtastic channel name.");
+                registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedName);
+                return;
+            }
+
+            // Device ID provided in command, process immediately
+            if (!MeshtasticService.IsValidChannelName(channelNameText))
+            {
+                await botClient.SendMessage(chatId,
+                     $"Invalid channel name format: '{channelNameText}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
+                     "Examples:\n" +
+                     "• /add_channel MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU=\n" +
+                     "Or use /add_channel without parameters and I'll ask for the channel name and key.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(channelKey))
+            {
+                await SendNeedChannelKeyTgMsg(chatId);
+                registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedKey);
+                return;
+            }
+
+            if (!MeshtasticService.TryParseChannelKey(channelKey, out var keyBytes))
+            {
+                await botClient.SendMessage(chatId,
+                             $"Invalid channel key format: '{channelKey}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).\n\n" +
+                             "Examples:\n" +
+                             "• /add_channel MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU=\n" +
+                             "Or use /add_channel without parameters and I'll ask for the channel name and key.");
+                return;
+            }
+
+            // Process the device ID (same logic as ProcessNeedDeviceId)
+            await ProcessChannelForAdd(userId, chatId, channelNameText, keyBytes, channelKey);
+        }
+
+        
+
+
+
+
+
+        private async Task SendNeedChannelKeyTgMsg(long chatId)
+        {
+            await botClient.SendMessage(chatId, "Please send your Meshtastic channel key (base64-encoded, 16 or 32 bytes).");
+        }
+
+
+
+        private async Task StartAddDevice(long userId, long chatId, string deviceIdText)
         {
             if (string.IsNullOrWhiteSpace(deviceIdText))
             {
                 // No device ID provided, ask for it
                 await botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
-                registrationService.SetChatState(userId, chatId, Models.ChatState.Adding_NeedDeviceId);
+                registrationService.SetChatState(userId, chatId, Models.ChatState.AddingDevice_NeedId);
                 return;
             }
 
@@ -1001,10 +1247,10 @@ namespace TBot
                 await botClient.SendMessage(chatId,
                     $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).\n\n" +
                     "Examples:\n" +
-                    "• /add 123456789\n" +
-                    "• /add !75bcd15\n" +
-                    "• /add #75bcd15\n\n" +
-                    "Or use /add without parameters and I'll ask for the device ID.");
+                    "• /add_device 123456789\n" +
+                    "• /add_device !75bcd15\n" +
+                    "• /add_device #75bcd15\n\n" +
+                    "Or use /add_device without parameters and I'll ask for the device ID.");
                 return;
             }
 
@@ -1012,7 +1258,7 @@ namespace TBot
             await ProcessDeviceIdForAdd(userId, chatId, deviceId);
         }
 
-        private async Task StartRemove(long userId, long chatId, string deviceIdText, bool isRemoveFromAll)
+        private async Task StartRemoveDevice(long userId, long chatId, string deviceIdText, bool isRemoveFromAll)
         {
             if (string.IsNullOrWhiteSpace(deviceIdText))
             {
@@ -1029,10 +1275,10 @@ namespace TBot
                 await botClient.SendMessage(chatId,
                     $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).\n\n" +
                     "Examples:\n" +
-                    "• /remove 123456789\n" +
-                    "• /remove !75bcd15\n" +
-                    "• /remove #75bcd15\n\n" +
-                    "Or use /remove without parameters and I'll ask for the device ID.");
+                    "• /remove_device 123456789\n" +
+                    "• /remove_device !75bcd15\n" +
+                    "• /remove_device #75bcd15\n\n" +
+                    "Or use /remove_device without parameters and I'll ask for the device ID.");
                 return;
             }
 
@@ -1270,6 +1516,10 @@ namespace TBot
             {
                 await ProcessInboundDirectMeshTextMessage(message, deviceOrNull);
             }
+            else if (message.ChannelId != null)
+            {
+                await ProcessInboundPrivateChannelMeshTextMessage(message, deviceOrNull);
+            }
             else
             {
                 await ProcessInboundPublicMeshTextMessage(message, deviceOrNull);
@@ -1280,7 +1530,7 @@ namespace TBot
         private async Task ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
             if (!_options.ReplyToPublicPingsViaDirectMessage
-                && !_options.PingWords.Any())
+                && _options.PingWords.Length == 0)
             {
                 return;
             }
@@ -1316,6 +1566,136 @@ namespace TBot
             });
         }
 
+        private async Task ProcessInboundPrivateChannelMeshTextMessage(TextMessage message, Device deviceOrNull)
+        {
+            var channel = await registrationService.GetChannelAsync((int)message.ChannelId.Value);
+            if (channel == null)
+            {
+                //how we have decrypted channel ID but can't find it in the database
+                return;
+            }
+
+            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
+
+            var deviceName = deviceOrNull != null ? deviceOrNull.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
+
+            string cmdText = null;
+            if (message.Text != null
+                && message.Text.Trim().Length > 1
+                && message.Text.StartsWith('/'))
+            {
+                cmdText = message.Text[1..].Trim();
+            }
+
+            if (cmdText != null &&
+                _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
+            {
+                meshtasticService.SendPrivateChannelTextMessage(
+                    MeshtasticService.GetNextMeshtasticMessageId(),
+                    _options.Texts.PingReply ?? "pong",
+                    relayGatewayId: message.GatewayId,
+                    hopLimit: message.GetSuggestedReplyHopLimit(),
+                    channel);
+
+                meshtasticService.AddStat(new Shared.Models.MeshStat
+                {
+                    PongSent = 1,
+                });
+                return;
+            }
+            var chatIds = await registrationService.GetChatsByChannelIdCached(channel.Id);
+            if (chatIds.Count == 0)
+            {
+                //race condition, no regitration for channel, ignore message
+                return;
+            }
+
+
+            var text = message.Text;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                logger.LogWarning("Received empty text message from channel {ChannelId}", channel.Id);
+                return;
+            }
+
+            bool sentReply = false;
+
+            if (message.ReplyTo != 0)
+            {
+                var replyToStatus = GetMeshMessageStatus(message.ReplyTo);
+                if (replyToStatus != null
+                        && chatIds.Any(x => x == replyToStatus.TelegramChatId))
+                {
+                    var msg = await botClient.SendMessage(
+                        replyToStatus.TelegramChatId,
+                        $"{deviceName} [#{channel.Name}]: {text}",
+                        replyParameters: new ReplyParameters
+                        {
+                            AllowSendingWithoutReply = true,
+                            ChatId = replyToStatus.TelegramChatId,
+                            MessageId = replyToStatus.TelegramMessageId,
+                        });
+
+                    var status = new MeshtasticMessageStatus
+                    {
+                        TelegramChatId = replyToStatus.TelegramChatId,
+                        TelegramMessageId = msg.Id,
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
+                            {
+                                { message.Id, new DeliveryStatusWithRecipientId
+                                    {
+                                        RecipientId = channel.Id,
+                                        IsDevice = false,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                        BotReplyId = null,
+                    };
+
+                    StoreTelegramMessageStatus(replyToStatus.TelegramChatId,
+                        msg.Id,
+                        status);
+
+                    StoreMeshMessageStatus(message.Id, status);
+
+                    sentReply = true;
+                }
+            }
+
+            if (!sentReply)
+            {
+                foreach (var chatId in chatIds)
+                {
+                    var msg = await botClient.SendMessage(
+                        chatId,
+                        $"{deviceName} [#{channel.Name}]: {text}");
+
+                    var status = new MeshtasticMessageStatus
+                    {
+                        TelegramChatId = chatId,
+                        TelegramMessageId = msg.Id,
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
+                            {
+                                { message.Id, new DeliveryStatusWithRecipientId
+                                    {
+                                        RecipientId = channel.Id,
+                                        IsDevice = false,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                        BotReplyId = null
+                    };
+
+                    StoreTelegramMessageStatus(chatId, msg.Id, status);
+                    StoreMeshMessageStatus(message.Id, status);
+                }
+            }
+        }
+
+
+
         private async Task ProcessInboundDirectMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
             if (deviceOrNull == null)
@@ -1335,7 +1715,7 @@ namespace TBot
                 && message.Text.Trim().Length > 1
                 && message.Text.StartsWith('/'))
             {
-                cmdText = message.Text.Substring(1).Trim();
+                cmdText = message.Text[1..].Trim();
             }
 
             if (cmdText != null &&
@@ -1392,11 +1772,12 @@ namespace TBot
                     {
                         TelegramChatId = replyToStatus.TelegramChatId,
                         TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
                             {
-                                { message.Id, new DeliveryStatusWithDeviceId
+                                { message.Id, new DeliveryStatusWithRecipientId
                                     {
-                                        DeviceId = message.DeviceId,
+                                        RecipientId = message.DeviceId,
+                                        IsDevice = true,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -1426,11 +1807,12 @@ namespace TBot
                     {
                         TelegramChatId = chatId,
                         TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithDeviceId>
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
                             {
-                                { message.Id, new DeliveryStatusWithDeviceId
+                                { message.Id, new DeliveryStatusWithRecipientId
                                     {
-                                        DeviceId = message.DeviceId,
+                                        RecipientId = message.DeviceId,
+                                        IsDevice = true,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -1492,7 +1874,7 @@ namespace TBot
                 {
                     await botClient.SendMessage(
                         chatId,
-                        $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove command) and add it back for messaging to work. Public keys are not updated automaticly after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
+                        $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automaticly after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
                 }
             }
         }

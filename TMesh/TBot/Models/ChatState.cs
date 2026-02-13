@@ -9,8 +9,11 @@ namespace TBot.Models
     public enum ChatState
     {
         Default,
-        Adding_NeedDeviceId,
-        Adding_NeedCode,
+        AddingDevice_NeedId,
+        AddingDevice_NeedCode,
+        AddingChannel_NeedName,
+        AddingChannel_NeedKey,
+        AddingChannel_NeedCode,
         RemovingDevice,
         RemovingDeviceFromAll,
         Admin
