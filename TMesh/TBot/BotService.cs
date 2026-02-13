@@ -132,7 +132,7 @@ namespace TBot
         }
 
         private void StoreDeviceGateway(MeshMessage msg)
-        { 
+        {
             StoreDeviceGateway(msg.DeviceId, msg.GatewayId);
         }
 
@@ -427,8 +427,8 @@ namespace TBot
                 await SendNeedChannelKeyTgMsg(chatId);
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
-                     State = ChatState.AddingChannel_NeedKey,
-                     ChannelName = message.Text
+                    State = ChatState.AddingChannel_NeedKey,
+                    ChannelName = message.Text
                 });
             }
             else
@@ -444,6 +444,23 @@ namespace TBot
             if (!string.IsNullOrWhiteSpace(message.Text)
                                 && MeshtasticService.TryParseChannelKey(message.Text, out var key))
             {
+                if (string.IsNullOrEmpty(state.ChannelName)
+                    || !MeshtasticService.IsValidChannelName(state.ChannelName))
+                {
+                    await botClient.SendMessage(chatId,
+                        $"Registration data is corrupted, channel name is missing in chat state. Registration process aborted. Please try again.");
+                    registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                    return;
+                }
+
+                if (meshtasticService.IsPublicChannel(state.ChannelName, key))
+                {
+                    await botClient.SendMessage(chatId,
+                                 $"Adding public, well known channels is not allowed. Registration process aborted. Please try with private channels.");
+                    registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                    return;
+                }
+
                 await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text);
             }
             else
@@ -1197,6 +1214,7 @@ namespace TBot
                 return;
             }
 
+
             if (string.IsNullOrEmpty(channelKey))
             {
                 await SendNeedChannelKeyTgMsg(chatId);
@@ -1214,11 +1232,18 @@ namespace TBot
                 return;
             }
 
+            if (meshtasticService.IsPublicChannel(channelNameText, keyBytes))
+            {
+                await botClient.SendMessage(chatId,
+                             $"Adding public, well known channels is not allowed.");
+                return;
+            }
+
             // Process the device ID (same logic as ProcessNeedDeviceId)
             await ProcessChannelForAdd(userId, chatId, channelNameText, keyBytes, channelKey);
         }
 
-        
+
 
 
 

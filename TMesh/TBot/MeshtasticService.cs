@@ -115,6 +115,11 @@ namespace TBot
             return _channels.Any(x => string.Equals(x.Name, name, StringComparison.InvariantCultureIgnoreCase));
         }
 
+        public bool IsPublicChannel(string name, byte[] psk)
+        {
+            return _channels.Any(x => string.Equals(x.Name, name, StringComparison.InvariantCulture) && x.Psk.SequenceEqual(psk));
+        }
+
         public QueueResult SendPublicTextMessage(
             string text,
             long? relayGatewayId,
