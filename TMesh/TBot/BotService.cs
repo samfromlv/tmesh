@@ -98,15 +98,15 @@ namespace TBot
 
 
         private void StoreTelegramMessageStatus(
-            long chatId, 
+            long chatId,
             int messageId,
             MeshtasticMessageStatus status,
-            bool isOutgoing = false)
+            bool trackForStatusResolve = false)
         {
             var currentDelay = meshtasticService.EstimateDelay(MessagePriority.Normal);
             var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
             memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
-            if (isOutgoing)
+            if (trackForStatusResolve)
             {
                 TrackedMessages.Add(status);
             }
@@ -727,7 +727,12 @@ namespace TBot
                 StoreMeshMessageStatus(newMeshMessageId, status);
                 messages.Add((recipient, newMeshMessageId));
             }
-            StoreTelegramMessageStatus(chatId, messageId, status, isOutgoing: true);
+
+            StoreTelegramMessageStatus(
+                chatId,
+                messageId,
+                status,
+                trackForStatusResolve: recipients.Any(x => x.RecipientDeviceId.HasValue));
 
             await ReportStatus(status);
 

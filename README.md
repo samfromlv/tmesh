@@ -1451,23 +1451,6 @@ Contributions are welcome! Here's how you can help:
 - [x] **Automatic database migrations on startup**
 - [x] Remove device/channel from all chats
 
-### Planned Features 🚀
-- [ ] Web dashboard for monitoring and analytics visualization
-- [ ] Analytics API for querying metrics
-- [ ] Grafana integration for analytics
-- [ ] Support for more Telegram bots per instance
-- [ ] Message history/logging options (opt-in)
-- [ ] Additional admin controls per chat
-- [ ] File attachment bridging
-- [ ] Multi-language support
-- [ ] Metrics and Prometheus integration
-- [ ] Automated testing suite
-- [ ] Group management features
-- [ ] Waypoint and navigation features
-- [ ] Weather station integration
-- [ ] Custom emoji mapping for status
-- [ ] Channel membership verification
-- [ ] Bulk channel operations
 
 ---
 

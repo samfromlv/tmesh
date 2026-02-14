@@ -315,7 +315,7 @@ public class MessageLoopService(
     {
         foreach (var msgStatus in msgStatuses)
         {
-            var delay = msgStatus.EstimatedSendDate.Value
+            var delay = (msgStatus.EstimatedSendDate ?? DateTime.UtcNow)
                 .AddMinutes(MeshtasticService.WaitForAckStatusMaxMinutes)
                 .Subtract(DateTime.UtcNow);
 
