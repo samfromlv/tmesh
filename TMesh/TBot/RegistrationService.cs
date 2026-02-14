@@ -275,6 +275,18 @@ namespace TBot
                           }).ToListAsync();
         }
 
+        public async Task<List<ChannelName>> GetChannelNamesByChatId(long chatId)
+        {
+            return await (from r in db.ChannelRegistrations
+                          join c in db.Channels on r.ChannelId equals c.Id
+                          where r.ChatId == chatId
+                          select new ChannelName
+                          {
+                              Id = c.Id,
+                              Name = c.Name,
+                          }).ToListAsync();
+        }
+
         public async Task<List<DevicePosition>> GetDevicePositionByChatId(long chatId)
         {
             return await (from r in db.DeviceRegistrations
@@ -421,7 +433,6 @@ namespace TBot
                     InvalidateChannelKeysByHashCache(channel.XorHash);
                 }
 
-
                 var reg = await db.ChannelRegistrations.FirstOrDefaultAsync(x =>
                     x.ChatId == chatId
                     && x.ChannelId == channel.Id);
@@ -487,6 +498,11 @@ namespace TBot
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
                 return await db.Channels.AsNoTracking().FirstOrDefaultAsync(p => p.Id == channelId);
             });
+        }
+
+        public void InvalidateChannelCache(int channelId)
+        {
+            memoryCache.Remove($"Channel#{channelId}");
         }
 
         public async Task<Channel> FindChannelAsync(string channelName, byte[] key)
@@ -636,6 +652,70 @@ namespace TBot
             InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
+            return true;
+        }
+
+        public async Task<(bool removedFromCurrentChat, bool removedFromOtherChats)> RemoveChannelFromAllChatsViaOneChatAsync(long chatId, 
+            long telegramUserId, int channelId)
+        {
+            var allRegs = await db.ChannelRegistrations
+                .Where(r => r.ChannelId == channelId)
+                .ToListAsync();
+
+            var userOrChatRegs = allRegs.Where(r => r.TelegramUserId == telegramUserId || r.ChatId == chatId).ToList();
+            if (!userOrChatRegs.Any(r => r.ChatId == chatId))
+            {
+                return default;
+            }
+
+            db.ChannelRegistrations.RemoveRange(userOrChatRegs);
+            bool removeChannel = allRegs.Count == userOrChatRegs.Count;
+            Channel channel = null;
+            if (removeChannel)
+            {
+                channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+                db.Channels.Remove(channel);
+            }
+            await db.SaveChangesAsync();
+            InvalidateChannelKeysByChatIdCache(chatId);
+            InvalidateChatsByChannelIdCache(channelId);
+            if (removeChannel)
+            {
+                InvalidateChannelCache(channelId);
+                InvalidateChannelKeysByHashCache(channel.XorHash);
+            }
+            return (true, userOrChatRegs.Count > 1);
+        }
+
+        public async Task<bool> RemoveChannelFromChat(long chatId, int channelId)
+        {
+            var allRegs = await db.ChannelRegistrations
+                .Where(r => r.ChannelId == channelId)
+                .ToListAsync();
+
+            var chatRegs = allRegs.Where(r => r.ChatId == chatId).ToList();
+            if (!chatRegs.Any(r => r.ChatId == chatId))
+            {
+                return false;
+            }
+
+            db.ChannelRegistrations.RemoveRange(chatRegs);
+
+            bool removeChannel = allRegs.Count == chatRegs.Count;
+            Channel channel = null;
+            if (removeChannel)
+            {
+                channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+                db.Channels.Remove(channel);
+            }
+            await db.SaveChangesAsync();
+            InvalidateChannelKeysByChatIdCache(chatId);
+            InvalidateChatsByChannelIdCache(channelId);
+            if (removeChannel)
+            {
+                InvalidateChannelCache(channelId);
+                InvalidateChannelKeysByHashCache(channel.XorHash);
+            }
             return true;
         }
 

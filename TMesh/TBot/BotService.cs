@@ -61,10 +61,10 @@ namespace TBot
                     Command = "remove_device",
                     Description = "Unregister a Meshtastic device (e.g., /remove_device !aabbcc11)"
                 },
-                 new BotCommand
+                new BotCommand
                 {
                     Command = "remove_channel",
-                    Description = "Unregister a Meshtastic private channel (e.g., /remove_channel <ChannelName> or <ChannelID>)"
+                    Description = "Unregister a Meshtastic private channel (e.g., /remove_channel <ChannelID>). Get registered channel ID with /status command or run /remove_channel without params to see registered channel IDs."
                 },
                 new BotCommand
                 {
@@ -74,7 +74,7 @@ namespace TBot
                 new BotCommand
                 {
                     Command = "remove_channel_from_all_chats",
-                    Description = "Unregister a Meshtastic private channel from all chats. Useful when you have no access to chats where channel is registered. (e.g., /remove_channel_from_all_chats <ChannelName> or <ChannelID>)"
+                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Get registered channel ID with /status command or execute /remove_channel_from_all_chats without params to see registered channel IDs. Useful when you have registered channel in some chat but no longer have access to this chat. (e.g., /remove_channel_from_all_chats <ChannelID>)"
                 },
                 new BotCommand
                 {
@@ -200,6 +200,12 @@ namespace TBot
                         await ProceedDeviceRemove(userId, chatId, msg, isRemoveFromAll: chatStateWithData.State == ChatState.RemovingDeviceFromAll);
                         break;
                     }
+                case ChatState.RemovingChannel:
+                case ChatState.RemovingChannelFromAll:
+                    {
+                        await ProceedChannelRemove(userId, chatId, msg, isRemoveFromAll: chatStateWithData.State == ChatState.RemovingChannelFromAll);
+                        break;
+                    }
                 default:
                     {
                         await HandleDefaultUpdate(userId, userName, chatId, msg);
@@ -288,6 +294,31 @@ namespace TBot
             }
 
             await ExecuteRemoveDevice(chatId, deviceId, isRemoveFromAll);
+            registrationService.SetChatState(userId, chatId, ChatState.Default);
+        }
+
+        private async Task ProceedChannelRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Removal canceled.");
+                registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
+                return;
+            }
+
+            var text = message.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Please send a Channel ID to remove or /stop to cancel.");
+                return;
+            }
+            if (!int.TryParse(text, out var channelId))
+            {
+                await botClient.SendMessage(chatId, "Invalid channel ID format. The channel ID must be a valid integer. Send /stop to cancel.");
+                return;
+            }
+
+            await ExecuteRemoveChannel(chatId, userId, channelId, isRemoveFromAll);
             registrationService.SetChatState(userId, chatId, ChatState.Default);
         }
 
@@ -555,7 +586,7 @@ namespace TBot
             registrationService.SetChatState(userId, chatId, Models.ChatState.AddingDevice_NeedCode);
         }
 
-        private string ExtractDeviceIdFromCommand(string commandText, string command)
+        private string ExtractFirstArgFromCommand(string commandText, string command)
         {
             if (string.IsNullOrWhiteSpace(commandText))
             {
@@ -569,13 +600,13 @@ namespace TBot
                 return null;
             }
 
-            // Return null if empty (no device ID provided)
+            // Return null if empty (no argument provided)
             if (string.IsNullOrWhiteSpace(text))
             {
                 return null;
             }
 
-            // Extract first word (device ID should not have spaces)
+            // Extract first word (argument should not have spaces)
             var parts = text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
             return parts.Length > 0 ? parts[0] : null;
         }
@@ -763,7 +794,7 @@ namespace TBot
         {
             if (message.Text?.StartsWith("/add_device", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, "/add_device");
+                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/add_device");
                 await StartAddDevice(userId, chatId, deviceIdFromCommand);
                 return;
             }
@@ -776,8 +807,15 @@ namespace TBot
             if (message.Text?.StartsWith("/remove_device", StringComparison.OrdinalIgnoreCase) == true)
             {
                 bool isRemoveFromAll = message.Text.StartsWith("/remove_device_from_all_chats", StringComparison.OrdinalIgnoreCase);
-                var deviceIdFromCommand = ExtractDeviceIdFromCommand(message.Text, isRemoveFromAll ? "/remove_device_from_all_chats" : "/remove_device");
+                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, isRemoveFromAll ? "/remove_device_from_all_chats" : "/remove_device");
                 await StartRemoveDevice(userId, chatId, deviceIdFromCommand, isRemoveFromAll);
+                return;
+            }
+            if (message.Text?.StartsWith("/remove_channel", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                bool isRemoveFromAll = message.Text.StartsWith("/remove_channel_from_all_chats", StringComparison.OrdinalIgnoreCase);
+                var channelIdFromCommand = ExtractFirstArgFromCommand(message.Text, isRemoveFromAll ? "/remove_channel_from_all_chats" : "/remove_channel");
+                await StartRemoveChannel(userId, chatId, userId, channelIdFromCommand, isRemoveFromAll);
                 return;
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
@@ -1089,8 +1127,10 @@ namespace TBot
 
         private async Task HandleStatus(long chatId, string cmdText)
         {
+            var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
-            if (devices.Count == 0)
+            if (devices.Count == 0
+                && channelRegs.Count == 0)
             {
                 await botClient.SendMessage(chatId, NoDeviceMessage);
             }
@@ -1103,17 +1143,25 @@ namespace TBot
                 if (hasFilter)
                 {
                     devices = [.. devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase))];
-                }
+                    channelRegs = [.. channelRegs.Where(c => c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
 
-                if (hasFilter && devices.Count == 0)
-                {
-                    await botClient.SendMessage(chatId, $"No registered devices matching filter '{filter}'.");
-                    return;
-                }
+                    if (hasFilter
+                        && devices.Count == 0
+                        && channelRegs.Count == 0)
+                    {
+                        await botClient.SendMessage(chatId, $"No registered devices or channels matching filter '{filter}'.");
+                        return;
+                    }
 
-                var lines = devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}");
-                var text = $"{(hasFilter ? "Filtered" : "Registered")} devices:\r\n" + string.Join("\r\n", lines);
-                await botClient.SendMessage(chatId, text);
+                    var lines =
+                            channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id})")
+                            .Concat(
+                              devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}")
+                            );
+
+                    var text = $"{(hasFilter ? "Filtered" : "Registered")} channels and devices:\r\n" + string.Join("\r\n", lines);
+                    await botClient.SendMessage(chatId, text);
+                }
             }
         }
 
@@ -1310,6 +1358,46 @@ namespace TBot
             await ExecuteRemoveDevice(chatId, deviceId, isRemoveFromAll);
         }
 
+
+        private async Task StartRemoveChannel(long userId, long chatId, long telegramUserId, string channelIdText, bool isRemoveFromAll)
+        {
+            if (string.IsNullOrWhiteSpace(channelIdText))
+            {
+                var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
+                if (channelRegs.Count == 0)
+                {
+                    await botClient.SendMessage(chatId, "No channels are registered in this chat.");
+                    return;
+                }
+
+                var lines = channelRegs.Select(c => $"• {c.Name} (ID {c.Id})");
+
+                var sb = new StringBuilder("Please send the ID of the channel you want to remove.");
+                sb.AppendLine();
+                sb.AppendLine("Registered channels:");
+                lines.ToList().ForEach(l => sb.AppendLine(l));
+
+                // No channel ID provided, ask for it
+                await botClient.SendMessage(chatId, sb.ToString());
+                registrationService.SetChatState(userId, chatId,
+                    isRemoveFromAll ? Models.ChatState.RemovingChannelFromAll : Models.ChatState.RemovingChannel);
+                return;
+            }
+
+            // Channel ID provided in command, process immediately
+            if (!int.TryParse(channelIdText, out var channelId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid channel ID format: '{channelIdText}'. The channel ID must be a valid integer.\n\nPlease use remove command without params to see ids of registered channels\r\n" +
+                    "Examples:\n" +
+                    "• /remove_channel 123456789\n" +
+                    "Or use /remove_channel without parameters and I'll ask for the channel ID.");
+                return;
+            }
+
+            await ExecuteRemoveChannel(chatId, telegramUserId, channelId, isRemoveFromAll);
+        }
+
         private async Task ExecuteRemoveDevice(long chatId, long deviceId, bool isRemoveFromAll)
         {
             if (isRemoveFromAll)
@@ -1336,6 +1424,41 @@ namespace TBot
                 else
                 {
                     await botClient.SendMessage(chatId, $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has been removed from this chat.");
+                }
+            }
+        }
+
+
+        private async Task ExecuteRemoveChannel(long chatId, long telegramUserId, int channelId, bool isRemoveFromAll)
+        {
+            if (isRemoveFromAll)
+            {
+                // Process removal from all chats
+                var removedStatus = await registrationService.RemoveChannelFromAllChatsViaOneChatAsync(chatId, telegramUserId, channelId);
+                if (!removedStatus.removedFromCurrentChat)
+                {
+                    await botClient.SendMessage(chatId, $"Channel {channelId} is not registered in this chat. To prove that you still have access to the channel please register it first in this chat then retry the command.");
+                }
+                else if (removedStatus.removedFromOtherChats)
+                {
+                    await botClient.SendMessage(chatId, $"Channel {channelId} has been removed from this chat and all other chats where you have registered it. Registration of the channel created by other Telegram users in other chats are not removed.");
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, $"Channel {channelId} has been removed from this chat.");
+                }
+            }
+            else
+            {
+                // Process removal immediately
+                var removed = await registrationService.RemoveChannelFromChat(chatId, channelId);
+                if (!removed)
+                {
+                    await botClient.SendMessage(chatId, $"Channel {channelId} is not registered in this chat.");
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, $"Channel {channelId} has been removed from this chat.");
                 }
             }
         }

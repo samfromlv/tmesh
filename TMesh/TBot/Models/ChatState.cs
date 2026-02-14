@@ -16,6 +16,8 @@ namespace TBot.Models
         AddingChannel_NeedCode,
         RemovingDevice,
         RemovingDeviceFromAll,
+        RemovingChannel,
+        RemovingChannelFromAll,
         Admin
     }
 }
