@@ -19,13 +19,15 @@ TMesh bridges the gap between Meshtastic off-grid mesh networks and Telegram gro
 
 ### Key Highlights
 
-- **🔐 End-to-End Encryption**: Uses Meshtastic PKI for secure device-to-device communication
+- **🔐 End-to-End Encryption**: Uses Meshtastic PKI for secure device-to-device and channel communication
 - **📱 Telegram Integration**: Full bot integration with webhook support and message threading
+- **🔒 Private Channel Support**: Register entire private Meshtastic channels (not just individual devices)
 - **⚡ Smart Queue Management**: Rate-limiting and prioritization prevent mesh network overload
 - **📊 Delivery Tracking**: Real-time message status updates via Telegram reactions
 - **🔄 Bidirectional Sync**: Messages flow seamlessly in both directions with reply support
 - **🌐 Multi-Gateway Support**: Intelligent routing across multiple MQTT gateways
 - **📍 Position Tracking**: Track and display device locations on maps
+- **📈 Analytics Collection**: Optional PostgreSQL database for network telemetry and metrics
 - **🐳 Docker Ready**: Easy deployment with Docker containers
 - **🔒 TLS/SSL Support**: Secure MQTT connections with certificate validation
 
@@ -35,6 +37,8 @@ TMesh bridges the gap between Meshtastic off-grid mesh networks and Telegram gro
 
 ### Communication Features
 - **Message Threading**: Reply to Telegram messages in Meshtastic app and vice versa
+- **Private Channel Registration**: Register entire Meshtastic private channels to Telegram groups
+- **Device Registration**: Register individual Meshtastic devices to Telegram groups
 - **Multiple Channels**: Support for primary and secondary Meshtastic channels
 - **Position Sharing**: Automatic position tracking with `/position` command and map display
 - **Ping/Pong Handling**: Configurable ping responses via direct message or public channel
@@ -49,17 +53,27 @@ TMesh bridges the gap between Meshtastic off-grid mesh networks and Telegram gro
 - **Gateway Bridging**: Bridge direct messages between gateways for admin commands
 - **Trace Route Support**: Display mesh network routes with SNR information
 
-### Device Management
-- **Quick Registration**: Add devices with `/add !deviceid` or interactive flow
-- **Device Removal**: Remove devices with `/remove !deviceid`
+### Device & Channel Management
+- **Quick Device Registration**: Add devices with `/add_device !deviceid` or interactive flow
+- **Quick Channel Registration**: Add private channels with `/add_channel` command
+- **Device Removal**: Remove devices with `/remove_device !deviceid` or from all chats
+- **Channel Removal**: Remove channels with `/remove_channel <channelId>` or from all chats
 - **Public Key Pinning**: Prevents MITM attacks by pinning device keys on registration
 - **Device Discovery**: Automatic device discovery via MQTT node info broadcasts
 - **Position Tracking**: Track device locations with accuracy and timestamp
 - **Filter Support**: Filter device lists by name in `/status` and `/position` commands
 
+### Analytics & Telemetry
+- **Optional Analytics Database**: PostgreSQL database for collecting network metrics
+- **Device Metrics**: Tracks device positions, channel utilization, and air utilization
+- **Time-Series Data**: Historical telemetry data with timestamp-based querying
+- **Privacy-Focused**: Analytics is optional and can be disabled
+- **Performance Insights**: Monitor mesh network health and device connectivity patterns
+
 ### Security & Administration
 - **Admin Mode**: Special `/admin` commands for announcements and debugging
 - **Password Protection**: Admin commands require password authentication
+- **MQTT Password Derivation**: Automatic password generation for MQTT users
 - **Key Verification**: 6-digit verification codes sent through mesh network
 - **Rate Limiting**: Configurable message rate limits with code attempt restrictions
 - **TLS Support**: Encrypted MQTT connections with certificate validation
@@ -72,7 +86,7 @@ TMesh bridges the gap between Meshtastic off-grid mesh networks and Telegram gro
   - 👌 Delivered to target device
   - 👎 Delivery failed
   - 🤷 Unknown status (no ACK after 2 minutes)
-- Multi-device status tracking
+- Multi-device and multi-channel status tracking
 - Queue delay estimation
 - Reply message correlation
 
@@ -88,10 +102,12 @@ TMesh consists of two main components:
    - Manages Telegram bot operations
    - Handles MQTT connectivity to Meshtastic network with TLS support
    - Processes message encryption/decryption with PKI
-   - Maintains SQLite database for registrations, device info, and positions
+   - Maintains SQLite database for registrations, device info, channels, and positions
+   - Optional PostgreSQL analytics database for telemetry collection
    - Implements message queue and rate limiting
    - Manages multi-gateway routing and health monitoring
    - Handles admin commands and announcements
+   - Supports both individual device and private channel registrations
 
 2. **TProxy** (Webhook Proxy)
    - Receives Telegram webhook updates
@@ -104,6 +120,7 @@ TMesh consists of two main components:
 │  Telegram   │◄────────►│  TProxy  │          │   TBot      │
 │   Users     │          │(Webhook) │          │(Main Logic) │
 └─────────────┘          └──────────┘          └─────────────┘
+                               │                      │
                                │                      │
                                └──────────┬──────────┘
                                          │
@@ -126,50 +143,115 @@ TMesh consists of two main components:
                                │   Mesh Network    │
                                │  (Virtual Node)   │
                                └───────────────────┘
+                                         │
+                               ┌─────────▼─────────┐
+                               │ Optional          │
+                               │ PostgreSQL        │
+                               │ Analytics DB      │
+                               └───────────────────┘
 ```
 
 ### Communication Flow
 
-**Telegram → Meshtastic:**
+**Telegram → Meshtastic (Device or Channel):**
 1. User sends message in Telegram group (optionally replying to previous message)
 2. Telegram sends webhook to TProxy
 3. TProxy publishes to MQTT status topic
-4. TBot receives message, looks up registered devices
+4. TBot receives message, looks up registered devices and channels
 5. Message queued with rate limiting and priority
 6. If replying: correlates original Meshtastic message for reply chain
-7. Selects optimal gateway based on device's last seen location
+7. Selects optimal gateway based on device's/channel's last seen location
 8. Calculates dynamic hop limit based on distance to gateway
-9. Message encrypted with device's pinned public key (PKI)
-10. Encrypted packet sent to MQTT → selected gateway → Meshtastic mesh
-11. Delivery status updates sent back to Telegram as reactions
-12. If no ACK after 2 minutes: status changes to 🤷 (unknown)
+9. **For devices**: Message encrypted with device's pinned public key (PKI)
+10. **For channels**: Message encrypted with channel key
+11. Encrypted packet sent to MQTT → selected gateway → Meshtastic mesh
+12. Delivery status updates sent back to Telegram as reactions
+13. If no ACK after 2 minutes: status changes to 🤷 (unknown)
+14. **Optional**: Device metrics (position, channel util, air util) recorded in analytics database
 
 **Meshtastic → Telegram:**
-1. Device sends encrypted message to virtual node via mesh
+1. Device sends encrypted message to virtual node via mesh or channel
 2. Gateway receives and forwards to MQTT broker
-3. TBot decrypts using private key
-4. Checks device registration and validates pinned public key
+3. TBot decrypts using private key (device) or channel key
+4. Checks device/channel registration and validates pinned public key (for devices)
 5. Updates device position if included in message
-6. If replying to message: preserves reply chain in Telegram
-7. Sends formatted message to registered Telegram chats
-8. Sends ACK back to Meshtastic device through optimal gateway
+6. **Optional**: Records telemetry data in analytics database
+7. If replying to message: preserves reply chain in Telegram
+8. Sends formatted message to registered Telegram chats
+9. Sends ACK back to Meshtastic device through optimal gateway
+
+### Private Channel Support
+
+TMesh now supports registering entire private Meshtastic channels (not just well-known public channels):
+
+**How it works:**
+- Register a private channel using `/add_channel` command
+- Provide the channel name and encryption key (PSK)
+- All devices using that private channel can communicate with the Telegram group
+- Multiple devices on the channel share the same Telegram conversation
+- Channel messages are encrypted with the channel's PSK
+- Public (well-known) channels cannot be registered to prevent spam
+
+**Benefits:**
+- Group communication: Multiple Meshtastic devices communicate as a team with Telegram users
+- Simplified management: Register once instead of per-device
+- Team coordination: Perfect for search and rescue, events, or group activities
+- Privacy: Private channels keep your communications separate from public mesh
+
+**Limitations:**
+- Public/well-known channels (like LongFast) cannot be registered
+- Channel registration requires knowing the exact channel name and PSK
+- All messages to the channel are broadcast to all devices on that channel
 
 ### Security Model
 
-- **PKI Encryption**: Each Meshtastic device has a unique X25519 key pair
+- **PKI Encryption for Devices**: Each Meshtastic device has a unique X25519 key pair
+- **Channel Encryption**: Private channels use AES-128 or AES-256 encryption with PSK
 - **Key Pinning**: Device public keys are pinned on first registration to prevent MITM attacks
-- **End-to-End**: All messages encrypted end-to-end using elliptic curve cryptography
-- **Device Verification**: One-time codes sent through mesh network for registration
+- **End-to-End**: All messages encrypted end-to-end using elliptic curve (devices) or AES (channels)
+- **Device Verification**: One-time codes sent through mesh network for device registration
+- **Channel Verification**: Channel key validation during channel registration
 - **Webhook Security**: Telegram requests validated with secret tokens
 - **TLS/SSL Support**: Optional encrypted MQTT connections with certificate validation
 - **Admin Authentication**: Password-protected admin commands
 - **Rate Limiting**: Prevents abuse with configurable message and verification limits
 - **OK to MQTT**: Only devices with this flag enabled are accessible
 
+### Analytics & Telemetry
+
+**Optional Feature**: TMesh can collect network telemetry data in a PostgreSQL database for analysis and monitoring.
+
+**What is collected (if enabled):**
+- Device ID and timestamp
+- Device position (latitude, longitude, accuracy)
+- Last position update time
+- Channel utilization percentage
+- Air utilization percentage
+
+**Data retention:**
+- Time-series data stored in PostgreSQL
+- Indexed by device ID and timestamp for efficient queries
+- No message content is ever stored
+- Position history maintained for analysis
+
+**Privacy considerations:**
+- Analytics is completely optional (disabled by default)
+- No personally identifiable information collected
+- No message content stored
+- Only technical metrics for network optimization
+- See [PRIVACY.md](PRIVACY.md) for full details
+
+**Use cases:**
+- Monitor mesh network health and coverage
+- Track device connectivity patterns
+- Analyze network congestion and channel utilization
+- Identify optimal gateway placement
+- Debug connectivity issues
+
 ### Special Features
 
 #### Multi-Gateway Intelligence
-- Tracks which gateway last saw each device
+- Tracks which gateway last saw each device or channel
 - Routes messages through the gateway with best path to destination
 - Dynamic hop limit calculation based on device-gateway relationship
 - Gateway health monitoring via HTTP endpoints
@@ -180,6 +262,7 @@ TMesh consists of two main components:
 - Reply to Meshtastic messages in Telegram
 - Maintains conversation threading across platforms
 - Reply chains preserved in both directions
+- Works with both device and channel registrations
 
 #### Position Tracking
 - Automatic position capture from Meshtastic broadcasts
@@ -187,6 +270,7 @@ TMesh consists of two main components:
 - Map display with horizontal accuracy visualization
 - `/position` command to view device locations
 - Filter by device name: `/position MyDevice`
+- Optional storage in analytics database for historical tracking
 
 #### Trace Route Support
 - Displays complete message path through mesh network
@@ -201,10 +285,13 @@ TMesh consists of two main components:
 - Helps verify mesh connectivity
 
 #### Admin Commands
-Protected by password, accessible via `/admin <password> <command>`:
-- `announce <channel> <message>` - Send announcement to specific channel
+Protected by password, accessible via `/admin login <password>` then commands:
+- `public_text_primary <message>` - Send announcement to primary channel
+- `public_text <channel> <message>` - Send announcement to specific channel
 - `text <deviceId> <message>` - Send direct message to any device
 - `nodeinfo <deviceId>` - Query device information from database
+- `removenode <deviceId>` - Remove device from database
+- `logout` - Exit admin mode
 
 ---
 
@@ -234,6 +321,10 @@ Protected by password, accessible via `/admin <password> <command>`:
   - HTTPS endpoint accessible by Telegram servers
   - Can use: ngrok, Cloudflare Tunnel, reverse proxy, or cloud hosting
 
+- **Optional: PostgreSQL Database** (for analytics)
+  - PostgreSQL 12+ for analytics and telemetry collection
+  - Can be disabled if not needed
+
 ### Software Requirements
 
 - Docker and Docker Compose (recommended)
@@ -242,6 +333,7 @@ Protected by password, accessible via `/admin <password> <command>`:
   
 - .NET 8.0 Runtime
 - SQLite support
+- PostgreSQL client libraries (if using analytics)
 
 ### Meshtastic Configuration
 
@@ -298,6 +390,7 @@ Your Meshtastic devices must have:
        "TelegramBotMaxConnections": 5,
        
        "SQLiteConnectionString": "Data Source=/tbot/data/tbot.db",
+       "AnalyticsPostgresConnectionString": "",
        
        "MeshtasticNodeId": 123456789,
        "MeshtasticNodeNameShort": "TMSH",
@@ -329,6 +422,10 @@ Your Meshtastic devices must have:
        "PingWords": ["ping"],
        
        "TimeZone": "UTC",
+       "UpgradeDbOnStart": true,
+       
+       "DefaultMqttPasswordDeriveSecret": "",
+       "MqttUserPasswordDeriveSecrets": {},
        
        "Texts": {
          "PingReply": "pong",
@@ -336,6 +433,13 @@ Your Meshtastic devices must have:
        }
      }
    }
+   ```
+
+   **Optional: Enable Analytics Database**
+   
+   Add PostgreSQL connection string to enable telemetry collection:
+   ```json
+   "AnalyticsPostgresConnectionString": "Host=postgres;Database=tmesh_analytics;Username=tmesh;Password=your-secure-password"
    ```
 
    **For TProxy** (`tproxy-config/appsettings.json`):
@@ -362,6 +466,20 @@ Your Meshtastic devices must have:
    version: '3.8'
    
    services:
+     # PostgreSQL for analytics (optional)
+     postgres:
+       image: postgres:15
+       container_name: tmesh-postgres
+       environment:
+         POSTGRES_DB: tmesh_analytics
+         POSTGRES_USER: tmesh
+         POSTGRES_PASSWORD: your-secure-password
+       volumes:
+         - postgres-data:/var/lib/postgresql/data
+       restart: unless-stopped
+       networks:
+         - tmesh-network
+   
      tbot:
        build:
          context: ./TBot
@@ -373,6 +491,8 @@ Your Meshtastic devices must have:
        environment:
          - TBOT_CONFIG_PATH=/tbot/config
        restart: unless-stopped
+       depends_on:
+         - postgres
        networks:
          - tmesh-network
    
@@ -384,15 +504,20 @@ Your Meshtastic devices must have:
        volumes:
          - ./tproxy-config:/app/config:ro
        ports:
-         - "5000:8080"  # Adjust as needed
+         - "5000:8080"
        restart: unless-stopped
        networks:
          - tmesh-network
+   
+   volumes:
+     postgres-data:
    
    networks:
      tmesh-network:
        driver: bridge
    ```
+
+   **Note**: Remove the postgres service if not using analytics.
 
 5. **Build and start services**
 
@@ -405,6 +530,8 @@ Your Meshtastic devices must have:
    ```bash
    docker exec tmesh-tbot dotnet /tbot/app/TBot.dll /updatedb
    ```
+
+   If `UpgradeDbOnStart: true`, database migrations run automatically on startup.
 
 7. **Install Telegram webhook**
 
@@ -471,11 +598,26 @@ curl https://your-domain.com/status/bot/health?gatewayDeadMinutes=30&gatewayChec
 
 ### Bot Commands
 
-- `/add [deviceId]` - Register a Meshtastic device (e.g., `/add !aabbcc11` or `/add` for interactive)
-- `/remove [deviceId]` - Unregister a device (e.g., `/remove !aabbcc11` or `/remove` for interactive)
-- `/status [filter]` - List registered devices (e.g., `/status` or `/status MyDevice`)
+#### Device Commands
+- `/add_device [deviceId]` - Register a Meshtastic device (e.g., `/add_device !aabbcc11` or `/add_device` for interactive)
+- `/remove_device [deviceId]` - Unregister a device from current chat (e.g., `/remove_device !aabbcc11` or `/remove_device` for interactive)
+- `/remove_device_from_all_chats [deviceId]` - Unregister a device from all chats where you registered it
+
+#### Channel Commands
+- `/add_channel [name] [key]` - Register a private Meshtastic channel (e.g., `/add_channel MyTeam ZGeGFyhk...=` or `/add_channel` for interactive)
+- `/remove_channel [channelId]` - Unregister a channel from current chat (e.g., `/remove_channel 5` or `/remove_channel` for list)
+- `/remove_channel_from_all_chats [channelId]` - Unregister a channel from all chats where you registered it
+
+#### Information Commands
+- `/status [filter]` - List registered devices and channels (e.g., `/status` or `/status MyDevice`)
 - `/position [filter]` - Show device positions on map (e.g., `/position` or `/position MyDevice`)
-- `/admin <password> <command>` - Execute admin commands (see Admin Mode below)
+
+#### Admin Commands
+- `/admin login <password>` - Enter admin mode
+- `/admin logout` - Exit admin mode
+- `/admin <command>` - Execute admin commands (see Admin Mode below)
+
+#### General Commands
 - `/stop` - Cancel ongoing registration/removal process
 
 ### Setting Up Your First Device
@@ -497,12 +639,12 @@ curl https://your-domain.com/status/bot/health?gatewayDeadMinutes=30&gatewayChec
    
    Quick method (if you know your device ID):
    ```
-   /add !75bcd15
+   /add_device !75bcd15
    ```
    
    Or interactive method:
    ```
-   /add
+   /add_device
    ```
    Then send your device ID when prompted.
    
@@ -522,12 +664,53 @@ curl https://your-domain.com/status/bot/health?gatewayDeadMinutes=30&gatewayChec
    - Reply to messages to maintain conversation threading
    - Watch the emoji reactions for delivery status
 
+### Setting Up a Private Channel
+
+Private channels allow multiple Meshtastic devices to share a single Telegram conversation.
+
+1. **Create a private channel on your Meshtastic devices**
+   - Use Meshtastic app or CLI to create a new channel
+   - Set a unique name (e.g., "SearchTeam", "EventCrew")
+   - Note the channel PSK (encryption key)
+   - Configure all team devices to use this channel
+
+2. **Register the channel with TMesh**
+   
+   Quick method (if you have name and key):
+   ```
+   /add_channel SearchTeam ZGeGFyhkL6uTXb3g4LO3sUOUGyaHqrvU=
+   ```
+   
+   Or interactive method:
+   ```
+   /add_channel
+   ```
+   Then provide:
+   - Channel name when prompted
+   - Channel key (PSK in base64) when prompted
+
+3. **Channel verification**
+   - Bot verifies the channel is not a public/well-known channel
+   - Bot sends a verification code to the channel
+   - Enter the code in Telegram to complete registration
+
+4. **Start team communication!**
+   - Messages from Telegram appear on all devices using the channel
+   - Messages from any device on the channel appear in Telegram
+   - Perfect for group coordination and team operations
+
+**Important Notes:**
+- Public channels (like LongFast) cannot be registered
+- All devices on the channel will see Telegram messages
+- Channel must be configured identically on all devices
+- You can get channel info from Meshtastic app: Settings → Channels → [Your Channel] → QR Code
+
 ### Using Reply Threading
 
 **Reply in Telegram to Meshtastic message:**
-1. Long-press or click reply on any message from a Meshtastic device
+1. Long-press or click reply on any message from a Meshtastic device or channel
 2. Type your reply
-3. The reply will be sent as a threaded message to the specific device
+3. The reply will be sent as a threaded message to the specific device or channel
 
 **Reply in Meshtastic to Telegram message:**
 1. Open the message from TMesh in your Meshtastic app
@@ -554,33 +737,42 @@ This shows:
 
 ### Admin Mode
 
-Admin commands require authentication with the password configured in `AdminPassword`.
+Admin commands require authentication. First login:
 
-**Send public announcement:**
 ```
-/admin <password> announce <channel> <message>
+/admin login <password>
 ```
-Example:
+
+Once authenticated, use admin commands:
+
+**Send public announcement to primary channel:**
 ```
-/admin mypass announce LongFast Network maintenance in 1 hour
+/admin public_text_primary Network maintenance in 1 hour
+```
+
+**Send announcement to specific channel:**
+```
+/admin public_text Services The relay is moving locations
 ```
 
 **Send direct message to any device:**
 ```
-/admin <password> text <deviceId> <message>
-```
-Example:
-```
-/admin mypass text !75bcd15 Testing direct message
+/admin text !75bcd15 Testing direct message
 ```
 
 **Query device information:**
 ```
-/admin <password> nodeinfo <deviceId>
+/admin nodeinfo !75bcd15
 ```
-Example:
+
+**Remove device from database:**
 ```
-/admin mypass nodeinfo !75bcd15
+/admin removenode !75bcd15
+```
+
+**Logout from admin mode:**
+```
+/admin logout
 ```
 
 ### Understanding Delivery Status
@@ -596,7 +788,7 @@ Messages use emoji reactions to show delivery status:
 | 👎 | Failed | Delivery failed |
 | 🤷 | Unknown | No acknowledgment received after 2 minutes |
 
-For messages sent to multiple devices, you'll see a status message with emoji for each device.
+For messages sent to multiple devices or channels, you'll see a status message with emoji for each recipient.
 
 **Status Timeline:**
 1. Message created → ✍️
@@ -608,11 +800,12 @@ For messages sent to multiple devices, you'll see a status message with emoji fo
 
 ### Message Limitations
 
-- **Maximum message length**: 233 bytes (after PKI overhead)
-  - English letters: ~1 byte each (≈233 characters)
-  - Cyrillic letters: ~2 bytes each (≈116 characters)
-  - Emoji: ~4 bytes each (≈58 emoji)
+- **Maximum message length**: 233 bytes (after PKI overhead for devices, less for channels)
+  - English letters: ~1 byte each (≈233 characters for devices)
+  - Cyrillic letters: ~2 bytes each (≈116 characters for devices)
+  - Emoji: ~4 bytes each (≈58 emoji for devices)
   - Mixed content: Calculate accordingly
+  - Channel messages may have slightly less capacity due to encryption overhead
 
 - **Rate limiting**: Maximum 30 messages per minute (configurable)
 - **Queue delays**: Shown in status messages when active
@@ -621,7 +814,7 @@ For messages sent to multiple devices, you'll see a status message with emoji fo
 ### Multi-Gateway Operation
 
 When multiple gateways are configured:
-- **Automatic Routing**: Messages sent through gateway that last saw the destination device
+- **Automatic Routing**: Messages sent through gateway that last saw the destination device or channel
 - **Hop Limit Optimization**: Dynamic hop limits based on gateway relationship
 - **Health Monitoring**: Monitor individual gateway health via HTTP endpoints
 - **Failover**: Automatic routing through alternate gateways if primary unavailable
@@ -653,9 +846,10 @@ Customize ping words and pong response in configuration:
 - Monitor delivery status reactions
 - Use reply threading to maintain conversation context
 - If queue delays are high, wait before sending more messages
-- Use `/status` to verify device registration
+- Use `/status` to verify device and channel registration
 - Use `/position` to check if devices are online and their locations
 - Monitor gateway health via `/status/bot/health` endpoint
+- For team operations, consider using private channels instead of individual devices
 
 ---
 
@@ -688,7 +882,9 @@ Customize ping words and pong response in configuration:
 #### Database Settings
 | Setting | Type | Description | Example |
 |---------|------|-------------|---------|
-| `SQLiteConnectionString` | string | SQLite database path | `Data Source=/tbot/data/tbot.db` |
+| `SQLiteConnectionString` | string | SQLite database path for primary data | `Data Source=/tbot/data/tbot.db` |
+| `AnalyticsPostgresConnectionString` | string | PostgreSQL connection for analytics (optional, leave empty to disable) | `Host=postgres;Database=tmesh_analytics;Username=tmesh;Password=pass` |
+| `UpgradeDbOnStart` | bool | Automatically run database migrations on startup | `true` |
 
 #### Meshtastic Node Settings
 | Setting | Type | Description | Example |
@@ -707,7 +903,7 @@ Customize ping words and pong response in configuration:
 |---------|------|-------------|---------|
 | `MeshtasticPrimaryChannelName` | string | Primary channel name | `LongFast` |
 | `MeshtasticPrimaryChannelPskBase64` | string | Channel PSK in base64 | `AQ==` |
-| `MeshtasticSecondayChannels` | array | Additional channels | See example below |
+| `MeshtasticSecondayChannels` | array | Additional well-known channels for admin commands | See example below |
 
 Example secondary channels:
 ```json
@@ -722,6 +918,8 @@ Example secondary channels:
   }
 ]
 ```
+
+**Note**: Private channels are registered via bot commands, not configuration.
 
 #### Gateway Settings
 | Setting | Type | Description | Example |
@@ -745,6 +943,14 @@ Example secondary channels:
 |---------|------|-------------|---------|
 | `ReplyToPublicPingsViaDirectMessage` | bool | Reply to public pings via DM | `false` |
 | `PingWords` | string[] | Words that trigger ping response | `["ping"]` |
+
+#### MQTT Password Derivation Settings
+| Setting | Type | Description | Example |
+|---------|------|-------------|---------|
+| `DefaultMqttPasswordDeriveSecret` | string | Default secret for password derivation | `your-secret-key` |
+| `MqttUserPasswordDeriveSecrets` | object | Per-user secrets for MQTT password generation | `{"user1": "secret1"}` |
+
+Use `/passwordgen <username>` command to generate MQTT passwords based on these secrets.
 
 #### Localization Settings
 | Setting | Type | Description | Example |
@@ -785,6 +991,8 @@ export TBot__MqttAddress="mqtt.example.com"
 export TBot__TelegramApiToken="123456:ABC..."
 export TBot__MqttUseTls="true"
 export TBot__AdminPassword="secure-pass"
+export TBot__AnalyticsPostgresConnectionString="Host=postgres;Database=tmesh"
+export TBot__UpgradeDbOnStart="true"
 ```
 
 Note the double underscore `__` for nested properties.
@@ -818,6 +1026,24 @@ Your virtual node needs a unique ID in the Meshtastic network. To generate one:
 6. Check TBot logs: `docker logs tmesh-tbot`
 7. Verify gateway is connected and forwarding to MQTT
 
+### Channel Registration Fails
+
+**Problem**: "Adding public, well known channels is not allowed"
+
+**Solution**:
+- TMesh only allows registration of private channels, not public ones
+- Public channels like LongFast, ShortFast, etc. cannot be registered
+- Create a custom private channel on your devices
+- Use a unique channel name and custom PSK
+
+**Problem**: "Invalid channel key format"
+
+**Solution**:
+- Channel key must be base64-encoded
+- Key must be 16 or 32 bytes (AES-128 or AES-256)
+- Get the key from Meshtastic app: Settings → Channels → [Your Channel] → QR Code
+- Copy the PSK value (looks like: `ZGeGFyhkL6uTXb3g4LO3sUOUGyaHqrvU=`)
+
 ### No Messages Reaching Meshtastic
 
 **Checklist**:
@@ -825,6 +1051,7 @@ Your virtual node needs a unique ID in the Meshtastic network. To generate one:
 - [ ] Meshtastic gateway is connected to MQTT
 - [ ] Topic prefix matches: check `MqttMeshtasticTopicPrefix`
 - [ ] Channel settings match (name and PSK)
+- [ ] For channels: All devices have identical channel configuration
 - [ ] Gateway node IDs configured in `GatewayNodeIds`
 - [ ] Check TBot logs: `docker logs tmesh-tbot`
 - [ ] Verify gateway health: `curl https://your-domain.com/status/gateway/GATEWAY_ID`
@@ -848,6 +1075,25 @@ Your virtual node needs a unique ID in the Meshtastic network. To generate one:
 - Reduce message frequency
 - Increase `MeshtasticMaxOutgoingMessagesPerMinute` (carefully!)
 - Check gateway health - slow gateways increase queue time
+
+### Analytics Database Issues
+
+**Problem**: Analytics not collecting data
+
+**Solutions**:
+1. Verify PostgreSQL is running: `docker ps | grep postgres`
+2. Check connection string in configuration
+3. Ensure database exists and is accessible
+4. Run migrations: `docker exec tmesh-tbot dotnet /tbot/app/TBot.dll /updatedb`
+5. Check TBot logs for database errors
+
+**Problem**: High database disk usage
+
+**Solutions**:
+- Analytics data is time-series and grows over time
+- Implement data retention policy (delete old data)
+- Use PostgreSQL partitioning for better performance
+- Consider disabling analytics if not needed
 
 ### TLS/SSL Connection Issues
 
@@ -897,7 +1143,7 @@ curl https://your-domain.com/status/bot
 **Solutions**:
 1. Ensure you're using Telegram's reply feature (not just mentioning)
 2. Original message must have delivery confirmation
-3. Check that device is still registered
+3. Check that device or channel is still registered
 4. Reply must be sent within message status cache timeout
 5. Check TBot logs for reply correlation
 
@@ -906,20 +1152,26 @@ curl https://your-domain.com/status/bot
 **Problem**: Admin commands return error or no response
 
 **Solutions**:
-1. Verify password matches `AdminPassword` in configuration
-2. Ensure password is URL-safe (no special characters)
-3. Check command syntax: `/admin <password> <command> <args>`
+1. First login with `/admin login <password>`
+2. Verify password matches `AdminPassword` in configuration
+3. Check command syntax after login
 4. Check TBot logs for authentication attempts
 5. Verify bot is admin in the Telegram group
+6. Use `/admin logout` to exit and try again
 
 ### Database Errors
 
 ```bash
-# Backup current database
+# Backup current databases
 cp data/tbot.db data/tbot.db.backup
 
 # Apply migrations
 docker exec tmesh-tbot dotnet /tbot/app/TBot.dll /updatedb
+```
+
+Or enable automatic migrations:
+```json
+"UpgradeDbOnStart": true
 ```
 
 ---
@@ -929,16 +1181,20 @@ docker exec tmesh-tbot dotnet /tbot/app/TBot.dll /updatedb
 ### Data Storage
 
 TMesh stores the following data (see [PRIVACY.md](PRIVACY.md) for details):
-- Device registrations: Chat ID, Telegram user ID
+- Device registrations: Chat ID, Telegram user ID, device ID
+- Channel registrations: Chat ID, Telegram user ID, channel ID, channel name, channel key
 - Device information: Node ID, pinned public keys, positions with timestamps
+- **Analytics (optional)**: Device metrics, position history, channel/air utilization
 - Messages are NOT stored permanently
 - Temporary verification codes (5-minute expiry)
 - Device-gateway associations (for routing optimization)
 
 ### Network Security
 
-- All Meshtastic messages use PKI encryption (X25519)
-- **Public key pinning** prevents MITM attacks after initial registration
+- All Meshtastic device messages use PKI encryption (X25519)
+- All Meshtastic channel messages use AES encryption with PSK
+- **Public key pinning** prevents MITM attacks after initial device registration
+- **Channel key validation** ensures only authorized users register channels
 - Telegram webhooks protected by secret tokens
 - MQTT connections support TLS/SSL with certificate validation
 - Only devices with "OK to MQTT" flag are accessible
@@ -950,12 +1206,15 @@ TMesh stores the following data (see [PRIVACY.md](PRIVACY.md) for details):
 - **Use TLS for MQTT**: Set `MqttUseTls: true` in production
 - **Validate certificates**: Keep `MqttAllowUntrustedCertificates: false` unless using self-signed
 - **Strong passwords**: Use long, random passwords for admin commands
+- **Secure channel keys**: Keep private channel PSKs secret
 - **Gateway security**: Physically secure your gateway devices
 - **Key protection**: Protect private key in configuration with file permissions
 - **Regular updates**: Keep TMesh Docker images updated
 - **Monitor access**: Review TBot logs for suspicious activity
 - **Limit bot permissions**: Only grant necessary Telegram group permissions
-- **Backup database**: Regular backups of device registrations and keys
+- **Backup databases**: Regular backups of device registrations, channels, and keys
+- **Analytics privacy**: Only enable analytics if you need it
+- **Secure PostgreSQL**: Use strong passwords and limit network access
 
 ### TLS/SSL Configuration
 
@@ -982,7 +1241,7 @@ For production deployments with MQTT over TLS:
    "MqttAllowUntrustedCertificates": true
    ```
 
-### Public Key Pinning
+### Public Key Pinning (Devices)
 
 TMesh automatically pins device public keys during registration:
 - First registration: Public key is stored and pinned
@@ -991,6 +1250,14 @@ TMesh automatically pins device public keys during registration:
 - Key cannot be changed without re-registration
 - Protects against compromised MQTT infrastructure
 
+### Channel Key Security
+
+TMesh stores private channel keys in the database:
+- Keys are stored in SQLite unencrypted
+- Keys validated during channel registration
+- Same channel key must be used across all devices
+- Keep channel PSKs secret
+
 ---
 
 ## FAQ
@@ -998,26 +1265,40 @@ TMesh automatically pins device public keys during registration:
 **Q: Can multiple Telegram groups use the same Meshtastic device?**  
 A: Yes! A single device can be registered to multiple Telegram chats. Messages from all chats will be sent to the device, and device messages will be broadcast to all registered chats.
 
+**Q: Can multiple Telegram groups use the same private channel?**  
+A: Yes! A single private channel can be registered to multiple Telegram chats. Messages from all chats will be sent to all devices on the channel.
+
+**Q: What's the difference between registering a device vs. a channel?**  
+A: 
+- **Device registration**: One-to-one between Telegram and a specific device. Messages are encrypted with the device's public key.
+- **Channel registration**: One-to-many between Telegram and all devices on a private channel. Messages are encrypted with the channel's PSK.
+
+**Q: Can I register public channels like LongFast?**  
+A: No. TMesh only allows registration of private channels to prevent spam and abuse. Public channels are accessible to everyone and should not be bridged to private Telegram groups.
+
+**Q: How do I get the channel key (PSK)?**  
+A: In Meshtastic app: Settings → Channels → [Your Channel] → Show QR Code → Copy the PSK value
+
 **Q: How does multi-gateway routing work?**  
-A: TMesh tracks which gateway last saw each device and automatically routes messages through that gateway for optimal delivery. Hop limits are dynamically adjusted based on the device-gateway relationship.
+A: TMesh tracks which gateway last saw each device and automatically routes messages through that gateway for optimal delivery. Hop limits are dynamically adjusted based on the device/channel-gateway relationship. For channels messages are broadcasted via all gateways.
 
 **Q: What happens if I lose the verification code?**  
-A: Start the registration process again with `/add`. You're limited to 5 verification attempts per device per hour.
+A: Start the registration process again with `/add_device` or `/add_channel`. You're limited to 5 verification attempts per device per hour.
 
 **Q: Can I use TMesh with private MQTT brokers?**  
 A: Absolutely! TMesh works with any MQTT broker that supports QoS 1. TLS/SSL is highly recommended for production.
 
 **Q: Does TMesh work with encrypted channels?**  
-A: TMesh requires the primary channel to be configured (default `LongFast`). You can configure secondary channels in `MeshtasticSecondayChannels` for additional functionality.
+A: Yes! TMesh supports private encrypted channels. You provide the channel name and PSK during registration.
 
 **Q: What's the difference between TBot and TProxy?**  
-A: TProxy is a lightweight webhook receiver that forwards to MQTT. TBot contains all the logic for bot operations, Meshtastic communication, message handling, and gateway management. They can run on the same or different servers.
+A: TProxy is a lightweight webhook receiver that forwards to MQTT. TBot contains all the logic for bot operations, Meshtastic communication, device/channel management, message handling, analytics collection, and gateway management.
 
 **Q: Can I run multiple TMesh instances?**  
 A: Not recommended on the same Meshtastic network - each creates a virtual node. Use one instance with multiple gateway nodes for redundancy.
 
 **Q: How do I backup my registrations?**  
-A: Backup the SQLite database file: `cp data/tbot.db data/tbot.db.backup`. The database includes device registrations, pinned public keys, and position data.
+A: Backup the SQLite database file: `cp data/tbot.db data/tbot.db.backup`. The database includes device registrations, channel registrations, pinned public keys, channel keys, and position data. Also backup PostgreSQL if using analytics.
 
 **Q: Why do messages sometimes take a while to deliver?**  
 A: TMesh implements rate limiting to prevent mesh network congestion. Check the queue status in bot messages. Multi-gateway setups can improve delivery times.
@@ -1025,14 +1306,23 @@ A: TMesh implements rate limiting to prevent mesh network congestion. Check the 
 **Q: How accurate is position tracking?**  
 A: Position accuracy depends on your Meshtastic device's GPS. TMesh displays the accuracy radius reported by the device (typically 5-50 meters for GPS).
 
-**Q: Can I use reply threading with multiple devices?**  
-A: Yes! When replying in Telegram, the reply is sent only to the device that sent the original message, maintaining proper conversation threading.
+**Q: Can I use reply threading with multiple devices or channels?**  
+A: Yes! When replying in Telegram, the reply is sent only to the device or channel that sent the original message, maintaining proper conversation threading.
 
 **Q: How do I monitor gateway health?**  
 A: Use the health check endpoints at `/status/bot/health` and `/status/gateway/{id}`. These can be integrated with monitoring systems like Prometheus or Uptime Kuma.
 
 **Q: What's the 🤷 status?**  
 A: "Unknown" status appears when no acknowledgment is received from the mesh network within 2 minutes. The message may still be delivered, but confirmation couldn't be obtained.
+
+**Q: What data does analytics collect?**  
+A: If enabled, analytics collects: device ID, timestamp, position, channel utilization, and air utilization. No message content is ever stored. See [PRIVACY.md](PRIVACY.md) for full details.
+
+**Q: Can I disable analytics after enabling it?**  
+A: Yes, remove the `AnalyticsPostgresConnectionString` from configuration and restart TMesh. Historical data remains in PostgreSQL but won't grow.
+
+**Q: Do I need PostgreSQL if I don't want analytics?**  
+A: No! Analytics is completely optional. Leave `AnalyticsPostgresConnectionString` empty to disable it. TMesh works perfectly fine with just SQLite.
 
 ---
 
@@ -1072,12 +1362,17 @@ dotnet run --project TProxy
 ```
 TMesh/
 ├── TBot/                      # Main service
+│   ├── Analytics/            # Analytics service and models
+│   │   ├── AnalyticsDbContext.cs
+│   │   ├── AnalyticsService.cs
+│   │   └── Models/
+│   │       └── DeviceMetric.cs
 │   ├── BotService.cs         # Telegram bot logic
 │   ├── MqttService.cs        # MQTT connectivity with TLS
 │   ├── MeshtasticService.cs  # Message encryption/queuing
-│   ├── RegistrationService.cs # Device management
+│   ├── RegistrationService.cs # Device & channel management
 │   ├── Database/             # EF Core models
-│   │   └── Models/           # Device, Registration models
+│   │   └── Models/           # Device, Channel, Registration models
 │   └── Models/               # Data structures
 ├── TProxy/                    # Webhook proxy
 │   ├── Controllers/          # HTTP endpoints
@@ -1090,11 +1385,13 @@ TMesh/
 ### Technology Stack
 
 - **Backend**: .NET 8.0, C#
-- **Database**: SQLite with Entity Framework Core
+- **Primary Database**: SQLite with Entity Framework Core
+- **Analytics Database**: PostgreSQL with Entity Framework Core (optional)
 - **MQTT**: MQTTnet library with TLS support
 - **Telegram**: Telegram.Bot library
-- **Cryptography**: BouncyCastle (X25519 for PKI)
+- **Cryptography**: BouncyCastle (X25519 for PKI, AES for channels)
 - **Messaging**: Meshtastic Protobufs
+- **Time Handling**: NodaTime for analytics timestamps
 - **Containerization**: Docker
 
 ---
@@ -1108,8 +1405,9 @@ Contributions are welcome! Here's how you can help:
 - Use GitHub Issues for bug reports
 - Include logs (with sensitive data removed)
 - Describe steps to reproduce
-- Specify your environment (OS, Docker version, MQTT broker, etc.)
+- Specify your environment (OS, Docker version, MQTT broker, databases, etc.)
 - Include gateway configuration if relevant
+- Mention if using device or channel registrations
 
 ### Pull Requests
 
@@ -1123,21 +1421,24 @@ Contributions are welcome! Here's how you can help:
 
 - Follow existing code style
 - Add comments for complex logic
-- Update README if adding features
-- Test with real Meshtastic devices if possible
+- Update README and PRIVACY.md if adding features
+- Test with real Meshtastic devices and channels if possible
 - Ensure Docker builds work
 - Test multi-gateway scenarios when relevant
+- Consider privacy implications of new features
 
 ---
 
 ## Roadmap
 
 ### Completed Features ✅
-- [x] Device removal functionality (`/remove` command)
+- [x] Device registration and management
+- [x] **Private channel registration and management**
 - [x] Message threading and replies between platforms
 - [x] TLS/SSL MQTT connections
 - [x] Multi-gateway support with intelligent routing
 - [x] Position tracking and mapping
+- [x] **Analytics database with PostgreSQL support**
 - [x] Trace route display
 - [x] Admin mode for announcements
 - [x] Public key pinning for security
@@ -1146,9 +1447,14 @@ Contributions are welcome! Here's how you can help:
 - [x] Multiple channel support
 - [x] Unknown status handling (🤷 emoji)
 - [x] Customizable text messages
+- [x] **MQTT password derivation**
+- [x] **Automatic database migrations on startup**
+- [x] Remove device/channel from all chats
 
 ### Planned Features 🚀
-- [ ] Web dashboard for monitoring and management
+- [ ] Web dashboard for monitoring and analytics visualization
+- [ ] Analytics API for querying metrics
+- [ ] Grafana integration for analytics
 - [ ] Support for more Telegram bots per instance
 - [ ] Message history/logging options (opt-in)
 - [ ] Additional admin controls per chat
@@ -1160,6 +1466,8 @@ Contributions are welcome! Here's how you can help:
 - [ ] Waypoint and navigation features
 - [ ] Weather station integration
 - [ ] Custom emoji mapping for status
+- [ ] Channel membership verification
+- [ ] Bulk channel operations
 
 ---
 
@@ -1169,6 +1477,7 @@ Contributions are welcome! Here's how you can help:
 - [MQTTnet](https://github.com/dotnet/MQTTnet) - Excellent .NET MQTT library with TLS support
 - [Telegram.Bot](https://github.com/TelegramBots/Telegram.Bot) - .NET Telegram Bot API library
 - [Bouncy Castle](https://www.bouncycastle.org/) - Cryptography library for PKI
+- [NodaTime](https://nodatime.org/) - Better time handling for .NET
 - All contributors and testers who helped improve TMesh
 
 ---
@@ -1205,9 +1514,9 @@ SOFTWARE.
 
 ## Support & Community
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/TMesh/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/TMesh/discussions)
-- **Meshtastic Forum**: [meshtastic.discourse.group](https://meshtastic.discourse.group)
+- **Issues**: [GitHub Issues](https://github.com/samfromlv/tmesh/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/samfromlv/tmesh/discussions)
+
 
 ---
 
@@ -1217,7 +1526,9 @@ TMesh is an independent project and is not officially affiliated with or endorse
 
 Meshtastic networks operate on shared radio frequencies. TMesh implements rate limiting and intelligent routing to be a good neighbor, but users are responsible for ensuring their usage complies with local regulations and community guidelines.
 
-**Security Notice**: TMesh implements public key pinning to prevent MITM attacks, but the initial key exchange during registration relies on the security of your MQTT infrastructure. Use TLS/SSL for MQTT in production environments.
+**Security Notice**: TMesh implements public key pinning (for devices) and key validation (for channels) to prevent MITM attacks, but the initial key exchange during registration relies on the security of your MQTT infrastructure. Use TLS/SSL for MQTT in production environments. Keep private channel keys secure.
+
+**Privacy Notice**: If analytics are enabled, device metrics are collected. No message content is ever stored. See [PRIVACY.md](PRIVACY.md) for complete details.
 
 **Health & Safety**: Do not rely on TMesh for emergency communications. Always have backup communication methods available.
 
@@ -1229,6 +1540,6 @@ Meshtastic networks operate on shared radio frequencies. TMesh implements rate l
 
 ⭐ Star this repo if you find it useful!
 
-[Report Bug](https://github.com/yourusername/TMesh/issues) • [Request Feature](https://github.com/yourusername/TMesh/issues) • [Contribute](CONTRIBUTING.md)
+[Report Bug](https://github.com/samfromlv/tmesh/issues) • [Request Feature](https://github.com/samfromlv/tmesh/issues) • [Contribute](CONTRIBUTING.md)
 
 </div>
