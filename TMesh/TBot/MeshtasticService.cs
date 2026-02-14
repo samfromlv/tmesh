@@ -152,6 +152,7 @@ namespace TBot
         public QueueResult SendPrivateChannelTextMessage(
             long newMessageId,
             string text,
+            long? replyToMessageId,
             long? relayGatewayId,
             int hopLimit,
             IRecipient channel)
@@ -159,7 +160,7 @@ namespace TBot
             var envelope = PackPrivateTextMessage(
                 newMessageId,
                 text,
-                null,
+                replyToMessageId,
                 hopLimit,
                 channel);
 
@@ -1063,7 +1064,7 @@ namespace TBot
 
             var device = recipients.FirstOrDefault(x=>x.RecipientDeviceId != null);
 
-            var publicKey = device.RecipientKey;
+            var publicKey = device?.RecipientKey;
 
             if (publicKey == null)
             {

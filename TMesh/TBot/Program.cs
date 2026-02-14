@@ -80,6 +80,11 @@ namespace TBot
                 await UpdateDb(host);
                 return;
             }
+            else if (args.Any(a => string.Equals(a, "/clear_database", StringComparison.OrdinalIgnoreCase)))
+            {
+                await DeleteAllDataInDb(host);
+                return;
+            }
             else if (args.Any(a => string.Equals(a, "/generatekeys", StringComparison.OrdinalIgnoreCase)))
             {
                 GenerateKeys(host);
@@ -98,6 +103,11 @@ namespace TBot
                 DerivePassword(username, host);
                 Console.ReadLine();
                 return;
+            }
+            var options = host.Services.GetRequiredService<IOptions<TBotOptions>>().Value;
+            if (options.UpgradeDbOnStart)
+            {
+                await UpdateDb(host);
             }
 
             await host.RunAsync();
@@ -168,6 +178,27 @@ namespace TBot
                 logger2.LogError(ex, "Database update failed.");
             }
             return; // exit after install
+        }
+
+        private static async Task DeleteAllDataInDb(IHost host)
+        {
+            //Do not allow in release build
+#if !DEBUG
+ throw new InvalidOperationException("Database data deletion is only allowed in DEBUG builds.");
+#endif
+
+            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            try
+            {
+                var regService = host.Services.GetRequiredService<RegistrationService>();
+                await regService.DeleteAllDataInDB("delete all data from the database");
+                logger.LogInformation("All data in the database has been deleted.");
+            }
+            catch (Exception ex)
+            {
+                var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
+                logger2.LogError(ex, "Database data deletion failed.");
+            }
         }
 
         private static void DerivePassword(string username, IHost host)

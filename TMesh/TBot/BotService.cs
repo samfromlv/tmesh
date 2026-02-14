@@ -28,7 +28,8 @@ namespace TBot
     {
 
         const int TrimUserNamesToLength = 8;
-        private const string NoDeviceMessage = "No registered devices or channels. You can register a new device with the /add_device command or channel with /add_channel command. Please remove the bot from the group if you don't need it.";
+        private const string NoDeviceOrChannelMessage = "No registered devices or channels. You can register a new device with the /add_device command or channel with /add_channel command. Please remove the bot from the group if you don't need it.";
+        private const string NoDeviceMessage = "No registered devices. You can register a new device with the /add_device command.";
         private readonly TBotOptions _options = options.Value;
         private static readonly JsonSerializerOptions IdentedOptions = new()
         {
@@ -74,7 +75,7 @@ namespace TBot
                 new BotCommand
                 {
                     Command = "remove_channel_from_all_chats",
-                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Get registered channel ID with /status command or execute /remove_channel_from_all_chats without params to see registered channel IDs. Useful when you have registered channel in some chat but no longer have access to this chat. (e.g., /remove_channel_from_all_chats <ChannelID>)"
+                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
                 },
                 new BotCommand
                 {
@@ -96,12 +97,19 @@ namespace TBot
 
 
 
-        private void StoreTelegramMessageStatus(long chatId, int messageId, MeshtasticMessageStatus status)
+        private void StoreTelegramMessageStatus(
+            long chatId, 
+            int messageId,
+            MeshtasticMessageStatus status,
+            bool isOutgoing = false)
         {
             var currentDelay = meshtasticService.EstimateDelay(MessagePriority.Normal);
             var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
             memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
-            TrackedMessages.Add(status);
+            if (isOutgoing)
+            {
+                TrackedMessages.Add(status);
+            }
         }
 
         public MeshtasticMessageStatus GetTelegramMessageStatus(long chatId, int messageId)
@@ -350,7 +358,9 @@ namespace TBot
                         return;
                     }
 
-                    sts.Status = newStatus;
+                    sts.Status = sts.IsDevice || newStatus != DeliveryStatus.SentToMqtt
+                        ? newStatus
+                        : DeliveryStatus.SentToMqttNoAckExpected;
                 }
             }
             await ReportStatus(status);
@@ -360,6 +370,7 @@ namespace TBot
         {
             if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered)
                 || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Unknown)
+                || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.SentToMqttNoAckExpected)
                 || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Failed))
             {
                 var deliveryStatus = status.MeshMessages.First().Value;
@@ -430,6 +441,7 @@ namespace TBot
                 DeliveryStatus.Created => ReactionEmoji.WritingHand,
                 DeliveryStatus.Queued => ReactionEmoji.Eyes,
                 DeliveryStatus.SentToMqtt => ReactionEmoji.Dove,
+                DeliveryStatus.SentToMqttNoAckExpected => ReactionEmoji.Dove,
                 DeliveryStatus.Unknown => ReactionEmoji.ManShrugging,
                 DeliveryStatus.Delivered => ReactionEmoji.OkHand,
                 DeliveryStatus.Failed => ReactionEmoji.ThumbsDown,
@@ -715,7 +727,7 @@ namespace TBot
                 StoreMeshMessageStatus(newMeshMessageId, status);
                 messages.Add((recipient, newMeshMessageId));
             }
-            StoreTelegramMessageStatus(chatId, messageId, status);
+            StoreTelegramMessageStatus(chatId, messageId, status, isOutgoing: true);
 
             await ReportStatus(status);
 
@@ -748,6 +760,7 @@ namespace TBot
                     meshtasticService.SendPrivateChannelTextMessage(
                             newMeshMessageId,
                             text,
+                            replyToMeshMessageId,
                             relayGatewayId: null,
                             hopLimit: int.MaxValue,
                             new ChannelInternalInfo
@@ -1107,7 +1120,7 @@ namespace TBot
             {
                 await botClient.SendMessage(
                     chatId,
-                    NoDeviceMessage,
+                    NoDeviceOrChannelMessage,
                     replyParameters: new ReplyParameters
                     {
                         AllowSendingWithoutReply = false,
@@ -1132,7 +1145,7 @@ namespace TBot
             if (devices.Count == 0
                 && channelRegs.Count == 0)
             {
-                await botClient.SendMessage(chatId, NoDeviceMessage);
+                await botClient.SendMessage(chatId, NoDeviceOrChannelMessage);
             }
             else
             {
@@ -1144,24 +1157,24 @@ namespace TBot
                 {
                     devices = [.. devices.Where(d => d.NodeName.Contains(filter, StringComparison.OrdinalIgnoreCase))];
                     channelRegs = [.. channelRegs.Where(c => c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
-
-                    if (hasFilter
-                        && devices.Count == 0
-                        && channelRegs.Count == 0)
-                    {
-                        await botClient.SendMessage(chatId, $"No registered devices or channels matching filter '{filter}'.");
-                        return;
-                    }
-
-                    var lines =
-                            channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id})")
-                            .Concat(
-                              devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}")
-                            );
-
-                    var text = $"{(hasFilter ? "Filtered" : "Registered")} channels and devices:\r\n" + string.Join("\r\n", lines);
-                    await botClient.SendMessage(chatId, text);
                 }
+
+                if (hasFilter
+                    && devices.Count == 0
+                    && channelRegs.Count == 0)
+                {
+                    await botClient.SendMessage(chatId, $"No registered devices or channels matching filter '{filter}'.");
+                    return;
+                }
+
+                var lines =
+                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id})")
+                        .Concat(
+                          devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}")
+                        );
+
+                var text = $"{(hasFilter ? "Filtered" : "Registered")} channels and devices:\r\n" + string.Join("\r\n", lines);
+                await botClient.SendMessage(chatId, text);
             }
         }
 
@@ -1434,12 +1447,12 @@ namespace TBot
             if (isRemoveFromAll)
             {
                 // Process removal from all chats
-                var removedStatus = await registrationService.RemoveChannelFromAllChatsViaOneChatAsync(chatId, telegramUserId, channelId);
-                if (!removedStatus.removedFromCurrentChat)
+                var (removedFromCurrentChat, removedFromOtherChats) = await registrationService.RemoveChannelFromAllChatsViaOneChatAsync(chatId, telegramUserId, channelId);
+                if (!removedFromCurrentChat)
                 {
                     await botClient.SendMessage(chatId, $"Channel {channelId} is not registered in this chat. To prove that you still have access to the channel please register it first in this chat then retry the command.");
                 }
-                else if (removedStatus.removedFromOtherChats)
+                else if (removedFromOtherChats)
                 {
                     await botClient.SendMessage(chatId, $"Channel {channelId} has been removed from this chat and all other chats where you have registered it. Registration of the channel created by other Telegram users in other chats are not removed.");
                 }
@@ -1741,6 +1754,7 @@ namespace TBot
                 meshtasticService.SendPrivateChannelTextMessage(
                     MeshtasticService.GetNextMeshtasticMessageId(),
                     _options.Texts.PingReply ?? "pong",
+                    replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit(),
                     channel);

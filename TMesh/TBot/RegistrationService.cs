@@ -32,6 +32,20 @@ namespace TBot
             }
         }
 
+        public async Task DeleteAllDataInDB(string password)
+        {
+            if (password != "delete all data from the database")
+            {
+                throw new Exception("Invalid password");
+            }
+
+            db.DeviceRegistrations.RemoveRange(db.DeviceRegistrations);
+            db.ChannelRegistrations.RemoveRange(db.ChannelRegistrations);
+            db.Devices.RemoveRange(db.Devices);
+            db.Channels.RemoveRange(db.Channels);
+            await db.SaveChangesAsync();
+        }
+
         public async Task<bool> HasDeviceRegistrationAsync(long chatId, long deviceId)
         {
             return await db.DeviceRegistrations.AnyAsync(r => r.ChatId == chatId && r.DeviceId == deviceId);
@@ -283,7 +297,7 @@ namespace TBot
                           select new ChannelName
                           {
                               Id = c.Id,
-                              Name = c.Name,
+                              Name = c.Name
                           }).ToListAsync();
         }
 

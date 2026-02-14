@@ -115,6 +115,11 @@ namespace TBot
                     },
                     new() {
                         NoLocal = true,
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/UCH/#",
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    },
+                    new() {
+                        NoLocal = true,
                         Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
                         QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                     }
@@ -171,7 +176,7 @@ namespace TBot
             {
                 await MessageSent.Invoke(new DataEventArgs<long>(envelope.Packet.Id));
             }
-            _logger.LogInformation($"Published MQTT message to {topic}");
+            _logger.LogInformation("Published MQTT message to {topic}", topic);
         }
 
         public async Task PublishStatus(BotStats stats)
@@ -184,7 +189,7 @@ namespace TBot
                 .Build();
             await EnsureMqttConnectedAsync();
             await _client.PublishAsync(message);
-            _logger.LogInformation($"Published MQTT status message to {_options.MqttStatusTopic}");
+            _logger.LogInformation("Published MQTT status message to {topic}", _options.MqttStatusTopic);
         }
 
         private async Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs arg)

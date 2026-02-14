@@ -11,8 +11,9 @@ namespace TBot.Models
         Created = 0,
         Queued = 1,
         SentToMqtt = 2,
-        Unknown = 3,
-        Delivered = 4,
-        Failed = 5
+        SentToMqttNoAckExpected = 3,
+        Unknown = 4,
+        Delivered = 5,
+        Failed = 6,
     }
 }

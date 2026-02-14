@@ -55,4 +55,5 @@ public class TBotOptions
 
     public Dictionary<string, string> MqttUserPasswordDeriveSecrets { get; set; }
 
+    public bool UpgradeDbOnStart { get; set; }
 }
