@@ -12,7 +12,8 @@ namespace Shared.Models
         public MeshStat Mesh15Min { get; set; }
         public MeshStat Mesh1Hour { get; set; }
 
-        public int ChatRegistrations { get; set; }
+        public int DeviceChatRegistrations { get; set; }
+        public int ChannelChatRegistrations { get; set; }
 
         public int Devices24h { get; set; }
         public int Devices { get; set; }

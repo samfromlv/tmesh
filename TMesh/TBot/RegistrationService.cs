@@ -777,9 +777,14 @@ namespace TBot
             return true;
         }
 
-        public async Task<int> GetTotalRegistrationsCount()
+        public async Task<int> GetTotalDeviceRegistrationsCount()
         {
             return await db.DeviceRegistrations.CountAsync();
+        }
+
+        public async Task<int> GetTotalChannelRegistrationsCount()
+        {
+            return await db.ChannelRegistrations.CountAsync();
         }
 
         public async Task<int> GetTotalDevicesCount()

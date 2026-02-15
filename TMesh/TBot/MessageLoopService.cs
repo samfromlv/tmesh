@@ -131,7 +131,8 @@ public class MessageLoopService(
             botStats.TelemetrySaved24H = await analyticsService.GetStatistics(now.AddHours(-24));
         }
 
-        botStats.ChatRegistrations = await registrationService.GetTotalRegistrationsCount();
+        botStats.DeviceChatRegistrations = await registrationService.GetTotalDeviceRegistrationsCount();
+        botStats.ChannelChatRegistrations = await registrationService.GetTotalChannelRegistrationsCount();
         botStats.Devices = await registrationService.GetTotalDevicesCount();
         botStats.Devices24h = await registrationService.GetActiveDevicesCount(now.AddHours(-24));
         botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
