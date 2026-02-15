@@ -1067,7 +1067,7 @@ namespace TBot
                         var pwd = DeriveMqttPasswordForDevice(parsedNodeId);    
 
                         await registrationService.RegisterGatewayAsync(parsedNodeId);
-                        await botClient.SendMessage(chatId, $"Added gateway {device?.NodeName ?? hexId}.\r\nMQTT username: {hexId}\r\n, MQTT password: {pwd}.\r\n\r\nPassword only works with TMesh device firmware.");
+                        await botClient.SendMessage(chatId, $"Added gateway {device?.NodeName ?? hexId}.\r\nMQTT username: {hexId}\r\nMQTT password: {pwd}\r\n\r\nPassword only works with TMesh device firmware.");
                         GatewayListChanged = true;
                         
                         return true;
@@ -1116,6 +1116,7 @@ namespace TBot
                             var hexId = MeshtasticService.GetMeshtasticNodeHexId(id);
                             sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId})");
                         }
+                        await botClient.SendMessage(chatId, sb.ToString());
                         return true;
                     }
                 case "nodeinfo":
