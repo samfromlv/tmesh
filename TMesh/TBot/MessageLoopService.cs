@@ -255,7 +255,7 @@ public class MessageLoopService(
             {
                 scope ??= services.CreateScope();
                 registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
-                recipients.AddRange(meshtasticService.GetAllPublicChannels());
+                recipients.AddRange(meshtasticService.GetPublicChannelsByHash(packetFromTo.XorHash));
                 var channelRecipients = await registrationService.GetChannelKeysByHashCached(packetFromTo.XorHash);
                 recipients.AddRange(channelRecipients);
             }

@@ -76,6 +76,11 @@ namespace TBot
             return _channels;
         }
 
+        public IEnumerable<IRecipient> GetPublicChannelsByHash(byte xorHash)
+        {
+            return _channels.Where(x=>x.Hash == xorHash);
+        }
+
         private static ChannelInternalInfo ConvertChannel(ChannelInfo ch) =>
             ConvertChannel(ch.Name, ch.PskBase64);
 
