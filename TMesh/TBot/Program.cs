@@ -185,8 +185,7 @@ namespace TBot
             //Do not allow in release build
 #if !DEBUG
  throw new InvalidOperationException("Database data deletion is only allowed in DEBUG builds.");
-#endif
-
+#else
             var logger = host.Services.GetRequiredService<ILogger<Program>>();
             try
             {
@@ -199,6 +198,7 @@ namespace TBot
                 var logger2 = host.Services.GetRequiredService<ILogger<Program>>();
                 logger2.LogError(ex, "Database data deletion failed.");
             }
+#endif
         }
 
         private static void DerivePassword(string username, IHost host)

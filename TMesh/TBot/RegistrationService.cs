@@ -505,6 +505,50 @@ namespace TBot
             return null;
         }
 
+        public Task<List<long>> GetGatewaysCached()
+        {
+            return memoryCache.GetOrCreateAsync("GatewayNodeIds", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24);
+                return await db.GatewayRegistrations.AsNoTracking().Select(g => g.DeviceId).ToListAsync();
+            });
+        }
+
+        public async Task RegisterGatewayAsync(long deviceId)
+        {
+            var now = DateTime.UtcNow;
+            var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
+            if (entity == null)
+            {
+                entity = new GatewayRegistration
+                {
+                    DeviceId = deviceId,
+                    CreatedUtc = now,
+                    UpdatedUtc = now
+                };
+                db.GatewayRegistrations.Add(entity);
+            }
+            else
+            {
+                entity.UpdatedUtc = now;
+            }
+            await db.SaveChangesAsync();
+            memoryCache.Remove("GatewayNodeIds");
+        }
+
+        public async Task<bool> UnregisterGatewayAsync(long deviceId)
+        {
+            var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
+            if (entity == null)
+            {
+                return false;
+            }
+            db.GatewayRegistrations.Remove(entity);
+            await db.SaveChangesAsync();
+            memoryCache.Remove("GatewayNodeIds");
+            return true;
+        }
+
         public async Task<Channel> GetChannelAsync(int channelId)
         {
             return await memoryCache.GetOrCreateAsync($"Channel#{channelId}", async entry =>

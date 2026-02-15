@@ -48,7 +48,6 @@ namespace TBot
             _logger = logger;
             _memoryCache = memoryCache;
             _options = options.Value;
-            _localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
             InitChannels();
         }
 
@@ -99,14 +98,9 @@ namespace TBot
             };
         }
 
-        private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
-        {
-            StoreNoDup(arg.Data.Message.Packet.Id);
+        
 
-            return _mqttService.PublishMeshtasticMessage(
-                arg.Data.Message,
-                arg.Data.RelayThroughGatewayId);
-        }
+        
 
         private readonly MqttService _mqttService;
         private readonly ILogger<MeshtasticService> _logger;
@@ -690,7 +684,7 @@ namespace TBot
             }, MessagePriority.Low);
         }
 
-        private void StoreNoDup(uint id)
+        public void StoreNoDup(uint id)
         {
             _memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
@@ -818,7 +812,7 @@ namespace TBot
             return cipher.DoFinal(input);
         }
 
-        public bool TryBridge(ServiceEnvelope envelope)
+        public bool TryBridge(ServiceEnvelope envelope, HashSet<long> gatewayIds)
         {
             if (envelope.Packet == null)
             {
@@ -831,7 +825,7 @@ namespace TBot
             if (_options.BridgeDirectMessagesToGateways
                    && senderDeviceId != receiverDeviceId
                    && senderDeviceId != _options.MeshtasticNodeId
-                   && _options.GatewayNodeIds.Contains(receiverDeviceId)
+                   && gatewayIds.Contains(receiverDeviceId)
                    && envelope.GatewayId != GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
             {
                 if (TryStoreNoDup(envelope.Packet.Id))

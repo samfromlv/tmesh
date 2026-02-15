@@ -16,8 +16,8 @@ namespace TBot.Helpers
         /// </summary>
         public static string DerivePassword(string username, string secret)
         {
-            if (username is null) throw new ArgumentNullException(nameof(username));
-            if (secret is null) throw new ArgumentNullException(nameof(secret));
+            ArgumentNullException.ThrowIfNull(username);
+            ArgumentNullException.ThrowIfNull(secret);
 
             // plugin concatenates raw bytes of username + secret (effectively UTF-8 in our .NET implementation)
             byte[] input = Encoding.UTF8.GetBytes(username + secret);
@@ -31,10 +31,9 @@ namespace TBot.Helpers
                 .Replace('/', '_');  // url-safe
 
             // SHA256 => 32 bytes => base64url_no_pad length is always 43 chars, so 23 is safe
-            var pwd = b64.Length >= 23 ? b64.Substring(0, 23) : b64;
+            var pwd = b64.Length >= 23 ? b64[..23] : b64;
 
-            //last two characters of username uppercase
-            var prefix = username.Substring(username.Length - 2);
+            var prefix = username[^2..];
             return $"{prefix}_{pwd}";
         }
 

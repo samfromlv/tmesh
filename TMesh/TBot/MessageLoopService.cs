@@ -32,14 +32,17 @@ public class MessageLoopService(
     private BlockingCollection<AckMessage> _ackQueue;
     private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
     private Task _ackWorker;
+    private HashSet<long> _gatewayIds;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _started = DateTime.UtcNow;
+        await FillGatewayIds();
         mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
         await mqttService.EnsureMqttConnectedAsync(cancellationToken);
+        localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
         localMessageQueueService.Start();
         StartServiceInfoInfoTimer();
 
@@ -89,6 +92,21 @@ public class MessageLoopService(
         }
     }
 
+    private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
+    {
+        var relayThroughGatewayId = arg.Data.RelayThroughGatewayId;
+        if (relayThroughGatewayId.HasValue && !_gatewayIds.Contains(relayThroughGatewayId.Value))
+        {
+            relayThroughGatewayId = null;
+        }
+
+        meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
+
+        return mqttService.PublishMeshtasticMessage(
+            arg.Data.Message,
+            relayThroughGatewayId);
+    }
+
     private async Task PublishStats()
     {
         var now = DateTime.UtcNow;
@@ -117,15 +135,15 @@ public class MessageLoopService(
         botStats.Devices = await registrationService.GetTotalDevicesCount();
         botStats.Devices24h = await registrationService.GetActiveDevicesCount(now.AddHours(-24));
         botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
-        
-        
+
+
         await mqttService.PublishStatus(botStats);
     }
 
     private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
     {
-        var stat = new Dictionary<string, DateTime?>(_options.GatewayNodeIds.Length);
-        foreach (var gwId in _options.GatewayNodeIds.OrderBy(x => x))
+        var stat = new Dictionary<string, DateTime?>(_gatewayIds.Count);
+        foreach (var gwId in _gatewayIds.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
             {
@@ -155,6 +173,7 @@ public class MessageLoopService(
         _ackWorker = null;
         _serviceInfoTimer.Enabled = false;
         await localMessageQueueService.Stop();
+        localMessageQueueService.SendMessage -= LocalMessageQueueService_SendMessage;
         mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
         mqttService.MessageSent -= HandleMessageSent;
@@ -206,6 +225,18 @@ public class MessageLoopService(
         });
     }
 
+    public async Task FillGatewayIds()
+    {
+        using var scope = services.CreateScope();
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var ids = new HashSet<long>(await registrationService.GetGatewaysCached());
+        foreach (var id in _options.GatewayNodeIds)
+        {
+            ids.Add(id);
+        }
+        _gatewayIds = ids;
+    }
+
 
     private async Task HandleMeshtasticMessage(DataEventArgs<ServiceEnvelope> msg)
     {
@@ -224,7 +255,7 @@ public class MessageLoopService(
                 return;
             }
 
-            if (!_options.GatewayNodeIds.Contains(gatewayId))
+            if (!_gatewayIds.Contains(gatewayId))
             {
                 logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
                 return;
@@ -232,24 +263,24 @@ public class MessageLoopService(
 
             UpdateGatewayLastSeen(gatewayId);
 
-            if (meshtasticService.TryBridge(msg.Data))
+            if (meshtasticService.TryBridge(msg.Data, _gatewayIds))
             {
                 return;
             }
 
             var packetFromTo = MeshtasticService.GetPacketAddresses(msg.Data);
             Device device = null;
-            var recipients = new List<IRecipient>(8);
             RegistrationService registrationService = null;
+            var recipients = new List<IRecipient>(8);
             if (packetFromTo.IsPkiEncrypted && packetFromTo.To == _options.MeshtasticNodeId)
             {
                 scope ??= services.CreateScope();
                 registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
                 device = await registrationService.GetDeviceAsync(packetFromTo.From);
                 if (device != null)
-                {   
+                {
                     recipients.Add(device);
-                }   
+                }
             }
             if (!packetFromTo.IsPkiEncrypted)
             {
@@ -304,6 +335,10 @@ public class MessageLoopService(
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundTelegramMessage(msg.Data);
             ScheduleStatusResolve(botService.TrackedMessages);
+            if (botService.GatewayListChanged)
+            {
+                await FillGatewayIds();
+            }
         }
         catch (Exception ex)
         {

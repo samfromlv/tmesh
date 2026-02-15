@@ -9,6 +9,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<ChannelRegistration> ChannelRegistrations => Set<ChannelRegistration>();
+    public DbSet<GatewayRegistration> GatewayRegistrations => Set<GatewayRegistration>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceRegistration>(e =>
@@ -46,6 +47,15 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.Longitude);
             e.Property(p => p.LocationUpdatedUtc);
             e.Property(p => p.AccuracyMeters);
+        });
+
+        modelBuilder.Entity<GatewayRegistration>(e =>
+        {
+            e.HasKey(p => p.DeviceId);
+            e.Property(p => p.CreatedUtc)
+                .IsRequired();
+            e.Property(p => p.UpdatedUtc)
+                .IsRequired();
         });
 
         modelBuilder.Entity<Channel>(e =>

@@ -37,6 +37,7 @@ namespace TBot
         };
 
         public List<MeshtasticMessageStatus> TrackedMessages { get; } = [];
+        public bool GatewayListChanged { get; private set; } 
 
         public async Task InstallWebhook()
         {
@@ -1026,7 +1027,7 @@ namespace TBot
 
                     }
 
-                case "removenode":
+                case "remove_node":
                     {
                         var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
 
@@ -1050,6 +1051,73 @@ namespace TBot
                         return true;
                     }
 
+                case "add_gateway":
+                    {
+                        var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(nodeId)
+                           || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
+                        {
+                            await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                            return true;
+                        }
+
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
+                        var device = await registrationService.GetDeviceAsync(parsedNodeId);
+                        var pwd = DeriveMqttPasswordForDevice(parsedNodeId);    
+
+                        await registrationService.RegisterGatewayAsync(parsedNodeId);
+                        await botClient.SendMessage(chatId, $"Added gateway {device?.NodeName ?? hexId}.\r\nMQTT username: {hexId}\r\n, MQTT password: {pwd}.\r\n\r\nPassword only works with TMesh device firmware.");
+                        GatewayListChanged = true;
+                        
+                        return true;
+                    }
+                case "remove_gateway":
+                    {
+                        var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(nodeId)
+                           || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
+                        {
+                            await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                            return true;
+                        }
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
+                        var device = await registrationService.GetDeviceAsync(parsedNodeId);
+                        var removed = await registrationService.UnregisterGatewayAsync(parsedNodeId);
+                        if (removed)
+                        {
+                            await botClient.SendMessage(chatId, $"Removed gateway {device?.NodeName ?? hexId}.");
+                        }
+                        else
+                        {
+                            await botClient.SendMessage(chatId, $"Gateway {device?.NodeName ?? hexId} was not registered.");
+                        }
+
+                        GatewayListChanged = GatewayListChanged || removed;
+                        return true;
+                    }
+                case "list_gateways":
+                    {
+                        var ids = await registrationService.GetGatewaysCached();
+                        var sb = new StringBuilder();
+                        sb.AppendLine("Registered gateways:");
+                        foreach (var id in ids)
+                        {
+                            var device = await registrationService.GetDeviceAsync(id);
+                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(id);
+                            sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId})");
+                        }
+                        sb.AppendLine();
+                        sb.AppendLine("Default gateways:");
+                        foreach (var id in _options.GatewayNodeIds)
+                        {
+                            var device = await registrationService.GetDeviceAsync(id);
+                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(id);
+                            sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId})");
+                        }
+                        return true;
+                    }
                 case "nodeinfo":
                     {
                         var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
@@ -1088,6 +1156,19 @@ namespace TBot
                         return true;
                     }
             }
+        }
+
+        private string DeriveMqttPasswordForDevice(long deviceId)
+        {
+            var username = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+            var secret = _options.DefaultMqttPasswordDeriveSecret;
+            if (_options.MqttUserPasswordDeriveSecrets != null
+                && _options.MqttUserPasswordDeriveSecrets.TryGetValue(username, out var sec))
+            {
+                secret = sec;
+            }
+
+            return MqttPasswordDerive.DerivePassword(username, secret);
         }
 
         private async Task HandleText(
