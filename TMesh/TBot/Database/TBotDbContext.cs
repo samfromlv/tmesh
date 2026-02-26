@@ -76,6 +76,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.CreatedUtc)
                 .IsRequired();
 
+            e.Property(p => p.IsSingleDevice);
+
             e.HasIndex(p => new { p.Name, p.Key })
                 .IsUnique();
 

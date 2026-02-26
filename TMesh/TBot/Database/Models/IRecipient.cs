@@ -7,5 +7,11 @@
         public byte[] RecipientKey { get; }
         public byte? RecipientChannelXor { get; }
 
+        public bool? IsSingleDeviceChannel { get; }
+
+        public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device :
+                                     (IsSingleDeviceChannel == true ? RecipientType.ChannelSingle : RecipientType.ChannelMulti);
+
+        public long? RecipientId => RecipientDeviceId ?? RecipientChannelId;
     }
 }

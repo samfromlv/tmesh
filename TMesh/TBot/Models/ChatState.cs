@@ -13,6 +13,7 @@ namespace TBot.Models
         AddingDevice_NeedCode,
         AddingChannel_NeedName,
         AddingChannel_NeedKey,
+        AddingChannel_NeedSingleDevice,
         AddingChannel_NeedCode,
         RemovingDevice,
         RemovingDeviceFromAll,

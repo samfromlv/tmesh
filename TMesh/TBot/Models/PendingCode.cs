@@ -13,6 +13,7 @@ namespace TBot.Models
         public long? DeviceId { get; set; }
         public string ChannelName { get; set; }
         public byte[] ChannelKey { get; set; }
+        public bool? IsSingleDevice { get; set; }
         public DateTime ExpiresUtc { get; set; }
     }
 }

@@ -24,4 +24,6 @@ public class Device: IRecipient
     byte? IRecipient.RecipientChannelXor => null;
 
     long? IRecipient.RecipientChannelId => null;
+
+    bool? IRecipient.IsSingleDeviceChannel => null;
 }

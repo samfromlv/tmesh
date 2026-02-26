@@ -13,6 +13,8 @@ namespace TBot.Models.MeshMessages
         public long DeviceId { get; set; }
         public long? ChannelId { get; set; }
 
+        public bool IsSingleDeviceChannel { get; set; }
+
         public int HopLimit { get; set; }
         public int HopStart { get; set; }
 

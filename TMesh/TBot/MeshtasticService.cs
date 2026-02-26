@@ -153,11 +153,13 @@ namespace TBot
             string text,
             long? replyToMessageId,
             long? relayGatewayId,
+            long? recipientDeviceId,
             int hopLimit,
             IRecipient channel)
         {
             var envelope = PackPrivateTextMessage(
                 newMessageId,
+                recipientDeviceId,
                 text,
                 replyToMessageId,
                 hopLimit,
@@ -341,6 +343,7 @@ namespace TBot
 
         private ServiceEnvelope PackPrivateTextMessage(
            long newMessageId,
+           long? deviceId,
            string text,
            long? replyToMessageId,
            int hopLimit,
@@ -348,7 +351,7 @@ namespace TBot
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
-                deviceId: BroadcastDeviceId,
+                deviceId: deviceId ?? BroadcastDeviceId,
                 null,
                 text,
                 replyToMessageId,
@@ -928,6 +931,7 @@ namespace TBot
                     {
                         DeviceId = envelope.Packet.From,
                         ChannelId = recipient.RecipientChannelId,
+                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -978,6 +982,7 @@ namespace TBot
                     {
                         DeviceId = envelope.Packet.From,
                         ChannelId = recipient.RecipientChannelId,
+                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -1009,6 +1014,7 @@ namespace TBot
                         HopLimit = (int)envelope.Packet.HopLimit,
                         HopStart = (int)envelope.Packet.HopStart,
                         IsDirectMessage = false,
+                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                         Text = envelope.Packet.Decoded.Payload.ToStringUtf8(),
                         DeviceId = envelope.Packet.From,
                         ChannelId = recipient.RecipientChannelId,
@@ -1037,6 +1043,7 @@ namespace TBot
                     {
                         DeviceId = envelope.Packet.From,
                         ChannelId = recipient.RecipientChannelId,
+                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                         GatewayId = PraseDeviceHexId(envelope.GatewayId),
                         NeedAck = envelope.Packet.WantAck
                              && envelope.Packet.From != BroadcastDeviceId
@@ -1164,6 +1171,7 @@ namespace TBot
             {
                 DeviceId = envelope.Packet.From,
                 ChannelId = recipient.RecipientChannelId,
+                IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                 NeedAck = false,
                 HopLimit = (int)envelope.Packet.HopLimit,
                 GatewayId = PraseDeviceHexId(envelope.GatewayId),
@@ -1196,6 +1204,7 @@ namespace TBot
             {
                 DeviceId = deviceId,
                 ChannelId = recipient.RecipientChannelId,
+                IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
                 NeedAck = envelope.Packet.WantAck
                     && envelope.Packet.To != BroadcastDeviceId
                     && deviceId != BroadcastDeviceId,

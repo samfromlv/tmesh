@@ -12,6 +12,7 @@ namespace TBot.Models
         public long Id { get; set; }
         public byte ChannelXor { get; set; }
         public byte[] PreSharedKey { get; set; }
+        public bool IsSingleDevice { get; set; }
 
         long? IRecipient.RecipientDeviceId => null;
 
@@ -20,5 +21,7 @@ namespace TBot.Models
         byte? IRecipient.RecipientChannelXor => ChannelXor;
 
         long? IRecipient.RecipientChannelId => Id;
+
+        bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
     }
 }

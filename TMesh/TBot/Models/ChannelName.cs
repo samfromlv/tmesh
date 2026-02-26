@@ -12,5 +12,7 @@ namespace TBot.Models
 
         public string Name { get; set; }
 
+        public bool IsSingleDevice { get; set; }
+
     }
 }

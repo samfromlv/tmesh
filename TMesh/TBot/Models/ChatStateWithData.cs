@@ -11,5 +11,9 @@ namespace TBot.Models
         public ChatState State { get; set; }
 
         public string ChannelName { get; set; }
+
+        public byte[] ChannelKey { get; set; }
+
+        public bool? IsSingleDevice { get; set; }
     }
 }

@@ -20,5 +20,7 @@ namespace TBot.Models
         byte[] IRecipient.RecipientKey => Psk;
 
         byte? IRecipient.RecipientChannelXor => Hash;
+
+        bool? IRecipient.IsSingleDeviceChannel => null;
     }
 }

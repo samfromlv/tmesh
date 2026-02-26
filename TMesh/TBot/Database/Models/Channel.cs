@@ -10,6 +10,7 @@ public class Channel: IRecipient
     public byte[] Key { get; set; }
     public byte XorHash { get; set; }
     public System.DateTime CreatedUtc { get; set; }
+    public bool IsSingleDevice { get; set; }
 
     long? IRecipient.RecipientDeviceId => null;
 
@@ -18,4 +19,6 @@ public class Channel: IRecipient
     byte? IRecipient.RecipientChannelXor => XorHash;
 
     long? IRecipient.RecipientChannelId => Id;
+
+    bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
 }

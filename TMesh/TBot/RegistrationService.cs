@@ -79,6 +79,7 @@ namespace TBot
             long chatId,
             string channelName,
             byte[] channelKey,
+            bool? isSingleDevice,
             string code,
             DateTimeOffset expiresUtc)
         {
@@ -88,6 +89,7 @@ namespace TBot
                 Tries = 0,
                 ChannelName = channelName,
                 ChannelKey = channelKey,
+                IsSingleDevice = isSingleDevice,
                 ExpiresUtc = expiresUtc.UtcDateTime
             }, expiresUtc);
         }
@@ -219,6 +221,7 @@ namespace TBot
                               Id = c.Id,
                               ChannelXor = c.XorHash,
                               PreSharedKey = c.Key,
+                              IsSingleDevice = c.IsSingleDevice,
                           }).ToListAsync();
         }
 
@@ -297,7 +300,8 @@ namespace TBot
                           select new ChannelName
                           {
                               Id = c.Id,
-                              Name = c.Name
+                              Name = c.Name,
+                              IsSingleDevice = c.IsSingleDevice
                           }).ToListAsync();
         }
 
@@ -440,6 +444,7 @@ namespace TBot
                         Name = storedCode.ChannelName,
                         Key = storedCode.ChannelKey,
                         XorHash = MeshtasticService.GenerateChannelHash(storedCode.ChannelName, storedCode.ChannelKey),
+                        IsSingleDevice = storedCode.IsSingleDevice ?? false,
                         CreatedUtc = now
                     };
                     db.Channels.Add(channel);
@@ -713,7 +718,7 @@ namespace TBot
             return true;
         }
 
-        public async Task<(bool removedFromCurrentChat, bool removedFromOtherChats)> RemoveChannelFromAllChatsViaOneChatAsync(long chatId, 
+        public async Task<(bool removedFromCurrentChat, bool removedFromOtherChats)> RemoveChannelFromAllChatsViaOneChatAsync(long chatId,
             long telegramUserId, int channelId)
         {
             var allRegs = await db.ChannelRegistrations

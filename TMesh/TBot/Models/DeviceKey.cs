@@ -19,5 +19,7 @@ namespace TBot.Models
         byte? IRecipient.RecipientChannelXor => null;
 
         long? IRecipient.RecipientChannelId => null;
+
+        bool? IRecipient.IsSingleDeviceChannel => null;
     }
 }
