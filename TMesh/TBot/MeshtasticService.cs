@@ -153,13 +153,11 @@ namespace TBot
             string text,
             long? replyToMessageId,
             long? relayGatewayId,
-            long? recipientDeviceId,
             int hopLimit,
             IRecipient channel)
         {
             var envelope = PackPrivateTextMessage(
                 newMessageId,
-                recipientDeviceId,
                 text,
                 replyToMessageId,
                 hopLimit,
@@ -343,7 +341,6 @@ namespace TBot
 
         private ServiceEnvelope PackPrivateTextMessage(
            long newMessageId,
-           long? deviceId,
            string text,
            long? replyToMessageId,
            int hopLimit,
@@ -351,7 +348,7 @@ namespace TBot
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
-                deviceId: deviceId ?? BroadcastDeviceId,
+                deviceId: BroadcastDeviceId,
                 null,
                 text,
                 replyToMessageId,

@@ -629,7 +629,8 @@ namespace TBot
             var channel = new ChannelKey
             {
                 ChannelXor = MeshtasticService.GenerateChannelHash(channelName, channelKey),
-                PreSharedKey = channelKey
+                PreSharedKey = channelKey,
+                IsSingleDevice = false
             };
 
             await SendAndTrackMeshtasticMessage(
@@ -878,7 +879,6 @@ namespace TBot
                             text,
                             replyToMeshMessageId,
                             relayGatewayId: deviceAndGatewayId?.GatewayId,
-                            recipientDeviceId: deviceAndGatewayId?.DeviceId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
                             new ChannelInternalInfo
                             {
@@ -1977,7 +1977,6 @@ namespace TBot
                     _options.Texts.PingReply ?? "pong",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
-                    recipientDeviceId: channel.IsSingleDevice ? message.DeviceId : null,
                     hopLimit: message.GetSuggestedReplyHopLimit(),
                     channel);
 

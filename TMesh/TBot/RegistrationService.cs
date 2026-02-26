@@ -234,6 +234,7 @@ namespace TBot
                               Id = c.Id,
                               ChannelXor = c.XorHash,
                               PreSharedKey = c.Key,
+                              IsSingleDevice = c.IsSingleDevice
                           }).ToListAsync();
         }
 
