@@ -9,8 +9,7 @@
 
         public bool? IsSingleDeviceChannel { get; }
 
-        public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device :
-                                     (IsSingleDeviceChannel == true ? RecipientType.ChannelSingle : RecipientType.ChannelMulti);
+        public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device : RecipientType.Channel;
 
         public long? RecipientId => RecipientDeviceId ?? RecipientChannelId;
     }

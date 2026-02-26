@@ -9,7 +9,6 @@ namespace TBot.Database.Models
     public enum RecipientType
     {
         Device,
-        ChannelSingle,
-        ChannelMulti
+        Channel
     }
 }

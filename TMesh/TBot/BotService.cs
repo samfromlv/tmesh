@@ -398,7 +398,8 @@ namespace TBot
                         return;
                     }
 
-                    if (msgStatus.Type == RecipientType.ChannelMulti && newStatus == DeliveryStatus.SentToMqtt)
+                    if (msgStatus.Type == RecipientType.Channel
+                        && newStatus == DeliveryStatus.SentToMqtt)
                     {
                         msgStatus.Status = DeliveryStatus.SentToMqttNoAckExpected;
                     }
@@ -817,13 +818,9 @@ namespace TBot
                     Status = DeliveryStatus.Queued
                 };
                 DeviceAndGatewayId deviceAndGatewayId = null;
-                if (recStatus.Type == RecipientType.ChannelSingle)
+                if (recipient.IsSingleDeviceChannel == true)
                 {
                     deviceAndGatewayId = GetSingleDeviceChannelGateway((int)recipient.RecipientChannelId.Value);
-                    if (deviceAndGatewayId == null)
-                    {
-                        recStatus.Type = RecipientType.ChannelMulti;
-                    }
                 }
                 else if (recStatus.Type == RecipientType.Device)
                 {
@@ -838,7 +835,7 @@ namespace TBot
                 chatId,
                 messageId,
                 status,
-                trackForStatusResolve: recipients.Any(x => x.RecipientDeviceId.HasValue || x.IsSingleDeviceChannel == true));
+                trackForStatusResolve: recipients.Any(x => x.RecipientDeviceId.HasValue));
 
             await ReportStatus(status);
 
@@ -2028,9 +2025,7 @@ namespace TBot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = channel.IsSingleDevice
-                                            ? RecipientType.ChannelSingle
-                                            : RecipientType.ChannelMulti,
+                                        Type = RecipientType.Channel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -2065,7 +2060,7 @@ namespace TBot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = channel.IsSingleDevice ? RecipientType.ChannelSingle: RecipientType.ChannelMulti,
+                                        Type = RecipientType.Channel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -2268,10 +2263,6 @@ namespace TBot
         {
             foreach (var item in batch)
             {
-                if (item.ChannelId.HasValue && item.IsSingleDeviceChannel)
-                {
-                    StoreChannelGateway((int)item.ChannelId.Value, item.GatewayId, item.DeviceId, item.GetSuggestedReplyHopLimit());
-                }
                 StoreDeviceGateway(item);
                 await UpdateMeshMessageStatus(item.AckedMessageId,
                     item.Success
