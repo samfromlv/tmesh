@@ -175,7 +175,7 @@ namespace TBot
             return null;
         }
 
-        private void StoreSingleDeviceChannelGatewayAndDevice(int channelId, long gatewayId, long deviceId, int replyHopLimit)
+        private void StoreChannelGateway(int channelId, long gatewayId, long deviceId, int replyHopLimit)
         {
             if (_options.DirectGatewayRoutingSeconds <= 0)
             {
@@ -390,21 +390,21 @@ namespace TBot
             }
             lock (status)
             {
-                if (status.MeshMessages.TryGetValue(meshMessageId, out var sts))
+                if (status.MeshMessages.TryGetValue(meshMessageId, out var msgStatus))
                 {
                     if (maxCurrentStatus.HasValue
-                        && sts.Status > maxCurrentStatus.Value)
+                        && msgStatus.Status > maxCurrentStatus.Value)
                     {
                         return;
                     }
 
-                    if (sts.Type == RecipientType.ChannelMulti && newStatus == DeliveryStatus.SentToMqtt)
+                    if (msgStatus.Type == RecipientType.ChannelMulti && newStatus == DeliveryStatus.SentToMqtt)
                     {
-                        sts.Status = DeliveryStatus.SentToMqttNoAckExpected;
+                        msgStatus.Status = DeliveryStatus.SentToMqttNoAckExpected;
                     }
                     else
                     {
-                        sts.Status = newStatus;
+                        msgStatus.Status = newStatus;
                     }
                 }
             }
@@ -805,7 +805,7 @@ namespace TBot
                 EstimatedSendDate = EstimateSendDelay(recipients.Count())
             };
 
-            var messages = new List<(IRecipient recipient, long messageId)>();
+            var messages = new List<(IRecipient recipient, long messageId, DeviceAndGatewayId)>();
             foreach (var recipient in recipients)
             {
                 var newMeshMessageId = MeshtasticService.GetNextMeshtasticMessageId();
@@ -815,9 +815,22 @@ namespace TBot
                     Type = recipient.RecipientType,
                     Status = DeliveryStatus.Queued
                 };
+                DeviceAndGatewayId deviceAndGatewayId = null;
+                if (recStatus.Type == RecipientType.ChannelSingle)
+                {
+                    deviceAndGatewayId = GetSingleDeviceChannelGateway((int)recipient.RecipientChannelId.Value);
+                    if (deviceAndGatewayId == null)
+                    {
+                        recStatus.Type = RecipientType.ChannelMulti;
+                    }
+                }
+                else if (recStatus.Type == RecipientType.Device)
+                {
+                    deviceAndGatewayId = GetDeviceGateway(recStatus.RecipientId.Value);
+                }
                 status.MeshMessages.Add(newMeshMessageId, recStatus);
                 StoreMeshMessageStatus(newMeshMessageId, status);
-                messages.Add((recipient, newMeshMessageId));
+                messages.Add((recipient, newMeshMessageId, deviceAndGatewayId));
             }
 
             StoreTelegramMessageStatus(
@@ -832,7 +845,7 @@ namespace TBot
                 ? GetTelegramMessageStatus(chatId, replyToTelegramMsgId.Value)
                 : null;
 
-            foreach (var (recipient, newMeshMessageId) in messages)
+            foreach (var (recipient, newMeshMessageId, deviceAndGatewayId) in messages)
             {
                 long? replyToMeshMessageId = null;
 
@@ -840,7 +853,7 @@ namespace TBot
                     .FirstOrDefault(kv =>
                         kv.Value.RecipientId != null &&
                         kv.Value.RecipientId == recipient.RecipientId &&
-                        kv.Value.Type == recipient.RecipientType);
+                        (kv.Value.Type == RecipientType.Device) == (recipient.RecipientType == RecipientType.Device));
 
                 if (replyMsg != null && replyMsg.Value.Key != default)
                 {
@@ -849,7 +862,6 @@ namespace TBot
 
                 if (recipient.RecipientDeviceId != null)
                 {
-                    var deviceAndGatewayId = GetDeviceGateway(recipient.RecipientDeviceId.Value);
                     meshtasticService.SendDirectTextMessage(
                             newMeshMessageId,
                             recipient.RecipientDeviceId.Value,
@@ -859,9 +871,8 @@ namespace TBot
                             deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue);
                 }
-                else if (recipient.IsSingleDeviceChannel == true)
+                else
                 {
-                    var deviceAndGatewayId = GetSingleDeviceChannelGateway((int)recipient.RecipientChannelId.Value);
                     meshtasticService.SendPrivateChannelTextMessage(
                             newMeshMessageId,
                             text,
@@ -869,21 +880,6 @@ namespace TBot
                             relayGatewayId: deviceAndGatewayId?.GatewayId,
                             recipientDeviceId: deviceAndGatewayId?.DeviceId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
-                            new ChannelInternalInfo
-                            {
-                                Psk = recipient.RecipientKey,
-                                Hash = recipient.RecipientChannelXor.Value
-                            });
-                }
-                else
-                {
-                    meshtasticService.SendPrivateChannelTextMessage(
-                            newMeshMessageId,
-                            text,
-                            replyToMeshMessageId,
-                            relayGatewayId: null,
-                            recipientDeviceId: null,
-                            hopLimit: int.MaxValue,
                             new ChannelInternalInfo
                             {
                                 Psk = recipient.RecipientKey,
@@ -1758,7 +1754,7 @@ namespace TBot
             StoreDeviceGateway(message);
             if (message.ChannelId.HasValue && message.IsSingleDeviceChannel)
             {
-                StoreSingleDeviceChannelGatewayAndDevice((int)message.ChannelId.Value, message.GatewayId, message.DeviceId, message.GetSuggestedReplyHopLimit());
+                StoreChannelGateway((int)message.ChannelId.Value, message.GatewayId, message.DeviceId, message.GetSuggestedReplyHopLimit());
             }
             switch (message.MessageType)
             {
@@ -2275,7 +2271,7 @@ namespace TBot
             {
                 if (item.ChannelId.HasValue && item.IsSingleDeviceChannel)
                 {
-                    StoreSingleDeviceChannelGatewayAndDevice((int)item.ChannelId.Value, item.GatewayId, item.DeviceId, item.GetSuggestedReplyHopLimit());
+                    StoreChannelGateway((int)item.ChannelId.Value, item.GatewayId, item.DeviceId, item.GetSuggestedReplyHopLimit());
                 }
                 StoreDeviceGateway(item);
                 await UpdateMeshMessageStatus(item.AckedMessageId,
