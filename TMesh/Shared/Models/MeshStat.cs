@@ -9,6 +9,7 @@ namespace Shared.Models
     public class MeshStat
     {
         public int DupsIgnored { get; set; }
+        public int LinkTraces { get; set; }
         public int NodeInfoRecieved { get; set; }
         public int DirectTextMessagesRecieved { get; set; }
         public int PublicTextMessagesRecieved { get; set; }
@@ -23,6 +24,7 @@ namespace Shared.Models
         public void Add(MeshStat other)
         {
             DupsIgnored += other.DupsIgnored;
+            LinkTraces += other.LinkTraces;
             NodeInfoRecieved += other.NodeInfoRecieved;
             DirectTextMessagesRecieved += other.DirectTextMessagesRecieved;
             PublicTextMessagesRecieved += other.PublicTextMessagesRecieved;

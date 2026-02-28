@@ -17,9 +17,11 @@ namespace TBot
     public class MeshtasticService
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
+        public const int MaxHops = 7;
         public const int WaitForAckStatusMaxMinutes = 2;
         const int MESHTASTIC_PKC_OVERHEAD = 12;
         private const int NoDupExpirationMinutes = 3;
+        private const int LinkTraceExpirationMinutes = 6;
         private const int PkiKeyLength = 32;
         private const int PskKeyLengthShort = 16;
         private const int PskKeyLength = 32;
@@ -77,7 +79,7 @@ namespace TBot
 
         public IEnumerable<IRecipient> GetPublicChannelsByHash(byte xorHash)
         {
-            return _channels.Where(x=>x.Hash == xorHash);
+            return _channels.Where(x => x.Hash == xorHash);
         }
 
         private static ChannelInternalInfo ConvertChannel(ChannelInfo ch) =>
@@ -98,9 +100,9 @@ namespace TBot
             };
         }
 
-        
 
-        
+
+
 
         private readonly MqttService _mqttService;
         private readonly ILogger<MeshtasticService> _logger;
@@ -220,10 +222,26 @@ namespace TBot
             };
         }
 
+        public static byte? TryGetUsedHops(uint hopStart, uint hopLimit)
+        {
+            if (hopStart <= 0
+                || hopStart >= MaxHops
+                || hopLimit > hopStart
+                || hopLimit < 0)
+            {
+                return null;
+            }
+            return (byte)(hopStart - hopLimit);
+        }
+
         public static int GetSuggestedReplyHopLimit(MeshMessage msg)
         {
-            var hopsUsed = msg.HopStart - msg.HopLimit;
-            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var hopsUsed = TryGetUsedHops((uint)msg.HopStart, (uint)msg.HopLimit);
+            if (hopsUsed == null)
+            {
+                return MaxHops;
+            }
+            var hopsForReply = Math.Max(1, hopsUsed.Value + ReplyHopsMargin);
             return hopsForReply;
         }
 
@@ -689,7 +707,17 @@ namespace TBot
             _memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
-        private bool TryStoreNoDup(uint id)
+        public bool TryStoreNoDup(ServiceEnvelope env)
+        {
+            if (env?.Packet == null)
+            {
+                return false;
+            }
+            var id = env.Packet.Id;
+            return TryStoreNoDup(id);
+        }
+
+        public bool TryStoreNoDup(uint id)
         {
             var key = GetNoDupMessageKey(id);
             if (_memoryCache.TryGetValue(key, out _))
@@ -700,6 +728,19 @@ namespace TBot
             return true;
         }
 
+
+
+        public void StoreGatewayLinkTraceStepZero(long packetId)
+        {
+            var key = $"meshtastic:linktrace:{packetId:X}";
+            _memoryCache.Set(key, true, TimeSpan.FromMinutes(LinkTraceExpirationMinutes));
+        }
+
+        public bool IsLinkTrace(ServiceEnvelope env)
+        {
+            var key = $"meshtastic:linktrace:{env.Packet.Id:X}";
+            return _memoryCache.TryGetValue(key, out _);
+        }
         private byte[] GetMacAddressFromNodeId()
         {
             var mac = new byte[6];
@@ -828,13 +869,10 @@ namespace TBot
                    && gatewayIds.Contains(receiverDeviceId)
                    && envelope.GatewayId != GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
             {
-                if (TryStoreNoDup(envelope.Packet.Id))
-                {
-                    var newMsg = envelope.Clone();
-                    newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                    IncreaseBridgeDirectMessagesToGatewaysStat();
-                    QueueMessage(newMsg, MessagePriority.High, receiverDeviceId);
-                }
+                var newMsg = envelope.Clone();
+                newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+                IncreaseBridgeDirectMessagesToGatewaysStat();
+                QueueMessage(newMsg, MessagePriority.High, receiverDeviceId);
                 return true;
             }
             return false;
@@ -881,15 +919,6 @@ namespace TBot
             }
 
             var id = envelope.Packet.Id;
-            if (!TryStoreNoDup(id))
-            {
-                AddStat(new MeshStat
-                {
-                    DupsIgnored = 1,
-                });
-                _logger.LogDebug("Duplicate Meshtastic message received, ignoring. Id: {Id}", id);
-                return default;
-            }
 
             if (!envelope.Packet.PkiEncrypted)
             {
@@ -1065,7 +1094,7 @@ namespace TBot
             if (envelope.Packet.To != _options.MeshtasticNodeId)
                 return default;
 
-            var device = recipients.FirstOrDefault(x=>x.RecipientDeviceId != null);
+            var device = recipients.FirstOrDefault(x => x.RecipientDeviceId != null);
 
             var publicKey = device?.RecipientKey;
 

@@ -244,7 +244,7 @@ public class MessageLoopService(
         IServiceScope scope = null;
         try
         {
-            if (msg.Data == null)
+            if (msg.Data == null || msg.Data.Packet == null)
             {
                 logger.LogWarning("Received Meshtastic message with null data");
                 return;
@@ -263,6 +263,23 @@ public class MessageLoopService(
             }
 
             UpdateGatewayLastSeen(gatewayId);
+
+            if (meshtasticService.IsLinkTrace(msg.Data))
+            {
+                scope ??= services.CreateScope();
+                await SaveLinkTrace(scope, gatewayId, msg.Data);
+                return;
+            }
+
+            if (!meshtasticService.TryStoreNoDup(msg.Data.Packet.Id))
+            {
+                meshtasticService.AddStat(new MeshStat
+                {
+                    DupsIgnored = 1,
+                });
+                logger.LogDebug("Duplicate Meshtastic message received, ignoring. Id: {Id}", msg.Data.Packet.Id);
+                return;
+            }
 
             if (meshtasticService.TryBridge(msg.Data, _gatewayIds))
             {
@@ -283,7 +300,7 @@ public class MessageLoopService(
                     recipients.Add(device);
                 }
             }
-            if (!packetFromTo.IsPkiEncrypted)
+            else if (!packetFromTo.IsPkiEncrypted)
             {
                 scope ??= services.CreateScope();
                 registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
@@ -307,6 +324,8 @@ public class MessageLoopService(
 
             scope ??= services.CreateScope();
 
+            await PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
+
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
             ScheduleStatusResolve(botService.TrackedMessages);
@@ -320,6 +339,82 @@ public class MessageLoopService(
         {
             scope?.Dispose();
         }
+    }
+
+    private async ValueTask PerhapsSaveLinkTrace(
+        IServiceScope scope,
+        long gatewayId,
+        MeshMessage msg)
+    {
+        if (msg.MessageType == MeshMessageType.DeviceMetrics
+            && (msg.DeviceId == gatewayId || _gatewayIds.Contains(msg.DeviceId)))
+        {
+            await SaveLinkTrace(
+                scope: scope,
+                packetId: msg.Id,
+                gatewayId: gatewayId,
+                deviceId: msg.DeviceId,
+                hopStart: (uint)msg.HopStart,
+                hopLimit: (uint)msg.HopLimit,
+                cachePacketId: true);
+        }
+    }
+
+
+
+    private async ValueTask SaveLinkTrace(
+      IServiceScope scope,
+      long packetId,
+      long gatewayId,
+      long deviceId,
+      uint hopStart,
+      uint hopLimit,
+      bool cachePacketId)
+    {
+        var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
+        if (analyticsService != null)
+        {
+            if (cachePacketId)
+            {
+                meshtasticService.StoreGatewayLinkTraceStepZero(packetId);
+            }
+            meshtasticService.AddStat(new MeshStat
+            {
+                LinkTraces = 1,
+            });
+
+            byte? step = null;
+            if (deviceId == gatewayId)
+            {
+                step = 0;
+            }
+            else
+            {
+                var hopsUsed = MeshtasticService.TryGetUsedHops(hopStart, hopLimit);
+                if (hopsUsed.HasValue)
+                {
+                    step = (byte)(1 + hopsUsed);
+                }
+            }
+
+            await analyticsService.RecordLinkTrace(
+                packetId: packetId,
+                fromGatewayId: deviceId,
+                toGatewayId: gatewayId,
+                step: step);
+        }
+    }
+
+    private async Task SaveLinkTrace(IServiceScope scope, long gatewayId, ServiceEnvelope env)
+    {
+        await SaveLinkTrace(
+            scope: scope,
+            packetId: env.Packet.Id,
+            gatewayId: gatewayId,
+            deviceId: env.Packet.From,
+            hopStart: env.Packet.HopStart,
+            hopLimit: env.Packet.HopLimit,
+            cachePacketId: false);
     }
 
     private void UpdateGatewayLastSeen(long gatewayId)

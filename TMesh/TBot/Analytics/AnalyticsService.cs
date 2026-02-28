@@ -7,10 +7,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TBot.Analytics.Models;
+using TBot.Helpers;
 
 namespace TBot.Analytics
 {
-    public class AnalyticsService(AnalyticsDbContext db)
+    public class AnalyticsService(AnalyticsDbContext db, TimeZoneHelper tz)
     {
         public async Task RecordEventAsync(DeviceMetric metrics)
         {
@@ -24,6 +25,26 @@ namespace TBot.Analytics
             return await db.DeviceMetrics
                 .Where(m => m.Timestamp >= from)
                  .CountAsync();
+        }
+
+        public async Task RecordLinkTrace(
+            long packetId,
+            long fromGatewayId,
+            long toGatewayId,
+            byte? step)
+        {
+            var now = DateTime.UtcNow;
+            var localNow = tz.ConvertFromUtcToDefaultTimezone(now);
+            db.Traces.Add(new LinkTrace
+            {
+                PacketId = (uint)packetId,
+                FromGatewayId = (uint)fromGatewayId,
+                ToGatewayId = (uint)toGatewayId,
+                Timestamp = Instant.FromDateTimeUtc(now),
+                RecDate = LocalDate.FromDateTime(localNow),
+                Step = step
+            });
+            await db.SaveChangesAsync();
         }
 
         public async Task EnsureMigratedAsync()
