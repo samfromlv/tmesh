@@ -225,7 +225,7 @@ namespace TBot
         public static byte? TryGetUsedHops(uint hopStart, uint hopLimit)
         {
             if (hopStart <= 0
-                || hopStart >= MaxHops
+                || hopStart > MaxHops
                 || hopLimit > hopStart
                 || hopLimit < 0)
             {
