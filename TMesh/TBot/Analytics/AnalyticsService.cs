@@ -33,7 +33,9 @@ namespace TBot.Analytics
             long toGatewayId,
             byte? step,
             double toLatitude,
-            double toLongitude)
+            double toLongitude,
+            double fromLatitude,
+            double fromLongitude)
         {
             var now = DateTime.UtcNow;
             var localNow = tz.ConvertFromUtcToDefaultTimezone(now);
@@ -46,6 +48,8 @@ namespace TBot.Analytics
                 RecDate = LocalDate.FromDateTime(localNow),
                 ToLatitude = toLatitude,
                 ToLongitude = toLongitude,
+                FromLatitude = fromLatitude,
+                FromLongitude = fromLongitude,
                 Step = step
             });
             await db.SaveChangesAsync();

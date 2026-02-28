@@ -398,11 +398,19 @@ public class MessageLoopService(
             }
 
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-            var toDevice = await registrationService.GetDeviceAsync(deviceId);
+            var toDevice = await registrationService.GetDeviceAsync(gatewayId);
 
             if (toDevice == null 
                 || toDevice.Latitude == null
                 || toDevice.Longitude == null)
+            {
+                return;
+            }
+
+            var fromDevice = await registrationService.GetDeviceAsync(deviceId);
+            if (fromDevice == null
+                || fromDevice.Latitude == null
+                || fromDevice.Longitude == null)
             {
                 return;
             }
@@ -413,7 +421,9 @@ public class MessageLoopService(
                 toGatewayId: gatewayId,
                 step: step,
                 toLatitude: toDevice.Latitude.Value,
-                toLongitude: toDevice.Longitude.Value);
+                toLongitude: toDevice.Longitude.Value,
+                fromLatitude: fromDevice.Latitude.Value,
+                fromLongitude: fromDevice.Longitude.Value);
         }
     }
 

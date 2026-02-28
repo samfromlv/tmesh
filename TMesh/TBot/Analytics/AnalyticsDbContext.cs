@@ -38,14 +38,20 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.RecDate).IsRequired();
             e.Property(r => r.ToLatitude).IsRequired();
             e.Property(r => r.ToLongitude).IsRequired();
-
+            e.Property(r => r.FromLatitude).IsRequired();
+            e.Property(r => r.FromLongitude).IsRequired();
             e.HasIndex(r => r.RecDate)
                 .IncludeProperties(r => new
                 {
                     r.PacketId,
                     r.FromGatewayId,
                     r.ToGatewayId,
-                    r.Step
+                    r.Step,
+                    r.ToLatitude,
+                    r.ToLongitude,
+                    r.FromLatitude,
+                    r.FromLongitude,
+                    r.Timestamp
                 });
         });
     }
