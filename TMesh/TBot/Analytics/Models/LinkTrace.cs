@@ -16,6 +16,8 @@ namespace TBot.Analytics.Models
         public byte? Step { get; set; }
         public Instant Timestamp { get; set; }
         public LocalDate RecDate { get; set; }
+        public double ToLatitude { get; set; }
+        public double ToLongitude { get; set; }
 
     }
 }

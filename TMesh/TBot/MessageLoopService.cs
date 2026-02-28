@@ -397,11 +397,23 @@ public class MessageLoopService(
                 }
             }
 
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var toDevice = await registrationService.GetDeviceAsync(deviceId);
+
+            if (toDevice == null 
+                || toDevice.Latitude == null
+                || toDevice.Longitude == null)
+            {
+                return;
+            }
+
             await analyticsService.RecordLinkTrace(
                 packetId: packetId,
                 fromGatewayId: deviceId,
                 toGatewayId: gatewayId,
-                step: step);
+                step: step,
+                toLatitude: toDevice.Latitude.Value,
+                toLongitude: toDevice.Longitude.Value);
         }
     }
 

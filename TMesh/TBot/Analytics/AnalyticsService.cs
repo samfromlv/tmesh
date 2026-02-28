@@ -31,7 +31,9 @@ namespace TBot.Analytics
             long packetId,
             long fromGatewayId,
             long toGatewayId,
-            byte? step)
+            byte? step,
+            double toLatitude,
+            double toLongitude)
         {
             var now = DateTime.UtcNow;
             var localNow = tz.ConvertFromUtcToDefaultTimezone(now);
@@ -42,6 +44,8 @@ namespace TBot.Analytics
                 ToGatewayId = (uint)toGatewayId,
                 Timestamp = Instant.FromDateTimeUtc(now),
                 RecDate = LocalDate.FromDateTime(localNow),
+                ToLatitude = toLatitude,
+                ToLongitude = toLongitude,
                 Step = step
             });
             await db.SaveChangesAsync();

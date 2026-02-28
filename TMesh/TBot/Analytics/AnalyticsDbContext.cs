@@ -36,11 +36,17 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.Step);
             e.Property(r => r.Timestamp).IsRequired();
             e.Property(r => r.RecDate).IsRequired();
+            e.Property(r => r.ToLatitude).IsRequired();
+            e.Property(r => r.ToLongitude).IsRequired();
 
-            e.HasIndex(r => new
-            {
-                r.RecDate
-            }).IncludeProperties(r => new { r.PacketId, r.FromGatewayId, r.ToGatewayId, r.Step });
+            e.HasIndex(r => r.RecDate)
+                .IncludeProperties(r => new
+                {
+                    r.PacketId,
+                    r.FromGatewayId,
+                    r.ToGatewayId,
+                    r.Step
+                });
         });
     }
 }
