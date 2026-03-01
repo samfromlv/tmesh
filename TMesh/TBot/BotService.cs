@@ -2601,5 +2601,6 @@ namespace TBot
             {
                 await botClient.SendMessage(id, $"First packet received from gateway {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)}. Gateway is now online.");
             }
+        }
     }
 }
