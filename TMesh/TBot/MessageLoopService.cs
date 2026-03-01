@@ -36,6 +36,7 @@ public class MessageLoopService(
     private Task _ackWorker;
     private HashSet<long> _gatewayIds;
     private HashSet<long> _registeredGatewayIds;
+    private HashSet<long> _newGatewayIds;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -295,14 +296,17 @@ public class MessageLoopService(
                 scopeCreated = true;
             }
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-            var registeredGatewayIds = await registrationService.GetGatewaysCached();
-            var ids = new HashSet<long>(registeredGatewayIds);
+            var registeredGateways = await registrationService.GetGatewaysCached();
+            var ids = new HashSet<long>(registeredGateways.Keys);
             foreach (var id in _options.GatewayNodeIds)
             {
                 ids.Add(id);
             }
             _gatewayIds = ids;
-            _registeredGatewayIds = new HashSet<long>(registeredGatewayIds);
+            _registeredGatewayIds = registeredGateways.Keys.ToHashSet();
+            _newGatewayIds = registeredGateways.Values.Where(x => x.LastSeen == null)
+                .Select(x => x.DeviceId)
+                .ToHashSet();
         }
         finally
         {
@@ -518,6 +522,26 @@ public class MessageLoopService(
     {
         var now = DateTime.UtcNow;
         _gatewayLastSeen.AddOrUpdate(gatewayId, now, (key, oldValue) => oldValue > now ? oldValue : now);
+        if (_newGatewayIds.Contains(gatewayId))
+        {
+            _newGatewayIds.Remove(gatewayId);
+            //Send notification about new gateway seen for the first time
+            Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = services.CreateScope();
+                    var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+                    await registrationService.UpdateGatewayLastSeenAsync(gatewayId, now);
+                    var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+                    await botService.NotifyNewGatewaySeen(gatewayId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error notifying about new gateway seen");
+                }
+            });
+        }
     }
 
     private async Task HandleTelegramMessage(DataEventArgs<string> msg)

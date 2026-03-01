@@ -1241,11 +1241,12 @@ namespace TBot
                         var ids = await registrationService.GetGatewaysCached();
                         var sb = new StringBuilder();
                         sb.AppendLine("Registered gateways:");
-                        foreach (var id in ids)
+                        foreach (var gw in ids.Values)
                         {
-                            var device = await registrationService.GetDeviceAsync(id);
-                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(id);
-                            sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId})");
+                            var device = await registrationService.GetDeviceAsync(gw.DeviceId);
+                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
+                            var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "Never";
+                            sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId}), Last seen: {lastSeen}");
                         }
                         sb.AppendLine();
                         sb.AppendLine("Default gateways:");
@@ -1426,6 +1427,7 @@ namespace TBot
             var deviceName = device?.NodeName ?? hexId;
 
             await registrationService.RegisterGatewayAsync(deviceId);
+            memoryCache.Set($"GatewayRegistrationChat_{deviceId}", chatId, TimeSpan.FromMinutes(60));
             GatewayListChanged = true;
 
             var mqttUsername = hexId;
@@ -1461,6 +1463,8 @@ namespace TBot
             instructions.AppendLine($"\u2022 *TLS enabled:* Off \u274c");
             instructions.AppendLine();
             instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
+            instructions.AppendLine();
+            instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
 
             await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
         }
@@ -1642,7 +1646,7 @@ namespace TBot
                         .Concat(
                           devices.Select(d =>
                           {
-                              var gatewayTag = gatewayIdSet.Contains(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
+                              var gatewayTag = gatewayIdSet.ContainsKey(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
                               return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag}, last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
                           })
                         );
@@ -2576,5 +2580,26 @@ namespace TBot
                 DeliveryStatus.SentToMqtt,
                 maxCurrentStatus: DeliveryStatus.Queued);
         }
+
+        internal async Task NotifyNewGatewaySeen(long gatewayId)
+        {
+            var chatIds = new List<long>();
+            if (memoryCache.TryGetValue($"GatewayRegistrationChat_{gatewayId}", out long chatId))
+            {
+                chatIds.Add(chatId);
+            }
+            else
+            {
+                chatIds = await registrationService.GetChatsByDeviceIdCached(gatewayId);
+            }
+
+            if (chatIds.Count == 0)
+            {
+                return;
+            }
+            foreach (var id in chatIds)
+            {
+                await botClient.SendMessage(id, $"First packet received from gateway {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)}. Gateway is now online.");
+            }
     }
 }
