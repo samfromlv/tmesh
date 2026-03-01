@@ -56,4 +56,8 @@ public class TBotOptions
     public Dictionary<string, string> MqttUserPasswordDeriveSecrets { get; set; }
 
     public bool UpgradeDbOnStart { get; set; }
+
+    public string PublicMqttAddress { get; set; }
+    public string PublicMqttTopic { get; set; }
+    public string PublicFlasherAddress { get; set; }
 }

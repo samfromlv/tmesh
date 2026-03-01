@@ -87,6 +87,16 @@ namespace TBot
                 {
                     Command = "position",
                     Description = "Show last known position of registered Meshtastic devices as map, supports filter by name (e.g. /position MyDevice)"
+                },
+                new BotCommand
+                {
+                    Command = "promote_to_gateway",
+                    Description = "Promote a registered device to MQTT gateway. Requires custom TMesh firmware to be installed on the device. (e.g., /promote_to_gateway !aabbcc11)"
+                },
+                new BotCommand
+                {
+                    Command = "demote_from_gateway",
+                    Description = "Remove a device from MQTT gateway role (e.g., /demote_from_gateway !aabbcc11)"
                 }
             ]);
         }
@@ -250,6 +260,15 @@ namespace TBot
                         await ProceedChannelRemove(userId, chatId, msg, isRemoveFromAll: chatStateWithData.State == ChatState.RemovingChannelFromAll);
                         break;
                     }
+                case ChatState.PromotingToGateway:
+                    await ProceedPromoteToGateway(userId, chatId, msg);
+                    break;
+                case ChatState.PromotingToGateway_NeedFirmwareConfirm:
+                    await ProceedPromoteToGateway_NeedFirmwareConfirm(userId, chatId, msg);
+                    break;
+                case ChatState.DemotingFromGateway:
+                    await ProceedDemoteFromGateway(userId, chatId, msg);
+                    break;
                 default:
                     {
                         await HandleDefaultUpdate(userId, userName, chatId, msg);
@@ -955,6 +974,18 @@ namespace TBot
                 await HandlePosition(chatId, message.Text);
                 return;
             }
+            if (message.Text?.StartsWith("/promote_to_gateway", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/promote_to_gateway");
+                await StartPromoteToGateway(userId, chatId, deviceIdFromCommand);
+                return;
+            }
+            if (message.Text?.StartsWith("/demote_from_gateway", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/demote_from_gateway");
+                await StartDemoteFromGateway(userId, chatId, deviceIdFromCommand);
+                return;
+            }
             if (message.Text?.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) == true)
             {
                 var handled = await HandleAdmin(
@@ -1264,6 +1295,248 @@ namespace TBot
                         await botClient.SendMessage(chatId, $"Unknown admin command: {command}");
                         return true;
                     }
+            }
+        }
+
+        private async Task StartPromoteToGateway(long userId, long chatId, string deviceIdText)
+        {
+            if (string.IsNullOrWhiteSpace(deviceIdText))
+            {
+                var flasherAddress = _options.PublicFlasherAddress;
+                var firmwareLine = !string.IsNullOrWhiteSpace(flasherAddress)
+                    ? $"\n\n⚠️ This command requires custom TMesh firmware on your device. Flash it first at: {flasherAddress}"
+                    : "\n\n⚠️ This command requires custom TMesh firmware on your device.";
+
+                await botClient.SendMessage(chatId,
+                    "Please send the Meshtastic device ID to promote to gateway. The device ID can be decimal or hex (hex starts with ! or #)." +
+                    firmwareLine);
+                registrationService.SetChatState(userId, chatId, ChatState.PromotingToGateway);
+                return;
+            }
+
+            if (!MeshtasticService.TryParseDeviceId(deviceIdText, out var deviceId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).");
+                return;
+            }
+
+            await AskFirmwareConfirmation(userId, chatId, deviceId);
+        }
+
+        private async Task ProceedPromoteToGateway(long userId, long chatId, Message message)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Operation canceled.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return;
+            }
+
+            var text = message.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Please send a Meshtastic device ID or /stop to cancel.");
+                return;
+            }
+
+            if (!MeshtasticService.TryParseDeviceId(text, out var deviceId))
+            {
+                await botClient.SendMessage(chatId, "Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
+                return;
+            }
+
+            await AskFirmwareConfirmation(userId, chatId, deviceId);
+        }
+
+        private async Task AskFirmwareConfirmation(long userId, long chatId, long deviceId)
+        {
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+
+            // Validate device registration before asking for firmware confirmation
+            if (!await registrationService.HasDeviceRegistrationAsync(chatId, deviceId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Device {hexId} is not registered in this chat. Please add it first using /add_device.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return;
+            }
+
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            var deviceName = device?.NodeName ?? hexId;
+            var flasherAddress = _options.PublicFlasherAddress;
+            var flasherLine = !string.IsNullOrWhiteSpace(flasherAddress)
+                ? $" You can flash it at: {flasherAddress}"
+                : string.Empty;
+
+            registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+            {
+                State = ChatState.PromotingToGateway_NeedFirmwareConfirm,
+                DeviceId = deviceId
+            });
+
+            await botClient.SendMessage(chatId,
+                $"Device: *{deviceName}* ({hexId})\n\n" +
+                $"⚠️ To act as a gateway this device must have custom TMesh firmware installed.{flasherLine}\n\n" +
+                "Have you already flashed the TMesh firmware on this device? Reply *yes* to confirm and receive MQTT setup instructions, or /stop to cancel.",
+                parseMode: ParseMode.Markdown);
+        }
+
+        private async Task ProceedPromoteToGateway_NeedFirmwareConfirm(long userId, long chatId, Message message)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Operation canceled.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return;
+            }
+
+            var text = message.Text?.Trim();
+            if (!string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase))
+            {
+                var flasherAddress = _options.PublicFlasherAddress;
+                var flasherLine = !string.IsNullOrWhiteSpace(flasherAddress)
+                    ? $" Flash it at: {flasherAddress}"
+                    : string.Empty;
+
+                await botClient.SendMessage(chatId,
+                    $"Please flash the custom TMesh firmware on your device first.{flasherLine}\n\n" +
+                    "Reply *yes* once the firmware is installed, or /stop to cancel.",
+                    parseMode: ParseMode.Markdown);
+                return;
+            }
+
+            var chatStateWithData = registrationService.GetChatState(userId, chatId);
+            if (chatStateWithData?.DeviceId == null)
+            {
+                await botClient.SendMessage(chatId, "Session data lost. Please start over with /promote_to_gateway.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return;
+            }
+
+            var deviceId = chatStateWithData.DeviceId.Value;
+            registrationService.SetChatState(userId, chatId, ChatState.Default);
+            await ExecutePromoteToGateway(chatId, deviceId);
+        }
+
+        private async Task ExecutePromoteToGateway(long chatId, long deviceId)
+        {
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            var deviceName = device?.NodeName ?? hexId;
+
+            await registrationService.RegisterGatewayAsync(deviceId);
+            GatewayListChanged = true;
+
+            var mqttUsername = hexId;
+            var mqttPassword = DeriveMqttPasswordForDevice(deviceId);
+            var mqttAddress = _options.PublicMqttAddress ?? _options.MqttAddress;
+            var mqttTopic = _options.PublicMqttTopic ?? _options.MqttMeshtasticTopicPrefix;
+            var flasherAddress = _options.PublicFlasherAddress;
+
+            var instructions = new StringBuilder();
+            instructions.AppendLine($"\u2705 Device *{deviceName}* ({hexId}) has been promoted to gateway.");
+            instructions.AppendLine();
+            instructions.AppendLine("\ud83d\udce1 *MQTT Gateway Setup Instructions*");
+            instructions.AppendLine();
+
+            if (!string.IsNullOrWhiteSpace(flasherAddress))
+            {
+                instructions.AppendLine($"1\\. If you haven't already, flash the custom TMesh firmware: {flasherAddress}");
+                instructions.AppendLine();
+                instructions.AppendLine("2\\. Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
+            }
+            else
+            {
+                instructions.AppendLine("Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
+            }
+
+            instructions.AppendLine();
+            instructions.AppendLine($"\u2022 *Server address:* `{mqttAddress}`");
+            instructions.AppendLine($"\u2022 *Username:* `{mqttUsername}`");
+            instructions.AppendLine($"\u2022 *Password:* `{mqttPassword}`");
+            instructions.AppendLine($"\u2022 *Root topic:* `{mqttTopic}`");
+            instructions.AppendLine($"\u2022 *Encryption enabled:* On \u2705");
+            instructions.AppendLine($"\u2022 *JSON output enabled:* Off \u274c");
+            instructions.AppendLine($"\u2022 *TLS enabled:* Off \u274c");
+            instructions.AppendLine();
+            instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
+
+            await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
+        }
+
+        private async Task StartDemoteFromGateway(long userId, long chatId, string deviceIdText)
+        {
+            if (string.IsNullOrWhiteSpace(deviceIdText))
+            {
+                await botClient.SendMessage(chatId,
+                    "Please send the Meshtastic device ID to demote from gateway. The device ID can be decimal or hex (hex starts with ! or #).");
+                registrationService.SetChatState(userId, chatId, ChatState.DemotingFromGateway);
+                return;
+            }
+
+            if (!MeshtasticService.TryParseDeviceId(deviceIdText, out var deviceId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid device ID format: '{deviceIdText}'. The device ID can be decimal or hex (hex starts with ! or #).");
+                return;
+            }
+
+            await ExecuteDemoteFromGateway(userId, chatId, deviceId);
+        }
+
+        private async Task ProceedDemoteFromGateway(long userId, long chatId, Message message)
+        {
+            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Operation canceled.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return;
+            }
+
+            var text = message.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Please send a Meshtastic device ID or /stop to cancel.");
+                return;
+            }
+
+            if (!MeshtasticService.TryParseDeviceId(text, out var deviceId))
+            {
+                await botClient.SendMessage(chatId, "Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send /stop to cancel.");
+                return;
+            }
+
+            await ExecuteDemoteFromGateway(userId, chatId, deviceId);
+            registrationService.SetChatState(userId, chatId, ChatState.Default);
+        }
+
+        private async Task ExecuteDemoteFromGateway(long userId, long chatId, long deviceId)
+        {
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+
+            // Device must be registered and verified in this chat
+            if (!await registrationService.HasDeviceRegistrationAsync(chatId, deviceId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Device {hexId} is not registered in this chat. You can only demote devices registered in this chat.");
+                return;
+            }
+
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            var deviceName = device?.NodeName ?? hexId;
+
+            var removed = await registrationService.UnregisterGatewayAsync(deviceId);
+            if (removed)
+            {
+                GatewayListChanged = true;
+                await botClient.SendMessage(chatId,
+                    $"\u2705 Device {deviceName} ({hexId}) has been demoted from gateway.\n\nYou can disconnect it from the MQTT server in your Meshtastic app settings.");
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                    $"Device {deviceName} ({hexId}) was not registered as a gateway.");
             }
         }
 

@@ -19,6 +19,9 @@ namespace TBot.Models
         RemovingDeviceFromAll,
         RemovingChannel,
         RemovingChannelFromAll,
+        PromotingToGateway,
+        PromotingToGateway_NeedFirmwareConfirm,
+        DemotingFromGateway,
         Admin
     }
 }
