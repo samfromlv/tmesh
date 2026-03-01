@@ -556,28 +556,16 @@ namespace TBot
             return true;
         }
 
-        /// <summary>
-        /// Updates LastSeenUtc for the gateway, throttled to at most once every 3 hours per device
-        /// to avoid excessive DB writes on every incoming packet.
-        /// </summary>
-        public async Task UpdateGatewayLastSeenAsync(long deviceId)
+        public async Task UpdateGatewayLastSeenAsync(long deviceId, DateTime lastSeen)
         {
-            var cacheKey = $"GatewayLastSeenUpdated#{deviceId}";
-            if (memoryCache.TryGetValue(cacheKey, out _))
-            {
-                return;
-            }
-
             var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
             if (entity == null)
             {
                 return;
             }
 
-            entity.LastSeenUtc = DateTime.UtcNow;
+            entity.LastSeenUtc = lastSeen;
             await db.SaveChangesAsync();
-
-            memoryCache.Set(cacheKey, true, TimeSpan.FromHours(3));
         }
 
         /// <summary>

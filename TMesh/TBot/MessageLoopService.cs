@@ -22,7 +22,8 @@ public class MessageLoopService(
     IServiceProvider services,
     SimpleScheduler scheduler) : IHostedService
 {
-    private const int CheckGatewayNodeInfoLAstSeenAfterMinutes = 60;
+    private const int GatewayActivityRefreshEveryHours = 1;
+    private const int CheckGatewayNodeInfoLastSeenAfterMinutes = 60;
     private readonly TBotOptions _options = options.Value;
     private System.Timers.Timer _serviceInfoTimer;
     private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
@@ -34,6 +35,7 @@ public class MessageLoopService(
     private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
     private Task _ackWorker;
     private HashSet<long> _gatewayIds;
+    private HashSet<long> _registeredGatewayIds;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -88,10 +90,10 @@ public class MessageLoopService(
             await PublishStats();
 
             if (_options.InactiveGatewayCleanupDays > 0
-                && (DateTime.UtcNow - _lastGatewayCleanup).TotalHours >= 1)
+                && (DateTime.UtcNow - _lastGatewayCleanup).TotalHours >= GatewayActivityRefreshEveryHours)
             {
                 _lastGatewayCleanup = DateTime.UtcNow;
-                await CleanupInactiveGateways();
+                await CheckGatewayActivity();
             }
         }
         catch (Exception ex)
@@ -100,13 +102,16 @@ public class MessageLoopService(
         }
     }
 
-    private async Task CleanupInactiveGateways()
+
+    private async Task CheckGatewayActivity()
     {
         try
         {
             var threshold = DateTime.UtcNow.AddDays(-_options.InactiveGatewayCleanupDays);
             using var scope = services.CreateScope();
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            await RefreshGatewayActivityInDb(registrationService);
+
             var demoted = await registrationService.UnregisterInactiveGatewaysAsync(threshold);
             if (demoted.Count == 0)
             {
@@ -128,6 +133,20 @@ public class MessageLoopService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during inactive gateway cleanup");
+        }
+    }
+
+    private async Task RefreshGatewayActivityInDb(RegistrationService registrationService)
+    {
+        foreach (var gatewayId in _registeredGatewayIds)
+        {
+            if (_gatewayLastSeen.TryGetValue(gatewayId, out var lastSeen))
+            {
+                if ((DateTime.UtcNow - lastSeen).TotalHours < GatewayActivityRefreshEveryHours)
+                {
+                    await registrationService.UpdateGatewayLastSeenAsync(gatewayId, lastSeen);
+                }
+            }
         }
     }
 
@@ -265,16 +284,33 @@ public class MessageLoopService(
         });
     }
 
-    public async Task FillGatewayIds()
+    public async Task FillGatewayIds(IServiceScope scope = null)
     {
-        using var scope = services.CreateScope();
-        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-        var ids = new HashSet<long>(await registrationService.GetGatewaysCached());
-        foreach (var id in _options.GatewayNodeIds)
+        bool scopeCreated = false;
+        try
         {
-            ids.Add(id);
+            if (scope == null)
+            {
+                scope = services.CreateScope();
+                scopeCreated = true;
+            }
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var registeredGatewayIds = await registrationService.GetGatewaysCached();
+            var ids = new HashSet<long>(registeredGatewayIds);
+            foreach (var id in _options.GatewayNodeIds)
+            {
+                ids.Add(id);
+            }
+            _gatewayIds = ids;
+            _registeredGatewayIds = new HashSet<long>(registeredGatewayIds);
         }
-        _gatewayIds = ids;
+        finally
+        {
+            if (scopeCreated && scope != null)
+            {
+                scope.Dispose();
+            }
+        }
     }
 
 
@@ -439,7 +475,7 @@ public class MessageLoopService(
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             var toDevice = await registrationService.GetDeviceAsync(gatewayId);
 
-            if (toDevice == null 
+            if (toDevice == null
                 || toDevice.Latitude == null
                 || toDevice.Longitude == null)
             {
@@ -482,21 +518,6 @@ public class MessageLoopService(
     {
         var now = DateTime.UtcNow;
         _gatewayLastSeen.AddOrUpdate(gatewayId, now, (key, oldValue) => oldValue > now ? oldValue : now);
-
-        // Persist to DB throttled to once every 3 hours (handled inside the service)
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                using var scope = services.CreateScope();
-                var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-                await registrationService.UpdateGatewayLastSeenAsync(gatewayId);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error updating gateway LastSeenUtc for {GatewayId}", gatewayId);
-            }
-        });
     }
 
     private async Task HandleTelegramMessage(DataEventArgs<string> msg)
@@ -509,7 +530,7 @@ public class MessageLoopService(
             ScheduleStatusResolve(botService.TrackedMessages);
             if (botService.GatewayListChanged)
             {
-                await FillGatewayIds();
+                await FillGatewayIds(scope);
             }
         }
         catch (Exception ex)
