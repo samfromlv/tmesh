@@ -556,6 +556,61 @@ namespace TBot
             return true;
         }
 
+        /// <summary>
+        /// Updates LastSeenUtc for the gateway, throttled to at most once every 3 hours per device
+        /// to avoid excessive DB writes on every incoming packet.
+        /// </summary>
+        public async Task UpdateGatewayLastSeenAsync(long deviceId)
+        {
+            var cacheKey = $"GatewayLastSeenUpdated#{deviceId}";
+            if (memoryCache.TryGetValue(cacheKey, out _))
+            {
+                return;
+            }
+
+            var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
+            if (entity == null)
+            {
+                return;
+            }
+
+            entity.LastSeenUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            memoryCache.Set(cacheKey, true, TimeSpan.FromHours(3));
+        }
+
+        /// <summary>
+        /// Returns gateways whose LastSeenUtc (or CreatedUtc as fallback) is older than
+        /// <paramref name="olderThan"/>, removes them from the DB and invalidates cache.
+        /// Returns the list of removed device IDs together with their node names for notifications.
+        /// </summary>
+        public async Task<List<(long DeviceId, string NodeName)>> UnregisterInactiveGatewaysAsync(DateTime olderThan)
+        {
+            var inactive = await db.GatewayRegistrations
+                .Where(g => (g.LastSeenUtc != null ? g.LastSeenUtc : g.CreatedUtc) < olderThan)
+                .ToListAsync();
+
+            if (inactive.Count == 0)
+            {
+                return [];
+            }
+
+            var result = new List<(long DeviceId, string NodeName)>(inactive.Count);
+            foreach (var gw in inactive)
+            {
+                var device = await db.Devices.AsNoTracking()
+                    .FirstOrDefaultAsync(d => d.DeviceId == gw.DeviceId);
+                result.Add((gw.DeviceId, device?.NodeName ?? MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId)));
+            }
+
+            db.GatewayRegistrations.RemoveRange(inactive);
+            await db.SaveChangesAsync();
+            memoryCache.Remove("GatewayNodeIds");
+
+            return result;
+        }
+
         public async Task<Channel> GetChannelAsync(int channelId)
         {
             return await memoryCache.GetOrCreateAsync($"Channel#{channelId}", async entry =>

@@ -1988,6 +1988,25 @@ namespace TBot
             return HandleUpdate(update);
         }
 
+        public async Task NotifyGatewayDemotedDueToInactivity(long deviceId, string deviceName)
+        {
+            var chatIds = await registrationService.GetChatsByDeviceIdCached(deviceId);
+            if (chatIds.Count == 0)
+            {
+                return;
+            }
+
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+            var text = $"\u26a0\ufe0f Gateway *{deviceName}* ({hexId}) has been automatically demoted due to inactivity. " +
+                       "It has not been seen on the network for an extended period. " +
+                       "Use /promote_to_gateway to restore gateway status once the device is back online.";
+
+            foreach (var chatId in chatIds)
+            {
+                await botClient.SendMessage(chatId, text, parseMode: ParseMode.Markdown);
+            }
+        }
+
         private async Task<string> FormatTraceRouteMessage(TraceRouteMessage msg)
         {
             var sb = new StringBuilder();

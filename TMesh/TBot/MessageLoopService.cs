@@ -27,6 +27,7 @@ public class MessageLoopService(
     private System.Timers.Timer _serviceInfoTimer;
     private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
     private DateTime _started;
+    private DateTime _lastGatewayCleanup = DateTime.MinValue;
     private readonly ConcurrentDictionary<long, DateTime> _gatewayLastSeen = new();
 
     private BlockingCollection<AckMessage> _ackQueue;
@@ -85,10 +86,48 @@ public class MessageLoopService(
             }
 
             await PublishStats();
+
+            if (_options.InactiveGatewayCleanupDays > 0
+                && (DateTime.UtcNow - _lastGatewayCleanup).TotalHours >= 1)
+            {
+                _lastGatewayCleanup = DateTime.UtcNow;
+                await CleanupInactiveGateways();
+            }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error in ServiceInfo timer");
+        }
+    }
+
+    private async Task CleanupInactiveGateways()
+    {
+        try
+        {
+            var threshold = DateTime.UtcNow.AddDays(-_options.InactiveGatewayCleanupDays);
+            using var scope = services.CreateScope();
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var demoted = await registrationService.UnregisterInactiveGatewaysAsync(threshold);
+            if (demoted.Count == 0)
+            {
+                return;
+            }
+
+            logger.LogInformation("Auto-demoted {Count} inactive gateway(s): {Ids}",
+                demoted.Count,
+                string.Join(", ", demoted.Select(d => MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId))));
+
+            await FillGatewayIds();
+
+            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            foreach (var (deviceId, nodeName) in demoted)
+            {
+                await botService.NotifyGatewayDemotedDueToInactivity(deviceId, nodeName);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during inactive gateway cleanup");
         }
     }
 
@@ -443,6 +482,21 @@ public class MessageLoopService(
     {
         var now = DateTime.UtcNow;
         _gatewayLastSeen.AddOrUpdate(gatewayId, now, (key, oldValue) => oldValue > now ? oldValue : now);
+
+        // Persist to DB throttled to once every 3 hours (handled inside the service)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = services.CreateScope();
+                var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+                await registrationService.UpdateGatewayLastSeenAsync(gatewayId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error updating gateway LastSeenUtc for {GatewayId}", gatewayId);
+            }
+        });
     }
 
     private async Task HandleTelegramMessage(DataEventArgs<string> msg)
