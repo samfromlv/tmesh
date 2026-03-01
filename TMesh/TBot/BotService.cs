@@ -1635,10 +1635,16 @@ namespace TBot
                     return;
                 }
 
+                var gatewayIdSet = await registrationService.GetGatewaysCached();
+
                 var lines =
                         channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
                         .Concat(
-                          devices.Select(d => $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}")
+                          devices.Select(d =>
+                          {
+                              var gatewayTag = gatewayIdSet.Contains(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
+                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag}, last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
+                          })
                         );
 
                 var text = $"{(hasFilter ? "Filtered" : "Registered")} channels and devices:\r\n" + string.Join("\r\n", lines);

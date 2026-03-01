@@ -511,12 +511,13 @@ namespace TBot
             return null;
         }
 
-        public Task<List<long>> GetGatewaysCached()
+        public Task<HashSet<long>> GetGatewaysCached()
         {
             return memoryCache.GetOrCreateAsync("GatewayNodeIds", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24);
-                return await db.GatewayRegistrations.AsNoTracking().Select(g => g.DeviceId).ToListAsync();
+                var gatewayIds = await db.GatewayRegistrations.AsNoTracking().Select(g => g.DeviceId).ToListAsync();
+                return new HashSet<long>(gatewayIds);
             });
         }
 
