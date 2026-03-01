@@ -1378,7 +1378,7 @@ namespace TBot
             await botClient.SendMessage(chatId,
                 $"Device: *{deviceName}* ({hexId})\n\n" +
                 $"⚠️ To act as a gateway this device must have custom TMesh firmware installed.{flasherLine}\n\n" +
-                "Have you already flashed the TMesh firmware on this device? Reply *yes* to confirm and receive MQTT setup instructions, or /stop to cancel.",
+                "Have you already flashed the TMesh firmware on this device? Reply \"*yes*\" to confirm and receive MQTT setup instructions, or /stop to cancel.",
                 parseMode: ParseMode.Markdown);
         }
 
@@ -1401,7 +1401,7 @@ namespace TBot
 
                 await botClient.SendMessage(chatId,
                     $"Please flash the custom TMesh firmware on your device first.{flasherLine}\n\n" +
-                    "Reply *yes* once the firmware is installed, or /stop to cancel.",
+                    "Reply \"*yes*\" once the firmware is installed, or /stop to cancel.",
                     parseMode: ParseMode.Markdown);
                 return;
             }
@@ -1442,9 +1442,9 @@ namespace TBot
 
             if (!string.IsNullOrWhiteSpace(flasherAddress))
             {
-                instructions.AppendLine($"1\\. If you haven't already, flash the custom TMesh firmware: {flasherAddress}");
+                instructions.AppendLine($"1. If you haven't already, flash the custom TMesh firmware: {flasherAddress}");
                 instructions.AppendLine();
-                instructions.AppendLine("2\\. Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
+                instructions.AppendLine("2. Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
             }
             else
             {
@@ -1724,7 +1724,7 @@ namespace TBot
         static string FormatTimeSpan(TimeSpan ts)
         {
             return ts.Days > 0
-                ? ts.ToString(@"d\:hh\:mm\:ss")
+                ? ts.ToString(@"d\.hh\:mm\:ss")
                 : ts.ToString(@"hh\:mm\:ss");
         }
 
