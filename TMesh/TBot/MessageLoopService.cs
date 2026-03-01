@@ -208,7 +208,7 @@ public class MessageLoopService(
             {
                 lastSeen = DateTime.MinValue;
             }
-            if ((utcNow - lastSeen).TotalMinutes > CheckGatewayNodeInfoLAstSeenAfterMinutes)
+            if ((utcNow - lastSeen).TotalMinutes > CheckGatewayNodeInfoLastSeenAfterMinutes)
             {
                 var gw = await regService.GetDeviceAsync(gwId);
                 if (gw != null && gw.UpdatedUtc > lastSeen)
