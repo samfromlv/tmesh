@@ -1464,6 +1464,8 @@ namespace TBot
             instructions.AppendLine();
             instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
             instructions.AppendLine();
+            instructions.AppendLine("Please enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
+            instructions.AppendLine();
             instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
 
             await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
