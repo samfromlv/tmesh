@@ -12,18 +12,26 @@ namespace TBot
 {
     public class MqttService : IAsyncDisposable
     {
+#if DEBUG
+        const string ClientId = "TBotDebug";
+#else
+        const string ClientId = "TBot";
+#endif
+
         public MqttService(
             ILogger<MqttService> logger,
-            IOptions<TBotOptions> options)
+            IOptions<TBotOptions> options,
+            MqttClientFactory mqttClientFactory)
         {
             _logger = logger;
             _options = options.Value;
+            _mqttClientFactory = mqttClientFactory;
             SetMeshtasticTopic();
         }
 
         private readonly ILogger<MqttService> _logger;
-        private readonly MqttClientFactory _factory = new();
         private readonly TBotOptions _options;
+        private readonly MqttClientFactory _mqttClientFactory;
         private IMqttClient _client;
         private readonly SemaphoreSlim _connectLock = new(1, 1);
         private string _ourGatewayMeshtasicTopic;
@@ -58,7 +66,7 @@ namespace TBot
                     _client = null;
                 }
 
-                _client = _factory.CreateMqttClient();
+                _client = _mqttClientFactory.CreateMqttClient();
                 _client.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
                 _client.DisconnectedAsync += async e =>
                 {
@@ -89,7 +97,7 @@ namespace TBot
                     .WithTcpServer(_options.MqttAddress, _options.MqttPort)
                     .WithCredentials(_options.MqttUser, _options.MqttPassword)
                     .WithTlsOptions(sslOptions)
-                    .WithClientId("TBot")
+                    .WithClientId(ClientId)
                     .WithSessionExpiryInterval(30 * 24 * 3600)
                     .WithCleanSession(false);
 
@@ -212,7 +220,15 @@ namespace TBot
                     }
 
                     var payload = arg.ApplicationMessage.Payload;
-                    var env = ServiceEnvelope.Parser.ParseFrom(payload);
+                    ServiceEnvelope env;
+                    try
+                    {
+                        env = ServiceEnvelope.Parser.ParseFrom(payload);
+                    }
+                    catch
+                    {
+                        return; // not a valid ServiceEnvelope
+                    }
                     if (env.GatewayId == MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
                     {
                         //This can happen when we sent a message using direct gateway topic

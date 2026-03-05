@@ -17,6 +17,7 @@ public class MessageLoopService(
     ILogger<MessageLoopService> logger,
     LocalMessageQueueService localMessageQueueService,
     MqttService mqttService,
+    MapMqttService mapMqttService,
     MeshtasticService meshtasticService,
     IOptions<TBotOptions> options,
     IServiceProvider services,
@@ -46,6 +47,8 @@ public class MessageLoopService(
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
         await mqttService.EnsureMqttConnectedAsync(cancellationToken);
+        mapMqttService.MeshtasticMessageReceivedAsync += HandleMapMqttTelemetryAsync;
+        await mapMqttService.StartAsync(cancellationToken);
         localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
         localMessageQueueService.Start();
         StartServiceInfoInfoTimer();
@@ -237,6 +240,8 @@ public class MessageLoopService(
         mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
         mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
         mqttService.MessageSent -= HandleMessageSent;
+        mapMqttService.MeshtasticMessageReceivedAsync -= HandleMapMqttTelemetryAsync;
+        await mapMqttService.DisposeAsync();
         await mqttService.DisposeAsync();
     }
 
@@ -541,6 +546,44 @@ public class MessageLoopService(
                     logger.LogError(ex, "Error notifying about new gateway seen");
                 }
             });
+        }
+    }
+
+    private async Task HandleMapMqttTelemetryAsync(DataEventArgs<ServiceEnvelope> args)
+    {
+        try
+        {
+            var env = args.Data;
+            if (env?.Packet == null
+                || String.IsNullOrEmpty(env.GatewayId)
+                || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var gatewayId))
+                return;
+
+            long deviceId = env.Packet.From;
+            if (!_gatewayIds.Contains(deviceId))
+            {
+                return;
+            }
+
+            var res = meshtasticService.TryDecryptMessage(env, [meshtasticService.GetPrimaryChannel()]);
+
+            if (!res.success 
+                || res.msg.MessageType != MeshMessageType.DeviceMetrics)
+            {
+                return;
+            }
+
+            if (meshtasticService.IsLinkTrace(env)
+                && meshtasticService.TryStoreLinkTraceGatewayNoDup(env.Packet.Id, gatewayId))
+            {
+                using var scope = services.CreateScope();
+                await SaveLinkTrace(scope, gatewayId, env);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "MapMqtt: error processing telemetry packet");
         }
     }
 

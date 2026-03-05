@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using TBot.Database;
 using TBot.Helpers;
 using TBot.Analytics;
+using MQTTnet;
 
 namespace TBot
 {
@@ -52,7 +53,9 @@ namespace TBot
                     services.AddMemoryCache();
                     services.AddSingleton<TimeZoneHelper>();
                     services.AddSingleton<LocalMessageQueueService>();
+                    services.AddSingleton<MqttClientFactory>();
                     services.AddSingleton<MqttService>();
+                    services.AddSingleton<MapMqttService>();
                     services.AddSingleton<SimpleScheduler>();
                     services.AddHostedService<MessageLoopService>();
                     BotService.Register(services);

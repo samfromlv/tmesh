@@ -82,6 +82,8 @@ namespace TBot
             return _channels.Where(x => x.Hash == xorHash);
         }
 
+        public IRecipient GetPrimaryChannel() => _primaryChannel;
+
         private static ChannelInternalInfo ConvertChannel(ChannelInfo ch) =>
             ConvertChannel(ch.Name, ch.PskBase64);
 
@@ -741,6 +743,18 @@ namespace TBot
             var key = $"meshtastic:linktrace:{env.Packet.Id:X}";
             return _memoryCache.TryGetValue(key, out _);
         }
+
+        public bool TryStoreLinkTraceGatewayNoDup(long packetId, long gatewayId)
+        {
+            var key = $"meshtastic:linktracegw:{packetId:X}:{gatewayId:X}";
+            if (_memoryCache.TryGetValue(key, out _))
+            {
+                return false;
+            }
+            _memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            return true;
+        }
+
         private byte[] GetMacAddressFromNodeId()
         {
             var mac = new byte[6];
