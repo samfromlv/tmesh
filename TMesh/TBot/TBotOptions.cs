@@ -77,4 +77,6 @@ public class MapMqttServerOptions
     public bool UseTls { get; set; }
     public bool AllowUntrustedCertificates { get; set; }
     public string TopicPrefix { get; set; }
+    public bool UplinkEnabled { get; set; }
+    public bool AnalyticsDownlinkEnabled { get; set; }
 }

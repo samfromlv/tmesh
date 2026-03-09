@@ -12,5 +12,9 @@
         public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device : RecipientType.Channel;
 
         public long? RecipientId => RecipientDeviceId ?? RecipientChannelId;
+
+        public bool IsPublicChannel => RecipientChannelXor.HasValue
+            && RecipientDeviceId == null
+            && RecipientChannelId == null;
     }
 }

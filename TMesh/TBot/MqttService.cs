@@ -12,6 +12,7 @@ namespace TBot
 {
     public class MqttService : IAsyncDisposable
     {
+        private const int ReconnectMillisecondsDelay = 5000;
 #if DEBUG
         const string ClientId = "TBotDebug";
 #else
@@ -30,6 +31,7 @@ namespace TBot
         }
 
         private readonly ILogger<MqttService> _logger;
+        private readonly CancellationTokenSource _connectionCts = new();
         private readonly TBotOptions _options;
         private readonly MqttClientFactory _mqttClientFactory;
         private IMqttClient _client;
@@ -53,13 +55,21 @@ namespace TBot
                 "/PKI/");
         }
 
-        public async Task EnsureMqttConnectedAsync(CancellationToken ct = default)
+        public async Task ConnectAsync(CancellationToken ct = default)
         {
-            if (_client?.IsConnected == true) return;
+            while (!await EnsureMqttConnectedAsync(ct))
+            {
+                _logger.LogWarning("MQTT connection failed, retrying in 5 seconds...");
+                await Task.Delay(ReconnectMillisecondsDelay, ct);
+            }
+        }
+        private async Task<bool> EnsureMqttConnectedAsync(CancellationToken ct)
+        {
+            if (_client?.IsConnected == true) return true;
             await _connectLock.WaitAsync(ct);
             try
             {
-                if (_client?.IsConnected == true) return;
+                if (_client?.IsConnected == true) return true;
                 if (_client != null)
                 {
                     _client.Dispose();
@@ -70,10 +80,21 @@ namespace TBot
                 _client.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
                 _client.DisconnectedAsync += async e =>
                 {
-                    _logger.LogWarning("MQTT disconnected: {Reason}", e.Reason);
-                    // attempt reconnect after short delay
-                    await Task.Delay(2000);
-                    await EnsureMqttConnectedAsync(CancellationToken.None);
+                    if (e.Reason == MqttClientDisconnectReason.AdministrativeAction)
+                    {
+                        return; // don't attempt reconnect if we intentionally disconnected
+                    }
+
+                    try
+                    {
+                        _logger.LogWarning("MQTT disconnected: {Reason}", e.Reason);
+                        await Task.Delay(ReconnectMillisecondsDelay, ct);
+                        await ConnectAsync(_connectionCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // shutting down
+                    }
                 };
 
                 var sslOptions = new MqttClientTlsOptions
@@ -106,7 +127,7 @@ namespace TBot
                 if (result.ResultCode != MqttClientConnectResultCode.Success)
                 {
                     _logger.LogError("Failed to connect MQTT: {Code}", result.ResultCode);
-                    return;
+                    return false;
                 }
                 _logger.LogInformation("MQTT connected to {Host}:{Port}", _options.MqttAddress, _options.MqttPort);
 
@@ -153,16 +174,22 @@ namespace TBot
                     }, ct);
 
                 _logger.LogInformation("Subscribed to mqtt topics");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error connecting MQTT");
+                return false;
             }
             finally
             {
                 _connectLock.Release();
             }
+
         }
 
 
 
-        //Todo: all messages are published to PKI topic this work only for testing or one gateway
         public async Task PublishMeshtasticMessage(
             ServiceEnvelope envelope,
             long? relayThroughGatewayId)
@@ -178,7 +205,7 @@ namespace TBot
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
 
-            await EnsureMqttConnectedAsync();
+            await EnsureMqttConnectedAsync(_connectionCts.Token);
             await _client.PublishAsync(message);
             if (MessageSent != null)
             {
@@ -195,7 +222,7 @@ namespace TBot
                 .WithRetainFlag(true)
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
-            await EnsureMqttConnectedAsync();
+            await EnsureMqttConnectedAsync(_connectionCts.Token);
             await _client.PublishAsync(message);
             _logger.LogInformation("Published MQTT status message to {topic}", _options.MqttStatusTopic);
         }
@@ -251,12 +278,14 @@ namespace TBot
 
         public async ValueTask DisposeAsync()
         {
+            _connectionCts.Cancel();
             if (_client != null)
             {
                 await _client.DisconnectAsync(MqttClientDisconnectOptionsReason.AdministrativeAction);
                 _client.Dispose();
                 _client = null;
             }
+            _connectionCts.Dispose();
             GC.SuppressFinalize(this);
         }
     }

@@ -46,7 +46,9 @@ public class MessageLoopService(
         mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
-        await mqttService.EnsureMqttConnectedAsync(cancellationToken);
+        using var cts = new CancellationTokenSource(30_000);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
+        await mqttService.ConnectAsync(linkedCts.Token);
         mapMqttService.MeshtasticMessageReceivedAsync += HandleMapMqttTelemetryAsync;
         await mapMqttService.StartAsync(cancellationToken);
         localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
@@ -409,6 +411,7 @@ public class MessageLoopService(
             scope ??= services.CreateScope();
 
             await PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
+            await PerhapsUplinkToMap(msg.Data, res.msg, res.recipient);
 
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
@@ -423,6 +426,33 @@ public class MessageLoopService(
         {
             scope?.Dispose();
         }
+    }
+
+    private async ValueTask PerhapsUplinkToMap(
+        ServiceEnvelope data,
+        MeshMessage msg,
+        IRecipient recipient)
+    {
+        if (recipient == null 
+            || !recipient.IsPublicChannel
+            //Should always be null, but just in case
+            || msg.ChannelId != null)
+        {
+            return;
+        }
+
+        if (msg.MessageType == MeshMessageType.EncryptedDirectMessage
+            || msg.MessageType == MeshMessageType.AckMessage)
+        {
+            return;
+        }
+
+        if (!msg.OkToMqtt)
+        {
+            return;
+        }
+
+        await mapMqttService.PublishMeshtasticMessage(data);
     }
 
     private async ValueTask PerhapsSaveLinkTrace(
@@ -559,6 +589,12 @@ public class MessageLoopService(
                 || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var gatewayId))
                 return;
 
+            if (_gatewayIds.Contains(gatewayId))
+            {
+                //We should not process telemetry messages from known gateways here, as they are already processed in HandleMeshtasticMessage.
+                return;
+            }
+
             long deviceId = env.Packet.From;
             if (!_gatewayIds.Contains(deviceId))
             {
@@ -567,7 +603,7 @@ public class MessageLoopService(
 
             var res = meshtasticService.TryDecryptMessage(env, [meshtasticService.GetPrimaryChannel()]);
 
-            if (!res.success 
+            if (!res.success
                 || res.msg.MessageType != MeshMessageType.DeviceMetrics)
             {
                 return;
