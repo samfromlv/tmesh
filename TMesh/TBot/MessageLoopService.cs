@@ -350,6 +350,12 @@ public class MessageLoopService(
 
             UpdateGatewayLastSeen(gatewayId);
 
+            if (mapMqttService.UplinkEnabled
+                && meshtasticService.IsUplinkPacket(msg.Data))
+            {
+                await UplinkToMap(msg.Data);
+            }
+
             if (meshtasticService.IsLinkTrace(msg.Data))
             {
                 scope ??= services.CreateScope();
@@ -433,7 +439,12 @@ public class MessageLoopService(
         MeshMessage msg,
         IRecipient recipient)
     {
-        if (recipient == null 
+        if (!mapMqttService.UplinkEnabled)
+        {
+            return;
+        }
+
+        if (recipient == null
             || !recipient.IsPublicChannel
             //Should always be null, but just in case
             || msg.ChannelId != null)
@@ -452,6 +463,12 @@ public class MessageLoopService(
             return;
         }
 
+        await UplinkToMap(data);
+    }
+
+    private async ValueTask UplinkToMap(ServiceEnvelope data)
+    {
+        meshtasticService.MarkUplinkPacket(data.Packet.Id);
         await mapMqttService.PublishMeshtasticMessage(data);
     }
 

@@ -746,6 +746,18 @@ namespace TBot
             return _memoryCache.TryGetValue(key, out _);
         }
 
+        public void MarkUplinkPacket(long packetId)
+        {
+            var key = $"meshtastic:uplinkpacket:{packetId:X}";
+            _memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+        }
+
+        public bool IsUplinkPacket(ServiceEnvelope env)
+        {
+            var key = $"meshtastic:uplinkpacket:{env.Packet.Id:X}";
+            return _memoryCache.TryGetValue(key, out _);
+        }
+
         public bool TryStoreLinkTraceGatewayNoDup(long packetId, long gatewayId)
         {
             var key = $"meshtastic:linktracegw:{packetId:X}:{gatewayId:X}";

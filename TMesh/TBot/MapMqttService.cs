@@ -54,6 +54,8 @@ namespace TBot
         }
 
 
+        public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
+
         public async ValueTask PublishMeshtasticMessage(
           ServiceEnvelope envelope)
         {
