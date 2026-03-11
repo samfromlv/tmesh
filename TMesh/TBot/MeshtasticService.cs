@@ -30,8 +30,11 @@ namespace TBot
         private const int KeepStatsForMinutes = 60;
         private const int MaxChannelNameBytes = 11;
         private const int OkToMqttMask = 1;
+        private const int NeedReplyMask = 1 << 1;
         private const int TraceRouteSNRDefault = sbyte.MinValue;
-        private const uint BroadcastDeviceId = uint.MaxValue;
+        internal const uint BroadcastDeviceId = uint.MaxValue;
+        public const string PKIChannelName = "PKI";
+        public const string UnknownChannelName = "UCH";
         private static readonly LinkedList<MeshStat> meshStats = new();
         private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
 
@@ -277,7 +280,7 @@ namespace TBot
             long? relayGatewayId)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
-            var hopsForReply = Math.Max(1, hopsUsed + ReplyHopsMargin);
+            var hopsForReply = msg.GetSuggestedReplyHopLimit();
             var envelope = PackTraceRouteResponse(
                 msg.DeviceId,
                 msg.RouteDiscovery,
@@ -337,7 +340,7 @@ namespace TBot
                 text,
                 replyToMessageId,
                 hopLimit);
-            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
             return envelope;
         }
 
@@ -388,7 +391,7 @@ namespace TBot
             {
                 packet = EncryptPacketWithPsk(packet, _primaryChannel);
             }
-            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
             return envelope;
         }
 
@@ -405,14 +408,14 @@ namespace TBot
                 messageId,
                 hopsUsed,
                 messageHopLimit);
-            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
             return envelope;
         }
 
         private ServiceEnvelope PackNoPublicKeyMessage(long deviceId, long messageId, int messageHopLimit)
         {
             var packet = CreateNoPublicKeyMessagePacket(deviceId, messageId, messageHopLimit);
-            var envelope = CreateMeshtasticEnvelope(packet, "PKI");
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
             return envelope;
         }
 
@@ -457,6 +460,7 @@ namespace TBot
                 HopStart = (uint)hopLimitToUse,
                 Decoded = new Data()
                 {
+                    Bitfield = OkToMqttMask,
                     ReplyId = replyToMessageId.HasValue ? (uint)replyToMessageId.Value : 0,
                     Portnum = PortNum.TextMessageApp,
                     Payload = bytes,
@@ -515,7 +519,7 @@ namespace TBot
                 {
                     Portnum = PortNum.RoutingApp,
                     RequestId = (uint)messageId,
-                    Bitfield = 1,
+                    Bitfield = OkToMqttMask,
                     Payload = routeData.ToByteString(),
                 },
             };
@@ -566,7 +570,7 @@ namespace TBot
                 {
                     Portnum = PortNum.TracerouteApp,
                     RequestId = (uint)messageId,
-                    Bitfield = 1,
+                    Bitfield = OkToMqttMask,
                     Payload = routeDiscovery.ToByteString(),
                 },
             };
@@ -598,7 +602,7 @@ namespace TBot
                 {
                     Portnum = PortNum.RoutingApp,
                     RequestId = (uint)messageId,
-                    Bitfield = 1,
+                    Bitfield = OkToMqttMask,
                     Payload = routeData.ToByteString(),
                 },
             };
@@ -797,6 +801,7 @@ namespace TBot
                 HopStart = (uint)_options.OwnNodeInfoMessageHopLimit,
                 Decoded = new Meshtastic.Protobufs.Data()
                 {
+                    Bitfield = OkToMqttMask,
                     Portnum = PortNum.NodeinfoApp,
                     Payload = new User
                     {
@@ -854,7 +859,7 @@ namespace TBot
         public static (Data, IRecipient) DecryptPacketWithPsk(MeshPacket packet, IEnumerable<IRecipient> recipients)
         {
             var input = packet.Encrypted.ToByteArray();
-            var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
+            var nonce = new NonceGenerator(packet.From, packet.Id);
 
             foreach (var channel in recipients.Where(x => x.RecipientChannelXor == (byte)packet.Channel))
             {
@@ -921,14 +926,14 @@ namespace TBot
             };
         }
 
-        private static bool OkToMqtt(Data decoded)
+        internal static bool OkToMqtt(Data decoded)
         {
-            return decoded == null 
+            return decoded == null
                 || !decoded.HasBitfield
                 || (decoded.Bitfield & OkToMqttMask) != 0;
         }
 
-        public (bool success, MeshMessage msg, IRecipient recipient) TryDecryptMessage(
+        public (bool success, MeshMessage msg) TryDecryptMessage(
             ServiceEnvelope envelope,
             List<IRecipient> recipients)
         {
@@ -940,7 +945,6 @@ namespace TBot
             {
                 gatewayNodeId = 0;
             }
-
 
             if (gatewayNodeId == _options.MeshtasticNodeId)
             {
@@ -956,177 +960,7 @@ namespace TBot
 
             if (!envelope.Packet.PkiEncrypted)
             {
-                var (decoded, recipient) = DecryptPacketWithPsk(envelope.Packet, recipients);
-                if (decoded == null)
-                {
-                    return default;
-                }
-
-                if (decoded.Portnum == PortNum.NodeinfoApp)
-                {
-                    return DecodeNodeInfo(envelope, decoded, recipient);
-                }
-                else if (decoded.Portnum == PortNum.RoutingApp
-                    && envelope.Packet.To == _options.MeshtasticNodeId)
-                {
-                    AddStat(new MeshStat
-                    {
-                        AckRecieved = 1,
-                    });
-                    return DecodeAck(envelope, decoded, recipient);
-                }
-                else if (decoded.Portnum == PortNum.TracerouteApp
-                    && envelope.Packet.To == _options.MeshtasticNodeId)
-                {
-                    var routeDiscovery = RouteDiscovery.Parser.ParseFrom(decoded.Payload);
-
-                    if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
-                        && envelope.Packet.From != gatewayNodeId)
-                    {
-                        routeDiscovery.Route.Add((uint)gatewayNodeId);
-                        routeDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
-                    }
-
-                    return (true, new TraceRouteMessage
-                    {
-                        DeviceId = envelope.Packet.From,
-                        OkToMqtt = OkToMqtt(decoded),
-                        ChannelId = recipient.RecipientChannelId,
-                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                        NeedAck = envelope.Packet.WantAck
-                             && envelope.Packet.From != BroadcastDeviceId
-                             && envelope.Packet.To != BroadcastDeviceId,
-                        HopLimit = (int)envelope.Packet.HopLimit,
-                        HopStart = (int)envelope.Packet.HopStart,
-                        Id = envelope.Packet.Id,
-                        RouteDiscovery = routeDiscovery,
-                    }, recipient);
-                }
-                else if (decoded.Portnum == PortNum.PositionApp)
-                {
-                    if (envelope.Packet.To != _options.MeshtasticNodeId
-                        && envelope.Packet.To != BroadcastDeviceId)
-                    {
-                        return default;
-                    }
-
-                    var position = Position.Parser.ParseFrom(decoded.Payload);
-
-                    if (position == null
-                        || !position.HasLatitudeI
-                        || !position.HasLongitudeI)
-                    {
-                        return default;
-                    }
-
-                    var accuracyMeters = MeshtasticPositionUtils.PrecisionBitsToAccuracyMeters((int)position.PrecisionBits);
-
-                    if (position.HDOP != 0)
-                    {
-                        var hdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.HDOP);
-                        if (hdopAccuracy > accuracyMeters)
-                        {
-                            accuracyMeters = hdopAccuracy;
-                        }
-                    }
-                    else if (position.PDOP != 0)
-                    {
-                        var pdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.PDOP);
-                        if (pdopAccuracy > accuracyMeters)
-                        {
-                            accuracyMeters = pdopAccuracy;
-                        }
-                    }
-
-                    return (true, new PositionMessage
-                    {
-                        DeviceId = envelope.Packet.From,
-                        OkToMqtt = OkToMqtt(decoded),
-                        ChannelId = recipient.RecipientChannelId,
-                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                        NeedAck = envelope.Packet.WantAck
-                             && envelope.Packet.From != BroadcastDeviceId
-                             && envelope.Packet.To != BroadcastDeviceId,
-                        HopLimit = (int)envelope.Packet.HopLimit,
-                        HopStart = (int)envelope.Packet.HopStart,
-                        Id = envelope.Packet.Id,
-                        Latitude = position.LatitudeI / 1e7,
-                        Longitude = position.LongitudeI / 1e7,
-                        HeadingDegrees = position.HasGroundTrack
-                            ? MeshtasticPositionUtils.GroundTrackToHeading((int)position.GroundTrack)
-                            : null,
-                        Altitude = position.HasAltitude
-                            ? position.Altitude
-                            : null,
-                        AccuracyMeters = accuracyMeters,
-                        SentToOurNodeId = envelope.Packet.To == _options.MeshtasticNodeId
-                    }, recipient);
-                }
-                else if (decoded.Portnum == PortNum.TextMessageApp)
-                {
-                    var res = new TextMessage
-                    {
-                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                        NeedAck = envelope.Packet.WantAck
-                            && envelope.Packet.From != BroadcastDeviceId
-                            && envelope.Packet.To != BroadcastDeviceId,
-                        Id = envelope.Packet.Id,
-                        HopLimit = (int)envelope.Packet.HopLimit,
-                        HopStart = (int)envelope.Packet.HopStart,
-                        IsDirectMessage = false,
-                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                        Text = decoded.Payload.ToStringUtf8(),
-                        DeviceId = envelope.Packet.From,
-                        OkToMqtt = OkToMqtt(decoded),
-                        ChannelId = recipient.RecipientChannelId,
-                        ReplyTo = decoded.ReplyId
-                    };
-                    AddStat(new MeshStat
-                    {
-                        PublicTextMessagesRecieved = 1,
-                    });
-
-                    return (true, res, recipient);
-                }
-                else if (decoded.Portnum == PortNum.TelemetryApp)
-                {
-                    var telemetry = Telemetry.Parser.ParseFrom(decoded.Payload);
-
-                    if (telemetry == null
-                        || telemetry.DeviceMetrics == null
-                        || (!telemetry.DeviceMetrics.HasChannelUtilization
-                        && !telemetry.DeviceMetrics.HasAirUtilTx))
-                    {
-                        return default;
-                    }
-
-                    return (true, new DeviceMetricsMessage
-                    {
-                        DeviceId = envelope.Packet.From,
-                        OkToMqtt = OkToMqtt(decoded),
-                        ChannelId = recipient.RecipientChannelId,
-                        IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                        GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                        NeedAck = envelope.Packet.WantAck
-                             && envelope.Packet.From != BroadcastDeviceId
-                             && envelope.Packet.To != BroadcastDeviceId,
-                        HopLimit = (int)envelope.Packet.HopLimit,
-                        HopStart = (int)envelope.Packet.HopStart,
-                        Id = envelope.Packet.Id,
-                        ChannelUtilization = telemetry.DeviceMetrics.HasChannelUtilization
-                            ? telemetry.DeviceMetrics.ChannelUtilization
-                            : null,
-                        AirUtilization = telemetry.DeviceMetrics.HasAirUtilTx
-                            ? telemetry.DeviceMetrics.AirUtilTx
-                            : null
-                    }, recipient);
-                }
-                else
-                {
-                    return default;
-                }
+                return DecryptPksMessage(envelope, recipients, gatewayNodeId);
             }
 
             if (envelope.Packet.To != _options.MeshtasticNodeId)
@@ -1138,18 +972,8 @@ namespace TBot
 
             if (publicKey == null)
             {
-                return (true, new EncryptedDirectMessage
-                {
-                    GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                    NeedAck = envelope.Packet.WantAck
-                        && envelope.Packet.From != BroadcastDeviceId
-                        && envelope.Packet.To != BroadcastDeviceId,
-                    DeviceId = envelope.Packet.From,
-                    OkToMqtt = OkToMqtt(null),
-                    HopLimit = (int)envelope.Packet.HopLimit,
-                    HopStart = (int)envelope.Packet.HopStart,
-                    Id = envelope.Packet.Id,
-                }, null);
+                var msg = MeshMessage.FromEnvelope<EncryptedDirectMessage>(envelope, null, null);
+                return (true, msg);
             }
 
             (var pkiOk, var decodedPki) = DecryptPKI(
@@ -1161,30 +985,24 @@ namespace TBot
             {
                 return default;
             }
-
-            if (decodedPki.Portnum == PortNum.TextMessageApp)
+            if (decodedPki.Portnum == PortNum.UnknownApp)
+            { 
+                var msg = MeshMessage.FromEnvelope<EncryptedDirectMessage>(envelope, null, null);
+                return (true, msg);
+            }
+            else if (decodedPki.Portnum == PortNum.TextMessageApp)
             {
-                var res = new TextMessage
-                {
-                    GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                    NeedAck = envelope.Packet.WantAck
-                        && envelope.Packet.From != BroadcastDeviceId
-                        && envelope.Packet.To != BroadcastDeviceId,
-                    Id = envelope.Packet.Id,
-                    HopLimit = (int)envelope.Packet.HopLimit,
-                    HopStart = (int)envelope.Packet.HopStart,
-                    IsDirectMessage = true,
-                    Text = decodedPki.Payload.ToStringUtf8(),
-                    DeviceId = envelope.Packet.From,
-                    OkToMqtt = OkToMqtt(decodedPki),
-                    ReplyTo = decodedPki.ReplyId
-                };
+                var msg = MeshMessage.FromEnvelope<TextMessage>(envelope, decodedPki, device);
+
+                msg.IsDirectMessage = true;
+                msg.Text = decodedPki.Payload.ToStringUtf8();
+                msg.ReplyTo = decodedPki.ReplyId;
                 AddStat(new MeshStat
                 {
                     DirectTextMessagesRecieved = 1,
                 });
 
-                return (true, res, device);
+                return (true, msg);
             }
             else if (decodedPki.Portnum == PortNum.RoutingApp)
             {
@@ -1192,13 +1010,150 @@ namespace TBot
                 {
                     AckRecieved = 1,
                 });
-                return DecodeAck(envelope, decodedPki, device);
+                return (true, DecodeAck(envelope, decodedPki, device));
             }
             else if (decodedPki.Portnum == PortNum.NodeinfoApp)
             {
-                return DecodeNodeInfo(envelope, decodedPki, device);
+                var res = DecodeNodeInfo(envelope, decodedPki, device);
+                if (!res.success)
+                {
+                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decodedPki, device));
+                }
+                return res;
             }
-            return default;
+            return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decodedPki, device));
+        }
+
+        private (bool success, MeshMessage msg) DecryptPksMessage(ServiceEnvelope envelope, List<IRecipient> recipients, long gatewayNodeId)
+        {
+            var (decoded, recipient) = DecryptPacketWithPsk(envelope.Packet, recipients);
+            if (decoded == null)
+            {
+                return default;
+            }
+
+            if (decoded.Portnum == PortNum.NodeinfoApp)
+            {
+                var res = DecodeNodeInfo(envelope, decoded, recipient);
+                if (!res.success)
+                {
+                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+                }
+                return res;
+            }
+            else if (decoded.Portnum == PortNum.RoutingApp
+                && envelope.Packet.To == _options.MeshtasticNodeId)
+            {
+                AddStat(new MeshStat
+                {
+                    AckRecieved = 1,
+                });
+                return (true, DecodeAck(envelope, decoded, recipient));
+            }
+            else if (decoded.Portnum == PortNum.TracerouteApp
+                && envelope.Packet.To == _options.MeshtasticNodeId)
+            {
+                var routeDiscovery = RouteDiscovery.Parser.ParseFrom(decoded.Payload);
+
+                if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
+                    && envelope.Packet.From != gatewayNodeId)
+                {
+                    routeDiscovery.Route.Add((uint)gatewayNodeId);
+                    routeDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
+                }
+                var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
+                msg.RouteDiscovery = routeDiscovery;
+                return (true, msg);
+            }
+            else if (decoded.Portnum == PortNum.PositionApp)
+            {
+                if (envelope.Packet.To != _options.MeshtasticNodeId
+                    && envelope.Packet.To != BroadcastDeviceId)
+                {
+                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+                }
+
+                var position = Position.Parser.ParseFrom(decoded.Payload);
+
+                if (position == null
+                    || !position.HasLatitudeI
+                    || !position.HasLongitudeI)
+                {
+                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+                }
+
+                var accuracyMeters = MeshtasticPositionUtils.PrecisionBitsToAccuracyMeters((int)position.PrecisionBits);
+
+                if (position.HDOP != 0)
+                {
+                    var hdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.HDOP);
+                    if (hdopAccuracy > accuracyMeters)
+                    {
+                        accuracyMeters = hdopAccuracy;
+                    }
+                }
+                else if (position.PDOP != 0)
+                {
+                    var pdopAccuracy = MeshtasticPositionUtils.DopToAccuracyMeters(position.PDOP);
+                    if (pdopAccuracy > accuracyMeters)
+                    {
+                        accuracyMeters = pdopAccuracy;
+                    }
+                }
+
+                var msg = MeshMessage.FromEnvelope<PositionMessage>(envelope, decoded, recipient);
+                msg.Latitude = position.LatitudeI / 1e7;
+                msg.Longitude = position.LongitudeI / 1e7;
+                msg.HeadingDegrees = position.HasGroundTrack
+                    ? MeshtasticPositionUtils.GroundTrackToHeading((int)position.GroundTrack)
+                    : null;
+                msg.Altitude = position.HasAltitude
+                        ? position.Altitude
+                        : null;
+                msg.AccuracyMeters = accuracyMeters;
+                msg.SentToOurNodeId = envelope.Packet.To == _options.MeshtasticNodeId;
+                return (true, msg);
+            }
+            else if (decoded.Portnum == PortNum.TextMessageApp)
+            {
+                var msg = MeshMessage.FromEnvelope<TextMessage>(envelope, decoded, recipient);
+                msg.Text = decoded.Payload.ToStringUtf8();
+                msg.IsDirectMessage = false;
+                msg.ReplyTo = decoded.ReplyId;
+                AddStat(new MeshStat
+                {
+                    PublicTextMessagesRecieved = recipient.IsPublicChannel ? 1 : 0,
+                    PrivateChannelTextMessagesRecieved = recipient.IsPublicChannel ? 0 : 1
+                });
+
+                return (true, msg);
+            }
+            else if (decoded.Portnum == PortNum.TelemetryApp)
+            {
+                var telemetry = Telemetry.Parser.ParseFrom(decoded.Payload);
+
+                if (telemetry == null
+                    || telemetry.DeviceMetrics == null
+                    || (!telemetry.DeviceMetrics.HasChannelUtilization
+                    && !telemetry.DeviceMetrics.HasAirUtilTx))
+                {
+                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+                }
+
+                var msg = MeshMessage.FromEnvelope<DeviceMetricsMessage>(envelope, decoded, recipient);
+                msg.ChannelUtilization = telemetry.DeviceMetrics.HasChannelUtilization
+                        ? telemetry.DeviceMetrics.ChannelUtilization
+                        : null;
+                msg.AirUtilization = telemetry.DeviceMetrics.HasAirUtilTx
+                        ? telemetry.DeviceMetrics.AirUtilTx
+                        : null;
+
+                return (true, msg);
+            }
+            else
+            {
+                return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+            }
         }
 
         public static (bool success, Data data) DecryptPKI(byte[] recipientPrivateKey, byte[] senderPublicKey, MeshPacket meshPacket)
@@ -1240,27 +1195,17 @@ namespace TBot
 
         public TimeSpan SingleMessageQueueDelay => _localMessageQueueService.SingleMessageQueueDelay;
 
-        private static (bool success, MeshMessage msg, IRecipient recipient) DecodeAck(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
+        private static AckMessage DecodeAck(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             var routing = Routing.Parser.ParseFrom(decoded.Payload);
-            return (true, new AckMessage
-            {
-                DeviceId = envelope.Packet.From,
-                OkToMqtt = OkToMqtt(decoded),
-                ChannelId = recipient.RecipientChannelId,
-                IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                NeedAck = false,
-                HopLimit = (int)envelope.Packet.HopLimit,
-                GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                HopStart = (int)envelope.Packet.HopStart,
-                Id = envelope.Packet.Id,
-                AckedMessageId = decoded.RequestId,
-                IsPkiEncrypted = envelope.Packet.PkiEncrypted,
-                Success = routing.ErrorReason == Routing.Types.Error.None
-            }, recipient);
+            var msg = MeshMessage.FromEnvelope<AckMessage>(envelope, decoded, recipient);
+            msg.NeedAck = false;
+            msg.IsPkiEncrypted = envelope.Packet.PkiEncrypted;
+            msg.Success = routing.ErrorReason == Routing.Types.Error.None;
+            return msg;
         }
 
-        private (bool success, MeshMessage msg, IRecipient recipient) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
+        private (bool success, MeshMessage msg) DecodeNodeInfo(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             var user = User.Parser.ParseFrom(decoded.Payload);
             if (user?.PublicKey == null
@@ -1277,22 +1222,11 @@ namespace TBot
             {
                 NodeInfoRecieved = 1,
             });
-            return (true, new NodeInfoMessage
-            {
-                DeviceId = deviceId,
-                OkToMqtt = OkToMqtt(decoded),
-                ChannelId = recipient.RecipientChannelId,
-                IsSingleDeviceChannel = recipient.IsSingleDeviceChannel == true,
-                NeedAck = envelope.Packet.WantAck
-                    && envelope.Packet.To != BroadcastDeviceId
-                    && deviceId != BroadcastDeviceId,
-                GatewayId = PraseDeviceHexId(envelope.GatewayId),
-                HopLimit = (int)envelope.Packet.HopLimit,
-                HopStart = (int)envelope.Packet.HopStart,
-                Id = envelope.Packet.Id,
-                NodeName = user.LongName ?? user.ShortName ?? user.Id,
-                PublicKey = user.PublicKey.ToByteArray(),
-            }, recipient);
+            var msg = MeshMessage.FromEnvelope<NodeInfoMessage>(envelope, decoded, recipient);
+            msg.DeviceId = deviceId;
+            msg.NodeName = user.LongName ?? user.ShortName ?? user.Id;
+            msg.PublicKey = user.PublicKey.ToByteArray();
+            return (true, msg);
         }
 
         public void IncreaseBridgeDirectMessagesToGatewaysStat()

@@ -342,6 +342,12 @@ public class MessageLoopService(
                 return;
             }
 
+            if (gatewayId == _options.MeshtasticNodeId)
+            {
+                //This is a message from our own virtual node, ignore early
+                return;
+            }
+
             if (!_gatewayIds.Contains(gatewayId))
             {
                 logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
@@ -369,7 +375,6 @@ public class MessageLoopService(
                 {
                     DupsIgnored = 1,
                 });
-                logger.LogDebug("Duplicate Meshtastic message received, ignoring. Id: {Id}", msg.Data.Packet.Id);
                 return;
             }
 
@@ -404,6 +409,7 @@ public class MessageLoopService(
             var res = meshtasticService.TryDecryptMessage(msg.Data, recipients);
             if (!res.success)
             {
+                await UplinkToMap(msg.Data);
                 return;
             }
 
@@ -416,13 +422,19 @@ public class MessageLoopService(
 
             scope ??= services.CreateScope();
 
-            await PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
-            await PerhapsUplinkToMap(msg.Data, res.msg, res.recipient);
+            var t1 = PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
+            var t2 = PerhapsUplinkToMap(msg.Data, res.msg, res.msg.DecodedBy);
+
+            await Task.WhenAll(t1.AsTask(), t2.AsTask());
+
+            if (res.msg.MessageType == MeshMessageType.Unknown)
+            {
+                return;
+            }
 
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
             ScheduleStatusResolve(botService.TrackedMessages);
-
         }
         catch (Exception ex)
         {
@@ -440,20 +452,6 @@ public class MessageLoopService(
         IRecipient recipient)
     {
         if (!mapMqttService.UplinkEnabled)
-        {
-            return;
-        }
-
-        if (recipient == null
-            || !recipient.IsPublicChannel
-            //Should always be null, but just in case
-            || msg.ChannelId != null)
-        {
-            return;
-        }
-
-        if (msg.MessageType == MeshMessageType.EncryptedDirectMessage
-            || msg.MessageType == MeshMessageType.AckMessage)
         {
             return;
         }

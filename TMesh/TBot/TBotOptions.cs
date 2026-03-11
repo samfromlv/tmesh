@@ -11,6 +11,7 @@ public class TBotOptions
     public bool MqttAllowUntrustedCertificates { get; set; }
     public bool MqttUseTls { get; set; }
     public string MqttMeshtasticTopicPrefix { get; set; }
+    public string MqttMeshtasticMapTopic { get; set; } = null;
     public string MqttTelegramTopic { get; set; }
     public string MqttStatusTopic { get; set; }
     public string TelegramApiToken { get; set; } 
@@ -76,7 +77,8 @@ public class MapMqttServerOptions
     public string Password { get; set; }
     public bool UseTls { get; set; }
     public bool AllowUntrustedCertificates { get; set; }
-    public string TopicPrefix { get; set; }
+    public string EncryptedTopicPrefix { get; set; }
+    public string MapTopic { get; set; }
     public bool UplinkEnabled { get; set; }
     public bool AnalyticsDownlinkEnabled { get; set; }
 }

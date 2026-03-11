@@ -67,9 +67,31 @@ namespace TBot
 
         private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, ServiceEnvelope envelope)
         {
+            if (!server.UplinkEnabled)
+            {
+                throw new InvalidOperationException($"Server {server.Address} does not have uplink enabled.");
+            }
+
             try
             {
-                var topic = string.Concat(server.TopicPrefix.TrimEnd('/'), '/', envelope.ChannelId, '/' + envelope.GatewayId);
+                string topic = null;
+                if (envelope.Packet.PayloadVariantCase == MeshPacket.PayloadVariantOneofCase.Encrypted
+                    && !string.IsNullOrEmpty(server.EncryptedTopicPrefix))
+                {
+                    topic = string.Concat(server.EncryptedTopicPrefix.TrimEnd('/'), '/', envelope.ChannelId, '/' + envelope.GatewayId);
+                }
+                else if (envelope.Packet.PayloadVariantCase == MeshPacket.PayloadVariantOneofCase.Decoded
+                    && envelope.Packet.Decoded?.Portnum == PortNum.MapReportApp
+                    && !string.IsNullOrEmpty(server.MapTopic))
+                {
+                    topic = string.Concat(server.MapTopic);
+                }
+
+                if (topic == null)
+                {
+                    return;
+                }
+
                 var message = new MqttApplicationMessageBuilder()
                     .WithTopic(topic)
                     .WithPayload(envelope.ToByteArray())
@@ -162,11 +184,11 @@ namespace TBot
                     _logger.LogError("MapMqtt [{Server}] failed to connect: {Code}", server.Address, result.ResultCode);
                     return false;
                 }
-                _logger.LogInformation("MapMqtt [{Server}] connected, topic prefix: {Topic}", server.Address, server.TopicPrefix);
+                _logger.LogInformation("MapMqtt [{Server}] connected, topic prefix: {Topic}", server.Address, server.EncryptedTopicPrefix);
 
                 if (server.AnalyticsDownlinkEnabled)
                 {
-                    var topic = server.TopicPrefix.TrimEnd('/') + '/' + _options.MeshtasticPrimaryChannelName + "/#";
+                    var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + _options.MeshtasticPrimaryChannelName + "/#";
                     await client.SubscribeAsync(new MqttClientSubscribeOptions
                     {
                         TopicFilters = [new MqttTopicFilter

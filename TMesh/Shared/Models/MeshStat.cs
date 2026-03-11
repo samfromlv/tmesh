@@ -13,6 +13,7 @@ namespace Shared.Models
         public int NodeInfoRecieved { get; set; }
         public int DirectTextMessagesRecieved { get; set; }
         public int PublicTextMessagesRecieved { get; set; }
+        public int PrivateChannelTextMessagesRecieved { get; set; }
         public int AckRecieved { get; set; }
         public int TextMessagesSent { get; set; }
         public int AckSent { get; set; }
@@ -28,6 +29,7 @@ namespace Shared.Models
             NodeInfoRecieved += other.NodeInfoRecieved;
             DirectTextMessagesRecieved += other.DirectTextMessagesRecieved;
             PublicTextMessagesRecieved += other.PublicTextMessagesRecieved;
+            PrivateChannelTextMessagesRecieved += other.PrivateChannelTextMessagesRecieved;
             AckRecieved += other.AckRecieved;
             TextMessagesSent += other.TextMessagesSent;
             AckSent += other.AckSent;

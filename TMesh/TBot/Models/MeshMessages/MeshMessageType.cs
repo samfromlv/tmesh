@@ -14,6 +14,7 @@ namespace TBot.Models.MeshMessages
         AckMessage,
         TraceRoute,
         Position,
-        DeviceMetrics
+        DeviceMetrics,
+        Unknown
     }
 }

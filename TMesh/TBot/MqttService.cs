@@ -19,6 +19,7 @@ namespace TBot
         const string ClientId = "TBot";
 #endif
 
+
         public MqttService(
             ILogger<MqttService> logger,
             IOptions<TBotOptions> options,
@@ -139,12 +140,12 @@ namespace TBot
                     },
                     new() {
                         NoLocal = true,
-                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/PKI/#",
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/" + MeshtasticService.PKIChannelName + "/#",
                         QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                     },
                     new() {
                         NoLocal = true,
-                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/UCH/#",
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/" + MeshtasticService.UnknownChannelName + "/#",
                         QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                     },
                     new() {
@@ -165,6 +166,16 @@ namespace TBot
                             QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                         });
                     }
+                }
+
+                if (!string.IsNullOrEmpty(_options.MqttMeshtasticMapTopic))
+                {
+                    filters.Add(new MqttTopicFilter
+                    {
+                        NoLocal = true,
+                        Topic = _options.MqttMeshtasticMapTopic,
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    });
                 }
 
                 await _client.SubscribeAsync(

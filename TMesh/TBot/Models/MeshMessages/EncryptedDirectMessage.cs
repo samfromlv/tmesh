@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using TBot.Models.MeshMessages;
 
-namespace TBot.Models
+namespace TBot.Models.MeshMessages
 {
     public class EncryptedDirectMessage: MeshMessage
     {
