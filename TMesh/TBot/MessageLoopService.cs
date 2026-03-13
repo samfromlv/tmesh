@@ -43,7 +43,7 @@ public class MessageLoopService(
     {
         _started = DateTime.UtcNow;
         await FillGatewayIds();
-        mqttService.TelegramMessageReceivedAsync += HandleTelegramMessage;
+        mqttService.TelegramUpdateReceivedAsync += HandleTelegramUpdate;
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
         using var cts = new CancellationTokenSource(30_000);
@@ -239,7 +239,7 @@ public class MessageLoopService(
         _serviceInfoTimer.Enabled = false;
         await localMessageQueueService.Stop();
         localMessageQueueService.SendMessage -= LocalMessageQueueService_SendMessage;
-        mqttService.TelegramMessageReceivedAsync -= HandleTelegramMessage;
+        mqttService.TelegramUpdateReceivedAsync -= HandleTelegramUpdate;
         mqttService.MeshtasticMessageReceivedAsync -= HandleMeshtasticMessage;
         mqttService.MessageSent -= HandleMessageSent;
         mapMqttService.MeshtasticMessageReceivedAsync -= HandleMapMqttTelemetryAsync;
@@ -638,13 +638,13 @@ public class MessageLoopService(
         }
     }
 
-    private async Task HandleTelegramMessage(DataEventArgs<string> msg)
+    private async Task HandleTelegramUpdate(DataEventArgs<string> msg)
     {
         try
         {
             using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<BotService>();
-            await botService.ProcessInboundTelegramMessage(msg.Data);
+            await botService.ProcessInboundTelegramUpdate(msg.Data);
             ScheduleStatusResolve(botService.TrackedMessages);
             if (botService.GatewayListChanged)
             {

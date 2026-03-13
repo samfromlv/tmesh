@@ -40,7 +40,7 @@ namespace TBot
         private string _ourGatewayMeshtasicTopic;
         private string _directGatewayPrefix;
 
-        public event Func<DataEventArgs<string>, Task> TelegramMessageReceivedAsync;
+        public event Func<DataEventArgs<string>, Task> TelegramUpdateReceivedAsync;
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
         public event Func<DataEventArgs<long>, Task> MessageSent;
 
@@ -247,7 +247,7 @@ namespace TBot
                 if (topic == _options.MqttTelegramTopic)
                 {
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();
-                    await TelegramMessageReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
+                    await TelegramUpdateReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
                 }
                 else if (topic.StartsWith(_options.MqttMeshtasticTopicPrefix))
                 {

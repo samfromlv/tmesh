@@ -163,14 +163,16 @@ namespace TBot
             long? replyToMessageId,
             long? relayGatewayId,
             int hopLimit,
-            IRecipient channel)
+            IRecipient channel,
+            bool isEmoji = false)
         {
             var envelope = PackPrivateTextMessage(
                 newMessageId,
                 text,
                 replyToMessageId,
                 hopLimit,
-                channel);
+                channel,
+                isEmoji);
 
             AddStat(new MeshStat
             {
@@ -207,7 +209,8 @@ namespace TBot
             string text,
             long? replyToMessageId,
             long? relayGatewayId,
-            int hopLimit)
+            int hopLimit,
+            bool isEmoji = false)
         {
             _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(
@@ -216,7 +219,8 @@ namespace TBot
                 publicKey,
                 text,
                 replyToMessageId,
-                hopLimit);
+                hopLimit,
+                isEmoji);
             AddStat(new MeshStat
             {
                 TextMessagesSent = 1,
@@ -331,7 +335,8 @@ namespace TBot
             byte[] publicKey,
             string text,
             long? replyToMessageId,
-            int hopLimit)
+            int hopLimit,
+            bool isEmoji)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -339,7 +344,8 @@ namespace TBot
                 publicKey,
                 text,
                 replyToMessageId,
-                hopLimit);
+                hopLimit,
+                isEmoji);
             var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
             return envelope;
         }
@@ -349,7 +355,8 @@ namespace TBot
             string text,
             long? replyToMessageId,
             int hopLimit,
-            IRecipient recipient)
+            IRecipient recipient,
+            bool isEmoji = false)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -357,7 +364,8 @@ namespace TBot
                 null,
                 text,
                 replyToMessageId,
-                hopLimit);
+                hopLimit,
+                isEmoji);
 
             packet = EncryptPacketWithPsk(packet, recipient);
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
@@ -369,7 +377,8 @@ namespace TBot
            string text,
            long? replyToMessageId,
            int hopLimit,
-           IRecipient channel)
+           IRecipient channel,
+           bool isEmoji)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -377,12 +386,14 @@ namespace TBot
                 null,
                 text,
                 replyToMessageId,
-                hopLimit);
+                hopLimit,
+                isEmoji);
 
             packet = EncryptPacketWithPsk(packet, channel);
             var envelope = CreateMeshtasticEnvelope(packet, _options.MeshtasticPrimaryChannelName);
             return envelope;
         }
+
 
         private ServiceEnvelope PackAckMessage(long deviceId, byte[] publicKey, long messageId, int messageHopLimit)
         {
@@ -434,13 +445,16 @@ namespace TBot
             return $"!{deviceId:x8}";
         }
 
+       
+
         private MeshPacket CreateTextMessagePacket(
             long newMessageId,
             long deviceId,
             byte[] publicKey,
             string text,
             long? replyToMessageId,
-            int hopLimit)
+            int hopLimit,
+            bool isEmoji)
         {
             var bytes = ByteString.CopyFromUtf8(text);
             if (bytes.Length > MaxTextMessageBytes)
@@ -464,6 +478,7 @@ namespace TBot
                     ReplyId = replyToMessageId.HasValue ? (uint)replyToMessageId.Value : 0,
                     Portnum = PortNum.TextMessageApp,
                     Payload = bytes,
+                    Emoji = isEmoji? 1u: 0u
                 },
             };
 
@@ -1193,6 +1208,8 @@ namespace TBot
             return _localMessageQueueService.EstimateDelay(priority);
         }
 
+        public int QueueLength => _localMessageQueueService.QueueSize;
+
         public TimeSpan SingleMessageQueueDelay => _localMessageQueueService.SingleMessageQueueDelay;
 
         private static AckMessage DecodeAck(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
@@ -1294,5 +1311,6 @@ namespace TBot
                 }
             }
         }
+
     }
 }

@@ -67,6 +67,7 @@ public class TBotOptions
     /// Zero or more public MQTT servers to monitor for TMesh gateway telemetry packets (map gateways).
     /// </summary>
     public MapMqttServerOptions[] MapMqttServers { get; set; }
+    public int MaxQueueLengthForChannelAckEmojis { get; set; }
 }
 
 public class MapMqttServerOptions

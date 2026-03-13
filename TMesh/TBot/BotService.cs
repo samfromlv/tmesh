@@ -14,6 +14,7 @@ using TBot.Models.MeshMessages;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace TBot
 {
@@ -43,7 +44,7 @@ namespace TBot
         {
             await botClient.SetWebhook(
                 _options.TelegramUpdateWebhookUrl,
-                allowedUpdates: [UpdateType.Message],
+                allowedUpdates: [UpdateType.Message, UpdateType.MessageReaction],
                 secretToken: _options.TelegramWebhookSecret);
 
             await botClient.SetMyCommands(
@@ -216,23 +217,89 @@ namespace TBot
 
         private async Task HandleUpdate(Update update)
         {
-            if (update.Type != UpdateType.Message
-                || update.Message == null
-                || update.Message.Chat == null
-                || update.Message.From == null) return;
+            switch (update.Type)
+            {
+                case UpdateType.Message:
+                    await HandleTelegramMessageUpdate(update.Message);
+                    break;
+                case UpdateType.MessageReaction:
+                    await HandleTelegramReactionUpdate(update.MessageReaction);
+                    break;
+            }
+        }
 
-            var msg = update.Message;
+        private async Task<bool> HandleTelegramReactionUpdate(MessageReactionUpdated msgReaction)
+        {
+            if (msgReaction.User == null
+                || msgReaction.Chat == null
+                //No reaction changes updates
+                || (msgReaction.OldReaction != null
+                        && msgReaction.OldReaction.Length > 0)
+                || msgReaction.NewReaction == null
+                || msgReaction.NewReaction.Length == 0)
+            {
+                return false;
+            }
+
+            if (msgReaction.User.IsBot
+                && msgReaction.User.Username == _options.TelegramBotUserName)
+            {
+                // Ignore messages from the bot itself
+                return false;
+            }
+
+            var chatId = msgReaction.Chat.Id;
+            var msgId = msgReaction.MessageId;
+
+            var channelRegs = await registrationService.GetChannelKeysByChatIdCached(chatId);
+            var devRegs = await registrationService.GetDeviceKeysByChatIdCached(chatId);
+            if (devRegs.Count == 0
+                && channelRegs.Count == 0)
+            {
+                return false;
+            }
+
+            var emojis = string.Join(null,
+                    msgReaction.NewReaction.Select(ConvertReactionType)
+                );
+
+            var userName = GetTelegramUserName(msgReaction.User);
+            var trimmedUserName = TrimTelegramUserName(userName);
+
+            SendMeshtasticMessageReactions(
+                channelRegs.AsEnumerable<IRecipient>().Concat(devRegs),
+                chatId,
+                msgId,
+                $"{trimmedUserName}{emojis}");
+
+            return true;
+        }
+        private string ConvertReactionType(ReactionType reaction)
+        {
+            return reaction switch
+            {
+                ReactionTypeEmoji emojiReaction => emojiReaction.Emoji,
+                ReactionTypeCustomEmoji customEmojiReaction => "?",
+                ReactionTypePaid => "?",
+                _ => "?"
+            };
+        }
+
+        private async Task<bool> HandleTelegramMessageUpdate(Message msg)
+        {
+            if (msg == null
+                || msg.Chat == null
+                || msg.From == null) return false;
 
             if (msg.From.IsBot && msg.From.Username == _options.TelegramBotUserName)
             {
                 // Ignore messages from the bot itself
-                return;
+                return false;
             }
 
             var chatId = msg.Chat.Id;
             var userId = msg.From.Id;
-            var userName = msg.From.Username ?? $"{msg.From.FirstName} {msg.From.LastName}".Trim();
-
+            string userName = GetTelegramUserName(msg.From);
 
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
 
@@ -275,6 +342,13 @@ namespace TBot
                         break;
                     }
             }
+
+            return true;
+        }
+
+        private static string GetTelegramUserName(User usr)
+        {
+            return (usr.Username ?? $"{usr.FirstName} {usr.LastName}").Trim();
         }
 
         private async Task ProceedChannelAdd(
@@ -807,6 +881,76 @@ namespace TBot
                 if (madeChanged)
                 {
                     await ReportStatus(status);
+                }
+            }
+        }
+
+        private void SendMeshtasticMessageReactions(
+           IEnumerable<IRecipient> recipients,
+           long chatId,
+           int replyToTelegramMsgId,
+           string emojis)
+        {
+            var telMsgStatus = GetTelegramMessageStatus(chatId, replyToTelegramMsgId);
+            if (telMsgStatus == null || telMsgStatus.MeshMessages == null)
+            {
+                return;
+            }
+
+            foreach (var recipient in recipients)
+            {
+
+                var replyMsg = telMsgStatus.MeshMessages
+                   .FirstOrDefault(kv =>
+                       kv.Value.RecipientId != null &&
+                       kv.Value.RecipientId == recipient.RecipientId &&
+                       (kv.Value.Type == RecipientType.Device) == (recipient.RecipientType == RecipientType.Device));
+
+                long? replyToMeshMessageId = replyMsg.Key != default ?
+                    replyMsg.Key : null;
+                if (replyToMeshMessageId == null)
+                {
+                    continue;
+                }
+
+                var newMeshMessageId = MeshtasticService.GetNextMeshtasticMessageId();
+
+                DeviceAndGatewayId deviceAndGatewayId = null;
+                if (recipient.IsSingleDeviceChannel == true)
+                {
+                    deviceAndGatewayId = GetSingleDeviceChannelGateway((int)recipient.RecipientChannelId.Value);
+                }
+                else if (recipient.RecipientDeviceId != null)
+                {
+                    deviceAndGatewayId = GetDeviceGateway(recipient.RecipientDeviceId.Value);
+                }
+
+                if (recipient.RecipientDeviceId != null)
+                {
+                    meshtasticService.SendDirectTextMessage(
+                            newMeshMessageId,
+                            recipient.RecipientDeviceId.Value,
+                            recipient.RecipientKey,
+                            emojis,
+                            replyToMeshMessageId,
+                            deviceAndGatewayId?.GatewayId,
+                            hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
+                            isEmoji: true);
+                }
+                else
+                {
+                    meshtasticService.SendPrivateChannelTextMessage(
+                            newMeshMessageId,
+                            emojis,
+                            replyToMeshMessageId,
+                            relayGatewayId: deviceAndGatewayId?.GatewayId,
+                            hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
+                            new ChannelInternalInfo
+                            {
+                                Psk = recipient.RecipientKey,
+                                Hash = recipient.RecipientChannelXor.Value
+                            },
+                            isEmoji: true);
                 }
             }
         }
@@ -1571,7 +1715,7 @@ namespace TBot
                 return;
             }
 
-            var textToMesh = $"{StringHelper.Truncate(userName, TrimUserNamesToLength)}: {text}";
+            var textToMesh = $"{TrimTelegramUserName(userName)}: {text}";
 
             if (!MeshtasticService.CanSendMessage(text))
             {
@@ -1610,6 +1754,11 @@ namespace TBot
                 msgId,
                 replyToTelegramMessageId,
                 textToMesh);
+        }
+
+        private static string TrimTelegramUserName(string userName)
+        {
+            return StringHelper.Truncate(userName, TrimUserNamesToLength);
         }
 
         private async Task HandleStatus(long chatId, string cmdText)
@@ -1987,7 +2136,7 @@ namespace TBot
             services.AddScoped<BotService>();
         }
 
-        public Task ProcessInboundTelegramMessage(string payload)
+        public Task ProcessInboundTelegramUpdate(string payload)
         {
             var update = JsonSerializer.Deserialize<Update>(payload, JsonBotAPI.Options);
             logger.LogDebug("Processing inbound Telegram message: {Payload}", payload);
@@ -2375,6 +2524,18 @@ namespace TBot
                     StoreTelegramMessageStatus(chatId, msg.Id, status);
                     StoreMeshMessageStatus(message.Id, status);
                 }
+            }
+
+            if (meshtasticService.QueueLength < _options.MaxQueueLengthForChannelAckEmojis)
+            {
+                meshtasticService.SendPrivateChannelTextMessage(
+                    MeshtasticService.GetNextMeshtasticMessageId(),
+                    "✓",
+                    message.Id,
+                    relayGatewayId: message.GatewayId,
+                    hopLimit: message.GetSuggestedReplyHopLimit(),
+                    channel,
+                    isEmoji: true);
             }
         }
 

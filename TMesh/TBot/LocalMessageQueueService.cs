@@ -92,6 +92,8 @@ namespace TBot
             return _processingTask;
         }
 
+        public int QueueSize => _highPriorityQueue.Count + _normalPriorityQueue.Count + _lowPriorityQueue.Count;
+
         public TimeSpan EstimateDelay(MessagePriority priority)
         {
             int queuedCount = 0;
