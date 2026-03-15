@@ -742,10 +742,9 @@ namespace TBot
             if (device == null)
             {
                 await botClient.SendMessage(chatId,
-                    $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the MQTT node {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
+                    $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
                     $"1. Ensure your primary channel is '{_options.MeshtasticPrimaryChannelName}' and the key is '{_options.MeshtasticPrimaryChannelPskBase64}'.\r\n" +
-                    "2. Make sure 'OK to MQTT' is enabled in LoRa settings on your device.\r\n" +
-                    $"3. Find node {_options.MeshtasticNodeNameLong} (MQTT) in node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds} seconds.\r\n\r\n" +
+                    $"2. Find node {_options.MeshtasticNodeNameLong} in node list, open it and click on 'Exchange user information' (Person icon). {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds/60} minutes.\r\n\r\n" +
                     "Registration aborted.");
                 registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
                 return;
