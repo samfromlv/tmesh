@@ -15,7 +15,7 @@ namespace TBot.Models
 
         long? IRecipient.RecipientDeviceId => null;
 
-        long? IRecipient.RecipientChannelId => null;
+        long? IRecipient.RecipientPrivateChannelId => null;
 
         byte[] IRecipient.RecipientKey => Psk;
 

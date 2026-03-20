@@ -7,6 +7,7 @@ using Shared.Models;
 using System.Collections.Concurrent;
 using System.Timers;
 using TBot.Analytics;
+using TBot.Bot;
 using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.MeshMessages;
@@ -72,7 +73,7 @@ public class MessageLoopService(
     private async Task HandleMessageSent(DataEventArgs<long> args)
     {
         using var scope = services.CreateScope();
-        var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+        var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
         await botService.ProcessMessageSent(args.Data);
     }
 
@@ -130,7 +131,7 @@ public class MessageLoopService(
 
             await FillGatewayIds();
 
-            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
             foreach (var (deviceId, nodeName) in demoted)
             {
                 await botService.NotifyGatewayDemotedDueToInactivity(deviceId, nodeName);
@@ -275,7 +276,8 @@ public class MessageLoopService(
                         if (batch.Count > 0)
                         {
                             using var scope = services.CreateScope();
-                            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+                            var botService = scope.ServiceProvider
+                                .GetRequiredService<MeshtasticBotMsgStatusTracker>();
                             await botService.ProcessAckMessages(batch);
                         }
                     }
@@ -310,10 +312,10 @@ public class MessageLoopService(
                 ids.Add(id);
             }
             _gatewayIds = ids;
-            _registeredGatewayIds = registeredGateways.Keys.ToHashSet();
-            _newGatewayIds = registeredGateways.Values.Where(x => x.LastSeen == null)
-                .Select(x => x.DeviceId)
-                .ToHashSet();
+            _registeredGatewayIds = [.. registeredGateways.Keys];
+            _newGatewayIds = [.. registeredGateways.Values
+                    .Where(x => x.LastSeen == null)
+                    .Select(x => x.DeviceId)];
         }
         finally
         {
@@ -423,7 +425,7 @@ public class MessageLoopService(
             scope ??= services.CreateScope();
 
             var t1 = PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
-            var t2 = PerhapsUplinkToMap(msg.Data, res.msg, res.msg.DecodedBy);
+            var t2 = PerhapsUplinkToMap(msg.Data, res.msg);
 
             await Task.WhenAll(t1.AsTask(), t2.AsTask());
 
@@ -432,9 +434,12 @@ public class MessageLoopService(
                 return;
             }
 
-            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotService>();
             await botService.ProcessInboundMeshtasticMessage(res.msg, device);
-            ScheduleStatusResolve(botService.TrackedMessages);
+            if (botService.TrackedMessages != null)
+            {
+                ScheduleStatusResolve(botService.TrackedMessages);
+            }
         }
         catch (Exception ex)
         {
@@ -448,8 +453,7 @@ public class MessageLoopService(
 
     private async ValueTask PerhapsUplinkToMap(
         ServiceEnvelope data,
-        MeshMessage msg,
-        IRecipient recipient)
+        MeshMessage msg)
     {
         if (!mapMqttService.UplinkEnabled)
         {
@@ -572,9 +576,8 @@ public class MessageLoopService(
     {
         var now = DateTime.UtcNow;
         _gatewayLastSeen.AddOrUpdate(gatewayId, now, (key, oldValue) => oldValue > now ? oldValue : now);
-        if (_newGatewayIds.Contains(gatewayId))
+        if (_newGatewayIds.Remove(gatewayId))
         {
-            _newGatewayIds.Remove(gatewayId);
             //Send notification about new gateway seen for the first time
             Task.Run(async () =>
             {
@@ -583,7 +586,7 @@ public class MessageLoopService(
                     using var scope = services.CreateScope();
                     var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
                     await registrationService.UpdateGatewayLastSeenAsync(gatewayId, now);
-                    var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+                    var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
                     await botService.NotifyNewGatewaySeen(gatewayId);
                 }
                 catch (Exception ex)
@@ -616,10 +619,10 @@ public class MessageLoopService(
                 return;
             }
 
-            var res = meshtasticService.TryDecryptMessage(env, [meshtasticService.GetPrimaryChannel()]);
+            var (success, msg) = meshtasticService.TryDecryptMessage(env, [meshtasticService.GetPrimaryChannel()]);
 
-            if (!res.success
-                || res.msg.MessageType != MeshMessageType.DeviceMetrics)
+            if (!success
+                || msg.MessageType != MeshMessageType.DeviceMetrics)
             {
                 return;
             }
@@ -643,10 +646,10 @@ public class MessageLoopService(
         try
         {
             using var scope = services.CreateScope();
-            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
             await botService.ProcessInboundTelegramUpdate(msg.Data);
             ScheduleStatusResolve(botService.TrackedMessages);
-            if (botService.GatewayListChanged)
+            if (botService.NetworkGatewayListChanged.Count != 0)
             {
                 await FillGatewayIds(scope);
             }
@@ -677,7 +680,7 @@ public class MessageLoopService(
         try
         {
             using var scope = services.CreateScope();
-            var botService = scope.ServiceProvider.GetRequiredService<BotService>();
+            var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
             await botService.ResolveMessageStatus(telegramChatId, telegramMessageId);
         }
         catch (Exception ex)

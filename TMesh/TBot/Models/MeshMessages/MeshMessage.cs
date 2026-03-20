@@ -38,7 +38,7 @@ namespace TBot.Models.MeshMessages
             {
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
-                ChannelId = recipient?.RecipientChannelId,
+                ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,
                 GatewayId = MeshtasticService.PraseDeviceHexId(env.GatewayId),
                 NeedAck = env.Packet.WantAck

@@ -4,6 +4,7 @@ public class Device: IRecipient
 {
     // Primary key
     public long DeviceId { get; set; }
+    public int NetworkId { get; set; }
 
     // 32 bytes key stored as blob
     [System.Text.Json.Serialization.JsonIgnore]
@@ -23,7 +24,7 @@ public class Device: IRecipient
 
     byte? IRecipient.RecipientChannelXor => null;
 
-    long? IRecipient.RecipientChannelId => null;
+    long? IRecipient.RecipientPrivateChannelId => null;
 
     bool? IRecipient.IsSingleDeviceChannel => null;
 }

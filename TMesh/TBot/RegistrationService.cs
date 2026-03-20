@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TBot.Database;
 using TBot.Database.Models;
+using TBot.Helpers;
 using TBot.Models;
 
 namespace TBot
@@ -513,19 +514,21 @@ namespace TBot
 
         public Task<Dictionary<long, GatewayInfo>> GetGatewaysCached()
         {
-            return memoryCache.GetOrCreateAsync("GatewayNodeIds", async entry =>
+            return memoryCache.GetOrCreateAsync($"GatewayNodeIds", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24);
-                var gatewayIds = await db.GatewayRegistrations.AsNoTracking().Select(g => new GatewayInfo
-                {
-                    DeviceId = g.DeviceId,
-                    LastSeen = g.LastSeenUtc
-                }).ToListAsync();
+                var gatewayIds = await db.GatewayRegistrations.AsNoTracking()
+                    .Select(g => new GatewayInfo
+                    {
+                        DeviceId = g.DeviceId,
+                        LastSeen = g.LastSeenUtc,
+                        NetworkId = g.NetworkId
+                    }).ToListAsync();
                 return gatewayIds.ToDictionary(g => g.DeviceId);
             });
         }
 
-        public async Task RegisterGatewayAsync(long deviceId)
+        public async Task RegisterGatewayAsync(long deviceId, int networkId)
         {
             var now = DateTime.UtcNow;
             var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
@@ -535,7 +538,8 @@ namespace TBot
                 {
                     DeviceId = deviceId,
                     CreatedUtc = now,
-                    UpdatedUtc = now
+                    UpdatedUtc = now,
+                    NetworkId = networkId
                 };
                 db.GatewayRegistrations.Add(entity);
             }
@@ -851,9 +855,8 @@ namespace TBot
             return await db.Devices.CountAsync(d => d.UpdatedUtc >= fromUtc);
         }
 
-        public async Task<Network> AddNetwork(string name, int sortOrder)
+        public async Task<Network> AddNetwork(Network network)
         {
-            var network = new Network { Name = name, SortOrder = sortOrder };
             db.Networks.Add(network);
             await db.SaveChangesAsync();
             memoryCache.Remove($"Networks");
@@ -877,14 +880,14 @@ namespace TBot
 
         public async Task<bool> TryRemoveNetwork(int networkId)
         {
-            var hasDevicesRegs = await db.DeviceRegistrations.AnyAsync(r => r.NetworkId == networkId);
-            if (hasDevicesRegs)
+            var hasDevices = await db.Devices.AnyAsync(r => r.NetworkId == networkId);
+            if (hasDevices)
             {
                 return false;
             }
 
-            var hasChannelRegs = await db.ChannelRegistrations.AnyAsync(r => r.NetworkId == networkId);
-            if (hasChannelRegs)
+            var hasChannels = await db.Channels.AnyAsync(r => r.NetworkId == networkId);
+            if (hasChannels)
             {
                 return false;
             }
@@ -895,16 +898,38 @@ namespace TBot
                 return false;
             }
 
+
             var network = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
             if (network == null)
             {
                 return true;
             }
 
+            var publicChannels = await db.PublicChannels.Where(c => c.NetworkId == networkId).ToListAsync();
+            db.PublicChannels.RemoveRange(publicChannels);
             db.Networks.Remove(network);
             await db.SaveChangesAsync();
             memoryCache.Remove($"Networks");
             return true;
+        }
+
+        public async Task<Network> GetNetwork(int value)
+        {
+            var networks = await GetNetworksCached();
+            return networks.FirstOrDefault(n => n.Id == value);
+        }
+
+        public string DeriveMqttPasswordForDevice(long deviceId)
+        {
+            var username = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+            var secret = _options.DefaultMqttPasswordDeriveSecret;
+            if (_options.MqttUserPasswordDeriveSecrets != null
+                && _options.MqttUserPasswordDeriveSecrets.TryGetValue(username, out var sec))
+            {
+                secret = sec;
+            }
+
+            return MqttPasswordDerive.DerivePassword(username, secret);
         }
     }
 }

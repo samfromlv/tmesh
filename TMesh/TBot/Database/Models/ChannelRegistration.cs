@@ -9,7 +9,6 @@ namespace TBot.Database.Models
     public class ChannelRegistration
     {
         public long Id { get; set; } // Primary key, auto-generated
-        public int NetworkId { get; set; }
         public long TelegramUserId { get; set; }
         public long ChatId { get; set; }
         public long ChannelId { get; set; }

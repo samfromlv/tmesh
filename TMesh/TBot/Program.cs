@@ -8,6 +8,7 @@ using TBot.Database;
 using TBot.Helpers;
 using TBot.Analytics;
 using MQTTnet;
+using TBot.Bot;
 
 namespace TBot
 {
@@ -58,7 +59,7 @@ namespace TBot
                     services.AddSingleton<MapMqttService>();
                     services.AddSingleton<SimpleScheduler>();
                     services.AddHostedService<MessageLoopService>();
-                    BotService.Register(services);
+                    TgBotService.Register(services);
                 })
                 .ConfigureLogging(logging =>
                 {
@@ -118,7 +119,7 @@ namespace TBot
 
         private static async Task CheckInstallWebHook(IHost host)
         {
-            var botService = host.Services.GetRequiredService<BotService>();
+            var botService = host.Services.GetRequiredService<TgBotService>();
             var info = await botService.CheckInstall();
             var logger = host.Services.GetRequiredService<ILogger<Program>>();
             logger.LogInformation("Webhook Info: Url={Url}, HasCustomCertificate={HasCustomCertificate}, PendingUpdateCount={PendingUpdateCount}, LastErrorDate={LastErrorDate}, LastErrorMessage={LastErrorMessage}",
@@ -140,7 +141,7 @@ namespace TBot
                     logger.LogError("Missing TelegramApiToken or TelegramUpdateWebhookUrl in configuration. Aborting /install.");
                     return; // exit non-zero? keep zero for simplicity
                 }
-                var botService = host.Services.GetRequiredService<BotService>();
+                var botService = host.Services.GetRequiredService<TgBotService>();
                 logger.LogInformation("Installing webhook {WebhookUrl}", options.TelegramUpdateWebhookUrl);
                 await botService.InstallWebhook();
                 logger.LogInformation("Webhook installation completed successfully.");

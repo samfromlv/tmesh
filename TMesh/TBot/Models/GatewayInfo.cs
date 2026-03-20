@@ -11,5 +11,7 @@ namespace TBot.Models
         public long DeviceId { get; set; }
 
         public DateTime? LastSeen { get; set; }
+
+        public int NetworkId { get; set; }
     }
 }
