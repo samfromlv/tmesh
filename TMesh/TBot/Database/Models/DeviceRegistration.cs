@@ -9,6 +9,8 @@ namespace TBot.Database.Models
     public class DeviceRegistration
     {
         public long Id { get; set; } // Primary key, auto-generated
+        public int NetworkId { get; set; }
+
         public long TelegramUserId { get; set; }
         public long ChatId { get; set; }
         public long DeviceId { get; set; }

@@ -850,5 +850,61 @@ namespace TBot
         {
             return await db.Devices.CountAsync(d => d.UpdatedUtc >= fromUtc);
         }
+
+        public async Task<Network> AddNetwork(string name, int sortOrder)
+        {
+            var network = new Network { Name = name, SortOrder = sortOrder };
+            db.Networks.Add(network);
+            await db.SaveChangesAsync();
+            memoryCache.Remove($"Networks");
+            return network;
+        }
+
+        public async ValueTask<List<Network>> GetNetworksCached()
+        {
+            if (memoryCache.TryGetValue<List<Network>>($"Networks", out var cached))
+            {
+                return cached;
+            }
+
+            var networks = await db.Networks
+                .OrderBy(x => x.SortOrder)
+                .ThenBy(x => x.Name)
+                .ToListAsync();
+            memoryCache.Set($"Networks", networks, TimeSpan.FromMinutes(180));
+            return networks;
+        }
+
+        public async Task<bool> TryRemoveNetwork(int networkId)
+        {
+            var hasDevicesRegs = await db.DeviceRegistrations.AnyAsync(r => r.NetworkId == networkId);
+            if (hasDevicesRegs)
+            {
+                return false;
+            }
+
+            var hasChannelRegs = await db.ChannelRegistrations.AnyAsync(r => r.NetworkId == networkId);
+            if (hasChannelRegs)
+            {
+                return false;
+            }
+
+            var hasGatewayRegs = await db.GatewayRegistrations.AnyAsync(r => r.NetworkId == networkId);
+            if (hasGatewayRegs)
+            {
+                return false;
+            }
+
+            var network = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
+            if (network == null)
+            {
+                return true;
+            }
+
+            db.Networks.Remove(network);
+            await db.SaveChangesAsync();
+            memoryCache.Remove($"Networks");
+            return true;
+        }
     }
 }

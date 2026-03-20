@@ -8,6 +8,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
     public DbSet<DeviceRegistration> DeviceRegistrations => Set<DeviceRegistration>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<Channel> Channels => Set<Channel>();
+    public DbSet<Network> Networks => Set<Network>();
     public DbSet<ChannelRegistration> ChannelRegistrations => Set<ChannelRegistration>();
     public DbSet<GatewayRegistration> GatewayRegistrations => Set<GatewayRegistration>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -21,6 +22,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(r => r.ChatId).IsRequired();
             e.Property(r => r.DeviceId).IsRequired();
             e.Property(r => r.CreatedUtc).IsRequired();
+            e.Property(r => r.NetworkId).IsRequired()
+                .HasDefaultValue(0);
 
             e.HasIndex(r => new { r.TelegramUserId, r.ChatId, r.DeviceId })
                 .IsUnique();
@@ -28,6 +31,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasIndex(r => r.TelegramUserId);
             e.HasIndex(r => r.ChatId);
             e.HasIndex(r => r.DeviceId);
+            e.HasIndex(r => r.NetworkId);
         });
 
         modelBuilder.Entity<Device>(e =>
@@ -52,11 +56,15 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
         modelBuilder.Entity<GatewayRegistration>(e =>
         {
             e.HasKey(p => p.DeviceId);
+            e.Property(p => p.NetworkId)
+                .IsRequired()
+                .HasDefaultValue(0);
             e.Property(p => p.CreatedUtc)
                 .IsRequired();
             e.Property(p => p.UpdatedUtc)
                 .IsRequired();
             e.Property(p => p.LastSeenUtc);
+            e.HasIndex(p => p.NetworkId);
         });
 
         modelBuilder.Entity<Channel>(e =>
@@ -90,6 +98,9 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasKey(r => r.Id);
             e.Property(r => r.Id)
                 .ValueGeneratedOnAdd();
+            e.Property(r => r.NetworkId).IsRequired()
+                .HasDefaultValue(0);
+
             e.Property(r => r.TelegramUserId).IsRequired();
             e.Property(r => r.ChatId).IsRequired();
             e.Property(r => r.ChannelId).IsRequired();
@@ -98,7 +109,22 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasIndex(r => r.TelegramUserId);
             e.HasIndex(r => r.ChatId);
             e.HasIndex(r => r.ChannelId);
+            e.HasIndex(r => r.NetworkId);
 
+        });
+
+        modelBuilder.Entity<Network>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(r => r.Id);
+            e.Property(p => p.Name)
+                .IsRequired();
+            e.Property(p => p.SortOrder)
+                .IsRequired()
+                .HasDefaultValue(0);
+
+            e.HasIndex(p => p.Name)
+                .IsUnique();
         });
     }
 }
