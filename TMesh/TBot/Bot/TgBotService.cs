@@ -55,7 +55,7 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "add_channel",
-                    Description = "Register a Meshtastic private channel (e.g., /add_channel !aabbcc11)"
+                    Description = "Register a Meshtastic private channel"
                 },
                 new BotCommand
                 {
@@ -96,6 +96,11 @@ namespace TBot.Bot
                 {
                     Command = "demote_from_gateway",
                     Description = "Remove a device from MQTT gateway role (e.g., /demote_from_gateway !aabbcc11)"
+                },
+                new BotCommand
+                {
+                    Command = "list_networks",
+                    Description = "List all available networks and their public channels"
                 }
             ]);
         }
@@ -198,7 +203,8 @@ namespace TBot.Bot
 
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
 
-            if (chatStateWithData?.State != ChatState.Default)
+            if (chatStateWithData != null 
+                && chatStateWithData.State != ChatState.Default)
             {
                 var res = await services.GetRequiredService<TgCommandBotService>().ProcessCommandChat(msg, chatStateWithData);
                 if (res.Handled)

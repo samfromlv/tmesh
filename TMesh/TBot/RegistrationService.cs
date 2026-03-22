@@ -260,11 +260,12 @@ namespace TBot
                 return cached;
             }
 
-            var res = await db.PublicChannels
-                 .Where(c => c.IsPrimary)
-                 .DistinctBy(c => c.NetworkId)
+            var res = (await db.PublicChannels
                  .AsNoTracking()
-                 .ToDictionaryAsync(c => c.NetworkId);
+                 .Where(c => c.IsPrimary)
+                 .ToListAsync())
+                 .DistinctBy(c => c.NetworkId)
+                 .ToDictionary(c => c.NetworkId);
 
             memoryCache.Set($"PrimaryPublicChannels", res, DateTimeOffset.UtcNow.AddHours(12));
             return res;

@@ -594,6 +594,16 @@ namespace TBot
             return TryParseChannelKey(key, out _);
         }
 
+        public static string PskKeyToBase64(byte[] key)
+        {
+            if (key.SequenceEqual(Resources.DEFAULT_PSK))
+            {
+                return Convert.ToBase64String(new byte[] { 1 });
+            }
+
+            return Convert.ToBase64String(key);
+        }
+
         public static bool TryParseChannelKey(string key, out byte[] buffer)
         {
             if (string.IsNullOrEmpty(key))

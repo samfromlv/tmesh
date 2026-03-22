@@ -117,7 +117,7 @@ namespace TBot.Bot
                     foreach (var ch in publicChannels.OrderByDescending(x=>x.IsPrimary).ThenBy(x=>x.Name))
                     {
                         var primaryMark = ch.IsPrimary ? " [primary]" : string.Empty;
-                        sb.AppendLine($"  • {ch.Name} Key: {Convert.ToBase64String(ch.Key)} {primaryMark}");
+                        sb.AppendLine($"  • {ch.Name} Key: {MeshtasticService.PskKeyToBase64(ch.Key)} {primaryMark}");
                     }
                 }
             }
@@ -600,7 +600,7 @@ namespace TBot.Bot
                     IsSingleDevice = state.IsSingleDevice
                 });
                 return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey,
-                    Convert.ToBase64String(state.ChannelKey), state.IsSingleDevice, networkId);
+                    MeshtasticService.PskKeyToBase64(state.ChannelKey), state.IsSingleDevice, networkId);
             }
 
             return TgResult.Ok;
@@ -682,7 +682,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, Convert.ToBase64String(state.ChannelKey), isSingleDevice, state.NetworkId);
+            return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, MeshtasticService.PskKeyToBase64(state.ChannelKey), isSingleDevice, state.NetworkId);
         }
 
         private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice, int? networkId = null)

@@ -704,6 +704,11 @@ public class MessageLoopService(
 
     private void ScheduleStatusResolve(IEnumerable<MeshtasticMessageStatus> msgStatuses)
     {
+        if (msgStatuses == null)
+        {
+            return;
+        }
+
         foreach (var msgStatus in msgStatuses)
         {
             var delay = (msgStatus.EstimatedSendDate ?? DateTime.UtcNow)
