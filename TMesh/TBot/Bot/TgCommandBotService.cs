@@ -14,7 +14,6 @@ namespace TBot.Bot
         TelegramBotClient botClient,
         IOptions<TBotOptions> options,
         RegistrationService registrationService,
-        MeshtasticService meshtasticService,
         BotCache botCache,
         ILogger<TgCommandBotService> logger,
         IServiceProvider services)
@@ -34,8 +33,8 @@ namespace TBot.Bot
             }
             if (message.Text?.StartsWith("/add_channel", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var (name, key, mode) = ExtractChannelFromCommand(message.Text, "/add_channel");
-                return await StartAddChannel(userId, chatId, name, key, mode);
+                var (networkId, name, key, mode) = ExtractChannelFromCommand(message.Text, "/add_channel");
+                return await StartAddChannel(userId, chatId, networkId, name, key, mode);
             }
             if (message.Text?.StartsWith("/remove_device", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -67,6 +66,17 @@ namespace TBot.Bot
                 var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/demote_from_gateway");
                 return await StartDemoteFromGateway(userId, chatId, deviceIdFromCommand);
             }
+            if (message.Text?.StartsWith("/cancel", StringComparison.OrdinalIgnoreCase) == true
+                || message.Text?.StartsWith("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Operation canceled.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return TgResult.Ok;
+            }
+            if (message.Text?.StartsWith("/list_networks", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return await ListNetworks(chatId);
+            }
             if (message.Text?.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) == true)
             {
                 var handled = await HandleAdmin(
@@ -81,6 +91,39 @@ namespace TBot.Bot
             }
 
             return TgResult.NotHandled;
+        }
+
+        private async Task<TgResult> ListNetworks(long chatId)
+        {
+            var networks = await registrationService.GetNetworksCached();
+            if (networks.Count == 0)
+            {
+                await botClient.SendMessage(chatId, "No networks configured.");
+                return TgResult.Ok;
+            }
+
+            var sb = new StringBuilder();
+            foreach (var network in networks)
+            {
+                sb.AppendLine($"ID {network.Id} {network.Name}");
+                var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
+                if (publicChannels.Count == 0)
+                {
+                    sb.AppendLine("  No public channels.");
+                }
+                else
+                {
+                    sb.AppendLine("  Public channels:");
+                    foreach (var ch in publicChannels.OrderByDescending(x=>x.IsPrimary).ThenBy(x=>x.Name))
+                    {
+                        var primaryMark = ch.IsPrimary ? " [primary]" : string.Empty;
+                        sb.AppendLine($"  • {ch.Name} Key: {Convert.ToBase64String(ch.Key)} {primaryMark}");
+                    }
+                }
+            }
+
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd());
+            return TgResult.Ok;
         }
 
         private async Task<TgResult> HandleStatus(long chatId, string cmdText)
@@ -506,7 +549,64 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
-        private async Task<TgResult> ProceedNeedChannelName(long userId, long chatId, Message message)
+        private async Task<TgResult> ProceedNeedChannelNetwork(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            var text = message.Text?.Trim();
+            if (!int.TryParse(text, out var networkId))
+            {
+                await botClient.SendMessage(chatId,
+                    "Please reply with the network ID from the list, or /stop to cancel.");
+                return TgResult.Ok;
+            }
+
+            var networks = await registrationService.GetNetworksCached();
+            var network = networks.FirstOrDefault(x => x.Id == networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid network ID. Please reply with a valid network ID from the list, or /stop to cancel.");
+                return TgResult.Ok;
+            }
+
+            // Advance to next step depending on what data we already have
+            if (string.IsNullOrEmpty(state.ChannelName))
+            {
+                await botClient.SendMessage(chatId, $"You have selected network \"{network.Name}\".\r\nPlease send your Meshtastic channel name.");
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedName,
+                    NetworkId = networkId
+                });
+            }
+            else if (state.ChannelKey == null)
+            {
+                await SendNeedChannelKeyTgMsg(chatId);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedKey,
+                    ChannelName = state.ChannelName,
+                    NetworkId = networkId
+                });
+            }
+            else
+            {
+                // Name and key already known (came via command-line), go straight to ProcessChannelForAdd
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedKey, // will be overwritten inside
+                    NetworkId = networkId,
+                    ChannelName = state.ChannelName,
+                    ChannelKey = state.ChannelKey,
+                    IsSingleDevice = state.IsSingleDevice
+                });
+                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey,
+                    Convert.ToBase64String(state.ChannelKey), state.IsSingleDevice, networkId);
+            }
+
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> ProceedNeedChannelName(long userId, long chatId, Message message, ChatStateWithData state)
         {
             if (!string.IsNullOrWhiteSpace(message.Text)
                                 && MeshtasticService.IsValidChannelName(message.Text))
@@ -515,14 +615,15 @@ namespace TBot.Bot
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
                     State = ChatState.AddingChannel_NeedKey,
-                    ChannelName = message.Text
+                    ChannelName = message.Text,
+                    NetworkId = state.NetworkId
                 });
             }
             else
             {
                 await botClient.SendMessage(chatId,
                    $"Invalid channel name format: '{message.Text}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
-                   "Please try again or type /stop to cancell the registration.");
+                   "Please try again or type /stop to cancel the registration.");
             }
             return TgResult.Ok;
         }
@@ -533,15 +634,16 @@ namespace TBot.Bot
                                 && MeshtasticService.TryParseChannelKey(message.Text, out var key))
             {
                 if (string.IsNullOrEmpty(state.ChannelName)
-                    || !MeshtasticService.IsValidChannelName(state.ChannelName))
+                    || !MeshtasticService.IsValidChannelName(state.ChannelName)
+                    || !state.NetworkId.HasValue)
                 {
                     await botClient.SendMessage(chatId,
-                        $"Registration data is corrupted, channel name is missing in chat state. Registration process aborted. Please try again.");
+                        $"Registration data is corrupted, channel name or network is missing in chat state. Registration process aborted. Please try again.");
                     registrationService.SetChatState(userId, chatId, ChatState.Default);
                     return TgResult.Ok;
                 }
 
-                if (meshtasticService.IsPublicChannel(state.ChannelName, key))
+                if (await registrationService.IsPublicChannel(state.NetworkId.Value, state.ChannelName, key))
                 {
                     await botClient.SendMessage(chatId,
                                  $"Adding public, well known channels is not allowed. Registration process aborted. Please try with private channels.");
@@ -549,13 +651,13 @@ namespace TBot.Bot
                     return TgResult.Ok;
                 }
 
-                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text, isSingleDevice: null);
+                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text, isSingleDevice: null, state.NetworkId);
             }
             else
             {
                 await botClient.SendMessage(chatId,
                                 $"Invalid channel key format: '{message.Text}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).\n\n" +
-                                "Please try again or type /stop to cancell the registration.");
+                                "Please try again or type /stop to cancel the registration.");
             }
             return TgResult.Ok;
         }
@@ -580,10 +682,10 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, Convert.ToBase64String(state.ChannelKey), isSingleDevice);
+            return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, Convert.ToBase64String(state.ChannelKey), isSingleDevice, state.NetworkId);
         }
 
-        private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice)
+        private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice, int? networkId = null)
         {
             var dbChannel = await registrationService.FindChannelAsync(channelName, channelKey);
             if (dbChannel != null && await registrationService.HasChannelRegistrationAsync(chatId, dbChannel.Id))
@@ -601,12 +703,13 @@ namespace TBot.Bot
                     State = ChatState.AddingChannel_NeedSingleDevice,
                     ChannelName = channelName,
                     ChannelKey = channelKey,
-                    IsSingleDevice = null
+                    IsSingleDevice = null,
+                    NetworkId = networkId
                 });
 
                 await botClient.SendMessage(chatId,
                     "Is this channel used by a single device only?\n\n" +
-                    "• Reply *single* — Optimized Next-Hop routing will be used (works only for single device channels)\n" +
+                    "• Reply *single* — Optimized routing will be used (works only for single device channels)\n" +
                     "• Reply *multiple* — Standard broadcast routing will be used\n\n" +
                     "Type /stop to cancel.",
                     parseMode: ParseMode.Markdown);
@@ -627,15 +730,18 @@ namespace TBot.Bot
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to channel {channelName}. Please reply with the received code here. The code is valid for 5 minutes.");
 
+            // Use existing channel's networkId if it already exists in DB, otherwise use the one chosen during registration
+            var resolvedNetworkId = dbChannel?.NetworkId ?? networkId!.Value;
+
             var channel = new ChannelKey
             {
-                NetworkId = ?, // You need to provide the appropriate network ID here
+                NetworkId = resolvedNetworkId,
                 ChannelXor = MeshtasticService.GenerateChannelHash(channelName, channelKey),
                 PreSharedKey = channelKey,
-                IsSingleDevice = false
+                IsSingleDevice = isSingleDevice ?? false
             };
 
-            registrationService.SetChatState(userId, chatId, ChatState.AddingDevice_NeedCode);
+            registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedCode);
 
             return new TgResult(new OutgoingTextMessage
             {
@@ -652,10 +758,10 @@ namespace TBot.Bot
             if (device == null)
             {
                 await botClient.SendMessage(chatId,
-                    $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the MQTT node {_options.MeshtasticNodeNameLong} in the Meshtastic network.\r\n" +
-                    $"1. Ensure your primary channel is '{_options.MeshtasticPrimaryChannelName}' and the key is '{_options.MeshtasticPrimaryChannelPskBase64}'.\r\n" +
-                    "2. Make sure 'OK to MQTT' is enabled in LoRa settings on your device.\r\n" +
-                    $"3. Find node {_options.MeshtasticNodeNameLong} (MQTT) in node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds} seconds.\r\n\r\n" +
+                    $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the {_options.MeshtasticNodeNameLong} node in the Meshtastic network.\r\n" +
+                    $"1. Check that you are located in supported city (network) with /list_networks command.\r\n" +
+                    "2. Verify that primary channel on you device is configured correctly (see /list_networks).\r\n" +
+                    $"3. Find node {_options.MeshtasticNodeNameLong} in the node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds / 60} minutes.\r\n\r\n" +
                     "Registration aborted.");
                 registrationService.SetChatState(userId, chatId, ChatState.Default);
                 return TgResult.Ok;
@@ -785,6 +891,7 @@ namespace TBot.Bot
                 case ChatState.AddingDevice_NeedId:
                 case ChatState.AddingDevice_NeedCode:
                     return await ProceedDeviceAdd(userId, chatId, msg, chatStateWithData);
+                case ChatState.AddingChannel_NeedNetwork:
                 case ChatState.AddingChannel_NeedName:
                 case ChatState.AddingChannel_NeedKey:
                 case ChatState.AddingChannel_NeedSingleDevice:
@@ -822,9 +929,13 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            if (chatState.State == ChatState.AddingChannel_NeedName)
+            if (chatState.State == ChatState.AddingChannel_NeedNetwork)
             {
-                return await ProceedNeedChannelName(userId, chatId, message);
+                return await ProceedNeedChannelNetwork(userId, chatId, message, chatState);
+            }
+            else if (chatState.State == ChatState.AddingChannel_NeedName)
+            {
+                return await ProceedNeedChannelName(userId, chatId, message, chatState);
             }
             else if (chatState.State == ChatState.AddingChannel_NeedKey)
             {
@@ -848,57 +959,9 @@ namespace TBot.Bot
 
 
 
-        private async Task<TgResult> StartAddChannel(long userId, long chatId, string channelNameText, string channelKey, string mode = null)
+        private async Task<TgResult> StartAddChannel(long userId, long chatId, string networkIdText, string channelNameText, string channelKey, string mode = null)
         {
-            if (string.IsNullOrWhiteSpace(channelNameText))
-            {
-                // No channel name provided, ask for it
-                await botClient.SendMessage(chatId, "Please send your Meshtastic channel name.");
-                registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedName);
-                return TgResult.Ok;
-            }
-
-            // Channel name provided in command, validate it
-            if (!MeshtasticService.IsValidChannelName(channelNameText))
-            {
-                await botClient.SendMessage(chatId,
-                     $"Invalid channel name format: '{channelNameText}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
-                     "Examples:\n" +
-                     "• /add_channel MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= single\n" +
-                     "• /add_channel MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= multiple\n" +
-                     "Or use /add_channel without parameters and I'll ask for the channel name and key.");
-                return TgResult.Ok;
-            }
-
-            if (string.IsNullOrEmpty(channelKey))
-            {
-                await SendNeedChannelKeyTgMsg(chatId);
-                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
-                {
-                    State = ChatState.AddingChannel_NeedKey,
-                    ChannelName = channelNameText
-                });
-                return TgResult.Ok;
-            }
-
-            if (!MeshtasticService.TryParseChannelKey(channelKey, out var keyBytes))
-            {
-                await botClient.SendMessage(chatId,
-                             $"Invalid channel key format: '{channelKey}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).\n\n" +
-                             "Examples:\n" +
-                             "• /add_channel MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= single\n" +
-                             "Or use /add_channel without parameters and I'll ask for the channel name and key.");
-                return TgResult.Ok;
-            }
-
-            if (meshtasticService.IsPublicChannel(channelNameText, keyBytes))
-            {
-                await botClient.SendMessage(chatId,
-                             $"Adding public, well known channels is not allowed.");
-                return TgResult.Ok;
-            }
-
-            // Parse optional mode argument: single / multiple
+            // Parse optional mode argument early so we can store it in state if network selection is needed
             bool? isSingleDevice = null;
             if (!string.IsNullOrWhiteSpace(mode))
             {
@@ -914,7 +977,108 @@ namespace TBot.Bot
                 }
             }
 
-            return await ProcessChannelForAdd(userId, chatId, channelNameText, keyBytes, channelKey, isSingleDevice);
+            var networks = await registrationService.GetNetworksCached();
+
+            int networkId;
+            if (string.IsNullOrEmpty(networkIdText))
+            {
+                var sb = new StringBuilder("Please select a network by replying with its ID:\n\n");
+                for (int i = 0; i < networks.Count; i++)
+                {
+                    sb.AppendLine($"ID {networks[i].Id} - {networks[i].Name}");
+                }
+                sb.AppendLine("\nType /stop to cancel.");
+
+                // No parameters provided, start interactive registration
+                await botClient.SendMessage(chatId,
+                    sb.ToString());
+                registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedNetwork);
+                return TgResult.Ok;
+            }
+            else
+            {
+                if (!int.TryParse(networkIdText, out networkId))
+                {
+                    await botClient.SendMessage(chatId,
+                        $"Invalid network ID format: '{networkIdText}'. The network ID must be a valid integer.\n\n" +
+                        "Examples:\n" +
+                        "• /add_channel 123 MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= single\n" +
+                        "• /add_channel 123 MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= multiple\n" +
+                        "Or use /add_channel without parameters and I'll ask for the network, channel name and key.");
+                    return TgResult.Ok;
+                }
+
+                if (!networks.Any(x=> x.Id == networkId))
+                {
+                    var sb = new StringBuilder($"Network ID {networkId} not found. Please make sure to provide a valid network ID.\n\n");
+                    sb.AppendLine("Available networks:");
+                    for (int i = 0; i < networks.Count; i++)
+                    {
+                        sb.AppendLine($"ID {networks[i].Id} - {networks[i].Name}");
+                    }
+
+                    sb.AppendLine("Please reply with valid network ID or type /stop to cancel the registration.");
+
+                    await botClient.SendMessage(chatId,
+                        sb.ToString());
+                    return TgResult.Ok;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(channelNameText))
+            {
+                // No channel name provided, ask for it
+                await botClient.SendMessage(chatId, "Please send your Meshtastic channel name.");
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedName,
+                    NetworkId = networkId
+                });
+                return TgResult.Ok;
+            }
+
+            // Channel name provided in command, validate it
+            if (!MeshtasticService.IsValidChannelName(channelNameText))
+            {
+                await botClient.SendMessage(chatId,
+                     $"Invalid channel name format: '{channelNameText}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
+                     "Examples:\n" +
+                     "• /add_channel 123 MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= single\n" +
+                     "• /add_channel 123 MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= multiple\n" +
+                     "Or use /add_channel without parameters and I'll ask for the channel name and key.");
+                return TgResult.Ok;
+            }
+
+            if (string.IsNullOrEmpty(channelKey))
+            {
+                await SendNeedChannelKeyTgMsg(chatId);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedKey,
+                    ChannelName = channelNameText,
+                    NetworkId = networkId
+                });
+                return TgResult.Ok;
+            }
+
+            if (!MeshtasticService.TryParseChannelKey(channelKey, out var keyBytesForSingle))
+            {
+                await botClient.SendMessage(chatId,
+                             $"Invalid channel key format: '{channelKey}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).\n\n" +
+                             "Examples:\n" +
+                             "• /add_channel 123 MyChannel ZGeGFyhk<...>3sUOUGyaHqrvU= single\n" +
+                             "Or use /add_channel without parameters and I'll ask for the channel name and key.");
+                return TgResult.Ok;
+            }
+
+            if (await registrationService.IsPublicChannel(networkId, channelNameText, keyBytesForSingle))
+            {
+                await botClient.SendMessage(chatId,
+                             $"Adding public, well-known channels is not allowed.");
+                return TgResult.Ok;
+            }
+
+            return await ProcessChannelForAdd(userId, chatId, channelNameText, keyBytesForSingle, channelKey, isSingleDevice, networkId);
         }
 
 
@@ -1117,7 +1281,7 @@ namespace TBot.Bot
             return parts.Length > 0 ? parts[0] : null;
         }
 
-        private (string name, string key, string mode) ExtractChannelFromCommand(string commandText, string command)
+        private (string networkId, string name, string key, string mode) ExtractChannelFromCommand(string commandText, string command)
         {
             if (string.IsNullOrWhiteSpace(commandText))
             {
@@ -1145,15 +1309,21 @@ namespace TBot.Bot
             }
             else if (parts.Length == 1)
             {
-                return (parts[0], null, null);
+                return (parts[0], null, null, null);
             }
             else if (parts.Length == 2)
             {
-                return (parts[0], parts[1], null);
+                return (parts[0], parts[1], null, null);
+            }
+            else if (parts.Length == 3)
+            {
+                return (parts[0], parts[1], parts[2], null);
             }
             else
             {
-                return (parts[0], parts[1], parts[2]);
+                // More than 3 parts, treat the rest as mode (to allow spaces in channel name)
+                var mode = string.Join(' ', parts.Skip(3));
+                return (parts[0], parts[1], parts[2], mode);
             }
         }
 

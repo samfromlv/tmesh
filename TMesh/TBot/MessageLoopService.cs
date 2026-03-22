@@ -303,59 +303,27 @@ public class MessageLoopService(
         });
     }
 
-    public async Task FillPrimaryChannels(IServiceScope scope = null)
+    public async Task FillPrimaryChannels(IServiceScope scope)
     {
-        bool scopeCreated = false;
-        try
-        {
-            if (scope == null)
-            {
-                scope = services.CreateScope();
-                scopeCreated = true;
-            }
-            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-            var primaryChannels = await registrationService.GetAllPrimaryChannelsCached();
-            _primaryChannels = new Dictionary<int, PublicChannel>(primaryChannels);
-        }
-        finally
-        {
-            if (scopeCreated && scope != null)
-            {
-                scope.Dispose();
-            }
-        }
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var primaryChannels = await registrationService.GetAllPrimaryChannelsCached();
+        _primaryChannels = new Dictionary<int, PublicChannel>(primaryChannels);
     }
 
-    public async Task FillGatewayIds(IServiceScope scope = null)
+    public async Task FillGatewayIds(IServiceScope scope)
     {
-        bool scopeCreated = false;
-        try
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var registeredGateways = await registrationService.GetGatewaysCached();
+        var ids = new Dictionary<long, int>();
+        foreach (var gw in registeredGateways)
         {
-            if (scope == null)
-            {
-                scope = services.CreateScope();
-                scopeCreated = true;
-            }
-            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-            var registeredGateways = await registrationService.GetGatewaysCached();
-            var ids = new Dictionary<long, int>();
-            foreach (var gw in registeredGateways)
-            {
-                ids.Add(gw.Key, gw.Value.NetworkId);
-            }
-            _gatewayNetworkIds = ids;
-            _registeredGatewayIds = [.. registeredGateways.Keys];
-            _newGatewayIds = [.. registeredGateways.Values
+            ids.Add(gw.Key, gw.Value.NetworkId);
+        }
+        _gatewayNetworkIds = ids;
+        _registeredGatewayIds = [.. registeredGateways.Keys];
+        _newGatewayIds = [.. registeredGateways.Values
                     .Where(x => x.LastSeen == null)
                     .Select(x => x.DeviceId)];
-        }
-        finally
-        {
-            if (scopeCreated && scope != null)
-            {
-                scope.Dispose();
-            }
-        }
     }
 
 
@@ -408,7 +376,7 @@ public class MessageLoopService(
             if (meshtasticService.IsLinkTrace(env))
             {
                 scope ??= services.CreateScope();
-                await SaveLinkTrace(scope, gatewayId, env);
+                await SaveLinkTrace(scope, networkId, gatewayId, env);
                 return;
             }
 
@@ -532,6 +500,7 @@ public class MessageLoopService(
             await SaveLinkTrace(
                 scope: scope,
                 packetId: msg.Id,
+                networkId: msg.NetworkId,
                 gatewayId: gatewayId,
                 deviceId: msg.DeviceId,
                 hopStart: (uint)msg.HopStart,
@@ -545,6 +514,7 @@ public class MessageLoopService(
     private async ValueTask SaveLinkTrace(
       IServiceScope scope,
       long packetId,
+      int networkId,
       long gatewayId,
       long deviceId,
       uint hopStart,
@@ -598,6 +568,7 @@ public class MessageLoopService(
             await analyticsService.RecordLinkTrace(
                 packetId: packetId,
                 fromGatewayId: deviceId,
+                networkId: networkId,
                 toGatewayId: gatewayId,
                 step: step,
                 toLatitude: toDevice.Latitude.Value,
@@ -607,12 +578,13 @@ public class MessageLoopService(
         }
     }
 
-    private async Task SaveLinkTrace(IServiceScope scope, long gatewayId, ServiceEnvelope env)
+    private async Task SaveLinkTrace(IServiceScope scope, int networkId, long gatewayId, ServiceEnvelope env)
     {
         await SaveLinkTrace(
             scope: scope,
             packetId: env.Packet.Id,
             gatewayId: gatewayId,
+            networkId: networkId,
             deviceId: env.Packet.From,
             hopStart: env.Packet.HopStart,
             hopLimit: env.Packet.HopLimit,
@@ -654,17 +626,13 @@ public class MessageLoopService(
                 || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var gatewayId))
                 return;
 
-            if (_gatewayNetworkIds.ContainsKey(gatewayId))
+            if (_gatewayNetworkIds.TryGetValue(gatewayId, out var networkId))
             {
                 //We should not process telemetry messages from known gateways here, as they are already processed in HandleMeshtasticMessage.
                 return;
             }
 
             long deviceId = env.Packet.From;
-            if (!_gatewayNetworkIds.TryGetValue(deviceId, out var networkId))
-            {
-                return;
-            }
 
             var primaryChannel = _primaryChannels.GetValueOrDefault(networkId);
             if (primaryChannel == null)
@@ -684,7 +652,7 @@ public class MessageLoopService(
                 && meshtasticService.TryStoreLinkTraceGatewayNoDup(env.Packet.Id, gatewayId))
             {
                 using var scope = services.CreateScope();
-                await SaveLinkTrace(scope, gatewayId, env);
+                await SaveLinkTrace(scope, networkId, gatewayId, env);
                 return;
             }
         }
@@ -701,15 +669,36 @@ public class MessageLoopService(
             using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
             await botService.ProcessInboundTelegramUpdate(msg.Data);
-            ScheduleStatusResolve(botService.TrackedMessages);
-            if (botService.NetworkGatewayListChanged.Count != 0)
-            {
-                await FillGatewayIds(scope);
-            }
+            await HandleBotResult(scope, botService);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error handling MQTT message");
+        }
+    }
+
+    private async Task HandleBotResult(IServiceScope scope, TgBotService botService)
+    {
+        ScheduleStatusResolve(botService.TrackedMessages);
+
+        bool updateChannelsInMapService = false;
+        if (botService.NetworkPublicChannelsChanged != null
+            && botService.NetworkPublicChannelsChanged.Count != 0)
+        {
+            await FillPrimaryChannels(scope);
+            updateChannelsInMapService = true;
+
+        }
+        if (botService.NetworkGatewayListChanged != null
+            && botService.NetworkGatewayListChanged.Count != 0)
+        {
+            await FillGatewayIds(scope);
+        }
+
+        if (botService.NetworksUpdated
+            || updateChannelsInMapService)
+        {
+            await mapMqttService.FillNetworks(scope);
         }
     }
 

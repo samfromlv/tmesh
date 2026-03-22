@@ -7,7 +7,7 @@ namespace TBot.Bot
         public static readonly TgResult Ok = new() { Handled = true, MeshMessage = null };
         public static readonly TgResult NotHandled = new() { Handled = false, MeshMessage = null };
 
-        private TgResult()
+        public TgResult()
         {
         }
 
@@ -30,10 +30,14 @@ namespace TBot.Bot
             Handled = true;
         }
 
-        public bool Handled { get; private set; }
+        public bool Handled { get; set; }
 
-        public OutgoingTextMessage MeshMessage { get; private set; }
+        public OutgoingTextMessage MeshMessage { get; set; }
 
-        public List<int> NetworkWithUpdatedGateways { get; private set; }
+        public List<int> NetworkWithUpdatedGateways { get; set; }
+
+        public bool NetworksUpdated { get; set; }
+
+        public List<int> NetworkWithUpdatedPublicChannels { get; set; }
     }
 }

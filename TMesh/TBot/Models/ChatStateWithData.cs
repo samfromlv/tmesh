@@ -17,5 +17,7 @@ namespace TBot.Models
         public bool? IsSingleDevice { get; set; }
 
         public long? DeviceId { get; set; }
+
+        public int? NetworkId { get; set; }
     }
 }

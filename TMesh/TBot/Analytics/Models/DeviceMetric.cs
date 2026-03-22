@@ -9,6 +9,8 @@ namespace TBot.Analytics.Models
 {
     public class DeviceMetric
     {
+        public int NetworkId { get; set; }
+
         public uint DeviceId { get; set; }
         public Instant Timestamp { get; set; }
 

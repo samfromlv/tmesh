@@ -932,6 +932,7 @@ namespace TBot
                 .OrderBy(x => x.SortOrder)
                 .ThenBy(x => x.Name)
                 .ToListAsync();
+
             memoryCache.Set($"Networks", networks, TimeSpan.FromHours(12));
             return networks;
         }
@@ -1039,6 +1040,12 @@ namespace TBot
             }
 
             return MqttPasswordDerive.DerivePassword(username, secret);
+        }
+
+        public async Task<bool> IsPublicChannel(int networkId, string channelName, byte[] key)
+        {
+            var networkChannels = await GetPublicChannelsByNetworkAsync(networkId);
+            return networkChannels.Any(c => c.Name == channelName && c.Key.SequenceEqual(key));
         }
     }
 }

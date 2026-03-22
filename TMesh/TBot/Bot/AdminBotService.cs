@@ -166,7 +166,7 @@ namespace TBot.Bot
             var shortName = segments[2];
             var sortOrder = segments.Length >= 4 && int.TryParse(segments[3], out var so) ? so : 0;
 
-            var network = await registrationService.AddNetwork(new Database.Models.Network
+            var network = await registrationService.AddNetwork(new Network
             {
                 Name = name,
                 ShortName = shortName,
@@ -175,7 +175,12 @@ namespace TBot.Bot
             });
 
             await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName})");
-            return TgResult.Ok;
+            return new TgResult
+            {
+                Handled = true,
+                NetworksUpdated = true,
+                NetworkWithUpdatedPublicChannels = new List<int> { network.Id }
+            };
         }
 
         private async Task<TgResult> RemoveNetwork(long chatId, string[] segments)
@@ -198,14 +203,20 @@ namespace TBot.Bot
             if (removed)
             {
                 await botClient.SendMessage(chatId, $"Network [{networkId}] \"{network.Name}\" removed.");
+                return new TgResult
+                {
+                    Handled = true,
+                    NetworksUpdated = true,
+                    NetworkWithUpdatedPublicChannels = new List<int> { network.Id }
+                };
             }
             else
             {
                 await botClient.SendMessage(chatId,
                     $"Cannot remove network [{networkId}] \"{network.Name}\": it still has registered devices, channels, or gateways. Remove them first.");
+                return TgResult.Ok;
             }
 
-            return TgResult.Ok;
         }
 
         private async Task<TgResult> AddPublicChannel(long chatId, string[] segments)
@@ -268,7 +279,11 @@ namespace TBot.Bot
             await botClient.SendMessage(chatId,
                 $"Public channel added: #{ch.Id} \"{ch.Name}\"{primaryMark} → network [{networkId}] \"{network.Name}\"");
 
-            return TgResult.Ok;
+            return new TgResult
+            {
+                Handled = true,
+                NetworkWithUpdatedPublicChannels = new List<int> { networkId }
+            };
         }
 
         private async Task<TgResult> RemovePublicChannel(long chatId, string[] segments)
@@ -297,7 +312,11 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
             }
 
-            return TgResult.Ok;
+            return new TgResult
+            {
+                Handled = true,
+                NetworkWithUpdatedPublicChannels = new List<int> { ch.NetworkId }
+            };
         }
 
         private async Task<TgResult> ShowNodeInfo(long chatId, string[] segments)
@@ -490,7 +509,7 @@ namespace TBot.Bot
             var cmd = noPrefix["public_text".Length..].Trim();
             var networkIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
             var channelNameEndIndex = cmd.IndexOf(' ');
-            
+
             if (channelNameEndIndex == -1)
             {
                 await botClient.SendMessage(chatId, "Usage: public_text <networkId> <channelName> <text>\nPlease specify the network ID, channel name, and announcement text.");
@@ -538,7 +557,7 @@ namespace TBot.Bot
             // Get the public channel by name in the specified network
             var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
             var channel = publicChannels.FirstOrDefault(c => c.Name == channelName);
-            
+
             if (channel == null)
             {
                 await botClient.SendMessage(chatId, $"Channel '{channelName}' is not found in network [{networkId}] \"{network.Name}\".");
@@ -560,7 +579,7 @@ namespace TBot.Bot
         {
             var cmd = noPrefix["public_text_primary".Length..].Trim();
             var networkIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-            
+
             if (string.IsNullOrWhiteSpace(networkIdStr) || !int.TryParse(networkIdStr, out var networkId))
             {
                 await botClient.SendMessage(chatId, "Usage: public_text_primary <networkId> <text>\nPlease specify the network ID.");
@@ -575,7 +594,7 @@ namespace TBot.Bot
             }
 
             var announcement = cmd[(networkIdStr.Length + 1)..].Trim();
-            
+
             if (string.IsNullOrWhiteSpace(announcement))
             {
                 await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
@@ -592,7 +611,7 @@ namespace TBot.Bot
             // Get the primary channel in the specified network
             var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
             var primaryChannel = publicChannels.FirstOrDefault(c => c.IsPrimary);
-            
+
             if (primaryChannel == null)
             {
                 await botClient.SendMessage(chatId, $"No primary channel is configured in network [{networkId}] \"{network.Name}\".");

@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using Meshtastic.Protobufs;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -18,14 +19,18 @@ namespace TBot
         const string ClientId = "TMesh";
 #endif
 
+        const string NetworkShortNameToken = "{{NetworkShortName}}";
+
         public MapMqttService(
             ILogger<MapMqttService> logger,
             IOptions<TBotOptions> options,
-            MqttClientFactory mqttClientFactory)
+            MqttClientFactory mqttClientFactory,
+            IServiceProvider services)
         {
             _logger = logger;
             _options = options.Value;
             _mqttClientFactory = mqttClientFactory;
+            _services = services;
         }
 
         private readonly CancellationTokenSource _connectionCts = new();
@@ -33,6 +38,9 @@ namespace TBot
         private readonly ILogger<MapMqttService> _logger;
         private readonly TBotOptions _options;
         private readonly MqttClientFactory _mqttClientFactory;
+        private readonly IServiceProvider _services;
+
+        private List<(string NetworkShortName, string ChannelName)> _networks;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
 
@@ -52,6 +60,17 @@ namespace TBot
             }
         }
 
+        public async Task FillNetworks(IServiceScope scope)
+        {
+            var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var networks = await regService.GetNetworksCached();
+            var primaryChannels = await regService.GetAllPrimaryChannelsCached();
+            _networks = networks.Select(n =>
+            {
+                var primaryChannel = primaryChannels.GetValueOrDefault(n.Id);
+                return (NetworkShortName: n.ShortName, ChannelName: primaryChannel?.Name);
+            }).ToList();
+        }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
 
@@ -96,6 +115,7 @@ namespace TBot
                     .WithPayload(envelope.ToByteArray())
                     .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build();
+
                 await client.PublishAsync(message);
                 _logger.LogInformation("Published map MQTT message to {topic}", topic);
             }
@@ -187,16 +207,45 @@ namespace TBot
 
                 if (server.AnalyticsDownlinkEnabled)
                 {
-                    var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + _options.MeshtasticPrimaryChannelName + "/#";
+                    var topicFilters = new List<MqttTopicFilter>();
+                    var hasNetworkNameToken = server.EncryptedTopicPrefix.Contains(NetworkShortNameToken);
+                    if (hasNetworkNameToken && (_networks == null || _networks.Count == 0))
+                    {
+                        _logger.LogWarning("MapMqtt [{Server}] has {Token} in topic prefix but no networks found, skipping subscription.",
+                            server.Address, NetworkShortNameToken);
+                        return true; // not a failure condition, just means we won't receive messages until networks are available
+                    }
+                    else if (hasNetworkNameToken)
+                    {
+                        foreach (var (networkShortName, channelName) in _networks)
+                        {
+                            var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
+
+                            topicFilters.Add(new MqttTopicFilter
+                            {
+                                Topic = topic,
+                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                            });
+                        }
+                    }
+                    else
+                    {
+                        foreach (var channelName in _networks.Select(x => x.ChannelName).Distinct())
+                        {
+                            var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
+
+                            topicFilters.Add(new MqttTopicFilter
+                            {
+                                Topic = topic,
+                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                            });
+                        }
+                    }
+
                     await client.SubscribeAsync(new MqttClientSubscribeOptions
                     {
-                        TopicFilters = [new MqttTopicFilter
-                        {
-                            Topic = topic,
-                            QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                        }]
+                        TopicFilters = topicFilters
                     }, ct);
-                    _logger.LogInformation("MapMqtt [{Server}] subscribed to {Topic}", server.Address, topic);
                 }
                 return true;
             }

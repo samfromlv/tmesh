@@ -106,6 +106,7 @@ namespace TBot.Bot
 
             var metrics = new DeviceMetric
             {
+                NetworkId = deviceOrNull.NetworkId,
                 DeviceId = (uint)message.DeviceId,
                 Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow),
                 Latitude = deviceOrNull.Latitude ?? 0,

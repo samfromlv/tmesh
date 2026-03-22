@@ -31,6 +31,8 @@ namespace TBot.Bot
         };
 
         public HashSet<int> NetworkGatewayListChanged { get; private set; }
+        public HashSet<int> NetworkPublicChannelsChanged { get; private set; }
+        public bool NetworksUpdated { get; private set; }
 
         public List<MeshtasticMessageStatus> TrackedMessages => botMeshSender?.TrackedMessages;
 
@@ -255,6 +257,18 @@ namespace TBot.Bot
                 {
                     NetworkGatewayListChanged.Add(networkId);
                 }
+            }
+            if (res.NetworkWithUpdatedPublicChannels != null)
+            {
+                NetworkPublicChannelsChanged ??= [];
+                foreach (var networkId in res.NetworkWithUpdatedPublicChannels)
+                {
+                    NetworkPublicChannelsChanged.Add(networkId);
+                }
+            }
+            if (res.NetworksUpdated)
+            {
+                NetworksUpdated = true;
             }
         }
 
