@@ -244,6 +244,25 @@ namespace TBot.Bot
 
             var isPrimary = segments.Length >= 5 && segments[4].Equals("primary", StringComparison.OrdinalIgnoreCase);
 
+            // Check for duplicates in this network
+            var existingChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
+
+            // Check for case-sensitive name duplicate
+            var nameDuplicate = existingChannels.FirstOrDefault(c => c.Name == channelName && c.Key.SequenceEqual(key));
+            if (nameDuplicate != null)
+            {
+                await botClient.SendMessage(chatId, $"A channel with the name '{channelName}' and key already exists in this network.");
+                return TgResult.Ok;
+            }
+
+            // Check if trying to add a second primary channel
+            if (isPrimary && existingChannels.Any(c => c.IsPrimary))
+            {
+                var primaryChannel = existingChannels.First(c => c.IsPrimary);
+                await botClient.SendMessage(chatId, $"Cannot add a second primary channel. Channel #{primaryChannel.Id} \"{primaryChannel.Name}\" is already marked as primary in this network.");
+                return TgResult.Ok;
+            }
+
             var ch = await registrationService.AddPublicChannelAsync(networkId, channelName, key, isPrimary);
             var primaryMark = isPrimary ? " [primary]" : string.Empty;
             await botClient.SendMessage(chatId,
@@ -330,13 +349,6 @@ namespace TBot.Bot
                     sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId}), Last seen: {lastSeen}");
                 }
                 sb.AppendLine();
-            }
-            sb.AppendLine("Default gateways:");
-            foreach (var id in _options.GatewayNodeIds)
-            {
-                var device = await registrationService.GetDeviceAsync(id);
-                var hexId = MeshtasticService.GetMeshtasticNodeHexId(id);
-                sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId})");
             }
             await botClient.SendMessage(chatId, sb.ToString());
             return TgResult.Ok;
@@ -476,24 +488,45 @@ namespace TBot.Bot
         private async Task<TgResult> PublicText(long chatId, string noPrefix)
         {
             var cmd = noPrefix["public_text".Length..].Trim();
+            var networkIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
             var channelNameEndIndex = cmd.IndexOf(' ');
+            
             if (channelNameEndIndex == -1)
+            {
+                await botClient.SendMessage(chatId, "Usage: public_text <networkId> <channelName> <text>\nPlease specify the network ID, channel name, and announcement text.");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(networkIdStr, out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Invalid network ID. Please specify a valid integer network ID.");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            var remainingCmd = cmd[(networkIdStr.Length + 1)..].Trim();
+            var channelNameEnd = remainingCmd.IndexOf(' ');
+            if (channelNameEnd == -1)
             {
                 await botClient.SendMessage(chatId, "Please specify the channel name and announcement text.");
                 return TgResult.Ok;
             }
-            var channelName = cmd[..channelNameEndIndex].Trim();
-            if (!meshtasticService.IsPublicChannelConfigured(channelName))
-            {
-                await botClient.SendMessage(chatId, $"Channel '{channelName}' is not configured as a public channel.");
-                return TgResult.Ok;
-            }
-            var announcement = cmd[channelNameEndIndex..].Trim();
+
+            var channelName = remainingCmd[..channelNameEnd].Trim();
+            var announcement = remainingCmd[channelNameEnd..].Trim();
+
             if (string.IsNullOrWhiteSpace(announcement))
             {
                 await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
                 return TgResult.Ok;
             }
+
             if (!MeshtasticService.CanSendMessage(announcement))
             {
                 await botClient.SendMessage(
@@ -501,19 +534,48 @@ namespace TBot.Bot
                     $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
                 return TgResult.Ok;
             }
+
+            // Get the public channel by name in the specified network
+            var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
+            var channel = publicChannels.FirstOrDefault(c => c.Name == channelName);
+            
+            if (channel == null)
+            {
+                await botClient.SendMessage(chatId, $"Channel '{channelName}' is not found in network [{networkId}] \"{network.Name}\".");
+                return TgResult.Ok;
+            }
+
             meshtasticService.SendPublicTextMessage(
                 announcement,
                 relayGatewayId: null,
                 hopLimit: int.MaxValue,
-                publicChannelName: channelName);
+                publicChannelName: channelName,
+                recipient: channel);
 
-            await botClient.SendMessage(chatId, $"Announcement sent to {channelName}.");
+            await botClient.SendMessage(chatId, $"Announcement sent to channel '{channelName}' in network [{networkId}] \"{network.Name}\".");
             return TgResult.Ok;
         }
 
         private async Task<TgResult> PublicTextPrimary(long chatId, string noPrefix)
         {
-            var announcement = noPrefix["public_text_primary".Length..].Trim();
+            var cmd = noPrefix["public_text_primary".Length..].Trim();
+            var networkIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            
+            if (string.IsNullOrWhiteSpace(networkIdStr) || !int.TryParse(networkIdStr, out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Usage: public_text_primary <networkId> <text>\nPlease specify the network ID.");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            var announcement = cmd[(networkIdStr.Length + 1)..].Trim();
+            
             if (string.IsNullOrWhiteSpace(announcement))
             {
                 await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
@@ -526,8 +588,25 @@ namespace TBot.Bot
                     $"Announcement is too long to send to a Meshtastic device. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes (English letters: 1 byte, Cyrillic: 2 bytes, emoji: 4 bytes).");
                 return TgResult.Ok;
             }
-            meshtasticService.SendPublicTextMessage(announcement, relayGatewayId: null, hopLimit: int.MaxValue);
-            await botClient.SendMessage(chatId, $"Announcement sent to {_options.MeshtasticPrimaryChannelName}.");
+
+            // Get the primary channel in the specified network
+            var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
+            var primaryChannel = publicChannels.FirstOrDefault(c => c.IsPrimary);
+            
+            if (primaryChannel == null)
+            {
+                await botClient.SendMessage(chatId, $"No primary channel is configured in network [{networkId}] \"{network.Name}\".");
+                return TgResult.Ok;
+            }
+
+            meshtasticService.SendPublicTextMessage(
+                announcement,
+                relayGatewayId: null,
+                hopLimit: int.MaxValue,
+                publicChannelName: primaryChannel.Name,
+                recipient: primaryChannel);
+
+            await botClient.SendMessage(chatId, $"Announcement sent to primary channel in network [{networkId}] \"{network.Name}\".");
             return TgResult.Ok;
         }
 
