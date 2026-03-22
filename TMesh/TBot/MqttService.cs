@@ -138,15 +138,25 @@ namespace TBot
 
                 var filters = new List<MqttTopicFilter>()
                 {
-                     new() {
+                    new() {
                         Topic = _options.MqttTelegramTopic,
                         QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                     },
                     new() {
                         NoLocal = true,
                         Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/#"
-                        }
+                    }
                 };
+
+                if (!string.IsNullOrEmpty(_options.MqttMeshtasticMapTopic))
+                {
+                    filters.Add(new MqttTopicFilter
+                    {
+                        NoLocal = true,
+                        Topic = _options.MqttMeshtasticMapTopic,
+                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                    });
+                }
 
                 await _client.SubscribeAsync(
                     new MqttClientSubscribeOptions
