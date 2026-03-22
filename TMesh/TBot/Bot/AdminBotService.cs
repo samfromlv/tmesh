@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using TBot.Database.Models;
@@ -96,6 +96,10 @@ namespace TBot.Bot
                     {
                         return await AddNetwork(chatId, segments);
                     }
+                case "update_network":
+                    {
+                        return await UpdateNetwork(chatId, segments);
+                    }
                 case "remove_network":
                     {
                         return await RemoveNetwork(chatId, segments);
@@ -155,31 +159,102 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
-            // Usage: add_network <name> <shortname> [sortorder]
+            // Usage: add_network <n> <shortname> [sortorder] [analytics]
             if (segments.Length < 3)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder]\nExample: add_network \"Your city name\" CTY 0");
+                await botClient.SendMessage(chatId, "Usage: add_network <n> <shortname> [sortorder] [analytics]\nExample: add_network \"Your city name\" CTY 0 true");
                 return TgResult.Ok;
             }
 
             var name = segments[1];
             var shortName = segments[2];
             var sortOrder = segments.Length >= 4 && int.TryParse(segments[3], out var so) ? so : 0;
+            var saveAnalytics = segments.Length >= 5 && bool.TryParse(segments[4], out var sa) && sa;
 
             var network = await registrationService.AddNetwork(new Network
             {
                 Name = name,
                 ShortName = shortName,
                 SortOrder = sortOrder,
-                SaveAnalytics = false
+                SaveAnalytics = saveAnalytics
             });
 
-            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName})");
+            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics})");
             return new TgResult
             {
                 Handled = true,
                 NetworksUpdated = true,
                 NetworkWithUpdatedPublicChannels = new List<int> { network.Id }
+            };
+        }
+
+        private async Task<TgResult> UpdateNetwork(long chatId, string[] segments)
+        {
+            // Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>]
+            if (segments.Length < 3)
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>]\n" +
+                    "Example: update_network 1 name=NewName shortname=NN analytics=true\n" +
+                    "At least one field to update must be provided.");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(segments[1], out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Invalid network ID.");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            string newName = null;
+            string newShortName = null;
+            bool? newAnalytics = null;
+
+            foreach (var seg in segments.Skip(2))
+            {
+                var eqIdx = seg.IndexOf('=');
+                if (eqIdx <= 0) continue;
+                var key = seg[..eqIdx].ToLowerInvariant();
+                var value = seg[(eqIdx + 1)..];
+                switch (key)
+                {
+                    case "name":
+                        newName = value;
+                        break;
+                    case "shortname":
+                        newShortName = value;
+                        break;
+                    case "analytics":
+                        if (bool.TryParse(value, out var analytics))
+                            newAnalytics = analytics;
+                        break;
+                }
+            }
+
+            if (newName == null && newShortName == null && newAnalytics == null)
+            {
+                await botClient.SendMessage(chatId,
+                    "No valid fields provided. Use name=<value>, shortname=<value>, or analytics=<true|false>.");
+                return TgResult.Ok;
+            }
+
+            await registrationService.UpdateNetworkAsync(networkId, newName, newShortName, newAnalytics);
+
+            var updated = await registrationService.GetNetwork(networkId);
+            await botClient.SendMessage(chatId,
+                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics})");
+
+            return new TgResult
+            {
+                Handled = true,
+                NetworksUpdated = true
             };
         }
 
@@ -221,11 +296,11 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddPublicChannel(long chatId, string[] segments)
         {
-            // Usage: add_public_channel <networkId> <name> <key_hex> [primary]
+            // Usage: add_public_channel <networkId> <n> <key_hex> [primary]
             if (segments.Length < 4)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: add_public_channel <networkId> <name> <key_hex> [primary]\n" +
+                    "Usage: add_public_channel <networkId> <n> <key_hex> [primary]\n" +
                     "key_base64: channel key as base64 (16 or 32 bytes)\n" +
                     "Example: add_public_channel 1 LongFast AQ== primary");
                 return TgResult.Ok;
@@ -305,7 +380,8 @@ namespace TBot.Bot
             var (found, _) = await registrationService.RemovePublicChannelAsync(channelId);
             if (found)
             {
-                await botClient.SendMessage(chatId, $"Public channel #{channelId} \"{ch.Name}\" removed.");
+                var network = await registrationService.GetNetwork(ch.NetworkId);
+                await botClient.SendMessage(chatId, $"Public channel #{channelId} \"{ch.Name}\" removed from network [{network.Id}] \"{network.Name}\".");
             }
             else
             {

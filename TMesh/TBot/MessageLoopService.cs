@@ -524,6 +524,13 @@ public class MessageLoopService(
         var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
         if (analyticsService != null)
         {
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null || !network.SaveAnalytics)
+            {
+                return;
+            }
+
             if (cachePacketId)
             {
                 meshtasticService.StoreGatewayLinkTraceStepZero(packetId);
@@ -547,7 +554,6 @@ public class MessageLoopService(
                 }
             }
 
-            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             var toDevice = await registrationService.GetDeviceAsync(gatewayId);
 
             if (toDevice == null

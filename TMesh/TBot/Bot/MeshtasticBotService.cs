@@ -97,6 +97,13 @@ namespace TBot.Bot
                 return;
             }
 
+            var network = await registrationService.GetNetwork(message.NetworkId);
+            if (network == null 
+                || !network.SaveAnalytics)
+            {
+                return;
+            }
+
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull?.LocationUpdatedUtc == null)
             {

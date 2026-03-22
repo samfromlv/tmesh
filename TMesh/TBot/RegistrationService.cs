@@ -1048,5 +1048,27 @@ namespace TBot
             var networkChannels = await GetPublicChannelsByNetworkAsync(networkId);
             return networkChannels.Any(c => c.Name == channelName && c.Key.SequenceEqual(key));
         }
+
+        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics)
+        {
+            var entity = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
+            if (entity != null)
+            {
+                if (newName != null)
+                {
+                    entity.Name = newName;
+                }
+                if (newShortName != null)
+                {
+                    entity.ShortName = newShortName;
+                }
+                if (newAnalytics.HasValue)
+                {
+                    entity.SaveAnalytics = newAnalytics.Value;
+                }
+                await db.SaveChangesAsync();
+                memoryCache.Remove($"Networks");
+            }
+        }
     }
 }
