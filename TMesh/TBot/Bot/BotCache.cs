@@ -49,11 +49,12 @@ namespace TBot.Bot
         }
 
         public void StoreTelegramMessageStatus(
+         int networkId,
          long chatId,
          int messageId,
          MeshtasticMessageStatus status)
         {
-            var currentMeshQueueDelay = meshtasticService.EstimateDelay(MessagePriority.Normal);
+            var currentMeshQueueDelay = meshtasticService.EstimateDelay(networkId, MessagePriority.Normal);
 
             var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
             memoryCache.Set(cacheKey, status, currentMeshQueueDelay.Add(TimeSpan.FromMinutes(Math.Max(currentMeshQueueDelay.TotalMinutes * 1.3, 3))));
@@ -86,10 +87,11 @@ namespace TBot.Bot
         }
 
         public void StoreMeshMessageStatus(
-            long meshtasticMessageId, 
+            int networkId,
+            long meshtasticMessageId,
             MeshtasticMessageStatus status)
         {
-            var currentDelay = meshtasticService.EstimateDelay(MessagePriority.Normal);
+            var currentDelay = meshtasticService.EstimateDelay(networkId, MessagePriority.Normal);
             var cacheKey = $"MeshtasticMessageStatus_{meshtasticMessageId}";
             memoryCache.Set(cacheKey, status, currentDelay.Add(TimeSpan.FromMinutes(Math.Max(currentDelay.TotalMinutes * 1.3, 3))));
         }

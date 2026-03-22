@@ -629,6 +629,7 @@ namespace TBot.Bot
 
             var channel = new ChannelKey
             {
+                NetworkId = ?, // You need to provide the appropriate network ID here
                 ChannelXor = MeshtasticService.GenerateChannelHash(channelName, channelKey),
                 PreSharedKey = channelKey,
                 IsSingleDevice = false

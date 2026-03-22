@@ -12,6 +12,8 @@ namespace TBot.Models.MeshMessages
     public abstract class MeshMessage
     {
         public long Id { get; set; }
+
+        public int NetworkId { get; set; }
         public abstract MeshMessageType MessageType { get; }
         public long DeviceId { get; set; }
         public long? ChannelId { get; set; }

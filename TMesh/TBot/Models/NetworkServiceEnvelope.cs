@@ -7,10 +7,10 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public class QueuedMessage
+    public class NetworkServiceEnvelope
     {
-        public ServiceEnvelope Message { get; set; }
+        public ServiceEnvelope Envelope { get; set; }
 
-        public long? RelayThroughGatewayId { get; set; }
+        public int? NetworkId { get; set; }
     }
 }

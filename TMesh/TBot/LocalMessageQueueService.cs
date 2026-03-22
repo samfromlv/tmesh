@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using TBot.Models;
+using TBot.Models.Queue;
 
 namespace TBot
 {
@@ -14,49 +15,58 @@ namespace TBot
         {
             _options = options.Value;
             _delayMs = 60_000 / _options.MeshtasticMaxOutgoingMessagesPerMinute;
+            SingleMessageQueueDelay = TimeSpan.FromMilliseconds(_delayMs);
         }
 
-        public TimeSpan SingleMessageQueueDelay => TimeSpan.FromMilliseconds(_delayMs);
-
+        public TimeSpan SingleMessageQueueDelay { get; private set; }
         private readonly TBotOptions _options;
         private readonly int _delayMs;
-        private DateTime _lastSentTime = DateTime.MinValue;
+        private readonly int _loopDelayMs = 50;
         private Task _processingTask;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
 
-        private readonly ConcurrentQueue<QueuedMessage> _highPriorityQueue = new();
-        private readonly ConcurrentQueue<QueuedMessage> _normalPriorityQueue = new();
-        private readonly ConcurrentQueue<QueuedMessage> _lowPriorityQueue = new();
+        private readonly ConcurrentDictionary<int, PriorityDelayedQueue> _queues = new();
         private readonly SemaphoreSlim _messageSemaphore = new(0);
 
         public event Func<DataEventArgs<QueuedMessage>, Task> SendMessage;
 
         public TimeSpan EnqueueMessage(QueuedMessage message, MessagePriority priority)
         {
-            switch (priority)
-            {
-                case MessagePriority.High:
-                    _highPriorityQueue.Enqueue(message);
-                    break;
-                case MessagePriority.Normal:
-                    _normalPriorityQueue.Enqueue(message);
-                    break;
-                default:
-                    _lowPriorityQueue.Enqueue(message);
-                    break;
-            }
+            _queues.GetOrAdd(message.NetworkId, _ => new PriorityDelayedQueue())
+                .Enqueue(message, priority);
             _messageSemaphore.Release();
-            var delay = EstimateDelay(priority);
+            var delay = EstimateDelay(message.NetworkId, priority);
             return delay;
         }
 
-        private bool TryDequeueMessage(out QueuedMessage message)
+        private DequeueResultWithDelay TryDequeueMessage(out QueuedMessage message)
         {
-            if (_highPriorityQueue.TryDequeue(out message)) return true;
-            if (_normalPriorityQueue.TryDequeue(out message)) return true;
-            if (_lowPriorityQueue.TryDequeue(out message)) return true;
+            var now = DateTime.UtcNow;
+            TimeSpan minDelay = TimeSpan.MaxValue;
+            foreach (var queue in _queues.Values)
+            {
+                var res = queue.TryDequeue(now, SingleMessageQueueDelay, out message);
+                if (res.Result == DequeueResult.Yes)
+                {
+                    return res;
+                }
+                else if (res.Result == DequeueResult.Delay && res.Delay < minDelay)
+                {
+                    minDelay = res.Delay;
+                }
+            }
             message = null;
-            return false;
+            return minDelay != TimeSpan.MaxValue ?
+                new DequeueResultWithDelay
+                {
+                    Result = DequeueResult.Delay,
+                    Delay = minDelay
+                }
+                : new DequeueResultWithDelay
+                {
+                    Result = DequeueResult.No,
+                    Delay = TimeSpan.Zero
+                };
         }
 
         public void Start()
@@ -92,26 +102,21 @@ namespace TBot
             return _processingTask;
         }
 
-        public int QueueSize => _highPriorityQueue.Count + _normalPriorityQueue.Count + _lowPriorityQueue.Count;
+        public int GetQueueLength(int networkId) => _queues.TryGetValue(networkId, out var queue) ? queue.Count : 0;
 
-        public TimeSpan EstimateDelay(MessagePriority priority)
+        public TimeSpan EstimateDelay(int networkId, MessagePriority priority)
         {
-            int queuedCount = 0;
-            switch (priority)
+            var queue = _queues.TryGetValue(networkId, out var q) ? q : null;
+            if (queue == null)
             {
-                case MessagePriority.High:
-                    queuedCount += _highPriorityQueue.Count;
-                    break;
-                case MessagePriority.Normal:
-                    queuedCount += _highPriorityQueue.Count + _normalPriorityQueue.Count;
-                    break;
-                case MessagePriority.Low:
-                    queuedCount += _highPriorityQueue.Count + _normalPriorityQueue.Count + _lowPriorityQueue.Count;
-                    break;
+                return TimeSpan.Zero;
             }
+
+            int queuedCount = queue.CountPriority(priority);
+            var lastDequeueTime = queue.LastDequeueTime;
             var estimatedMs = queuedCount * _delayMs;
-            var elapsedMs = (long)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
-            if (_lastSentTime != DateTime.MinValue && elapsedMs < _delayMs)
+            var elapsedMs = (long)(DateTime.UtcNow - lastDequeueTime).TotalMilliseconds;
+            if (lastDequeueTime != DateTime.MinValue && elapsedMs < _delayMs)
             {
                 estimatedMs += _delayMs - (int)elapsedMs;
             }
@@ -124,25 +129,40 @@ namespace TBot
 
         private async ValueTask<bool> Loop(CancellationToken token)
         {
-            if (!TryDequeueMessage(out var message))
-            {
-                return false; // Semaphore count may exceed actual queued messages in rare races
-            }
+            var result = TryDequeueMessage(out var message);
 
-            // Rate limit: only delay if last send was within the window
-            var elapsedMs = (int)(DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
-            if (_lastSentTime != DateTime.MinValue && elapsedMs < _delayMs)
+            switch (result.Result)
             {
-                var wait = _delayMs - elapsedMs;
-                try { await Task.Delay(wait, token); } catch (OperationCanceledException) { return false; }
+                case DequeueResult.No:
+                    return false; // No messages to process
+                case DequeueResult.Delay:
+                    {
+                        var delayMs = Math.Min((int)result.Delay.TotalMilliseconds, _loopDelayMs);
+                        if (delayMs <= 0)
+                        {
+                            delayMs = 1; // Ensure we don't spin too fast
+                        }
+                        try
+                        {
+                            await Task.Delay(delayMs, token); // Wait before retrying
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return false;
+                        }
+                        return true;
+                    }
+                case DequeueResult.Yes:
+                    {
+                        if (SendMessage != null)
+                        {
+                            await SendMessage(new DataEventArgs<QueuedMessage>(message));
+                        }
+                        return true;
+                    }
+                default:
+                    throw new NotImplementedException($"Unexpected DequeueResult - {result.Result}");
             }
-
-            if (SendMessage != null)
-            {
-                await SendMessage(new DataEventArgs<QueuedMessage>(message));
-                _lastSentTime = DateTime.UtcNow;
-            }
-            return true;
         }
     }
 }

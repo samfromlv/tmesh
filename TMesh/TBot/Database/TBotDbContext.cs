@@ -164,6 +164,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .IsRequired();
 
             e.HasIndex(p => p.NetworkId);
+            e.HasIndex(p => p.IsPrimary);
         }
         );
     }

@@ -41,12 +41,13 @@ namespace TBot.Bot
            int? replyToTelegramMsgId,
            string text)
         {
+            var networkId = recipients.First().NetworkId;
             var status = new MeshtasticMessageStatus
             {
                 TelegramChatId = chatId,
                 TelegramMessageId = tgMessageId,
                 MeshMessages = [],
-                EstimatedSendDate = EstimateSendDelay(recipients.Count())
+                EstimatedSendDate = EstimateSendDelay(recipients.First().NetworkId, recipients.Count())
             };
 
             var messages = new List<(IRecipient recipient, long messageId, DeviceAndGatewayId)>();
@@ -69,11 +70,12 @@ namespace TBot.Bot
                     deviceAndGatewayId = botCache.GetDeviceGateway(recStatus.RecipientId.Value);
                 }
                 status.MeshMessages.Add(newMeshMessageId, recStatus);
-                botCache.StoreMeshMessageStatus(newMeshMessageId, status);
+                botCache.StoreMeshMessageStatus(networkId, newMeshMessageId, status);
                 messages.Add((recipient, newMeshMessageId, deviceAndGatewayId));
             }
 
             StoreTelegramMessageStatus(
+                networkId,
                 chatId,
                 tgMessageId,
                 status,
@@ -105,6 +107,7 @@ namespace TBot.Bot
                     meshtasticService.SendDirectTextMessage(
                             newMeshMessageId,
                             recipient.RecipientDeviceId.Value,
+                            recipient.NetworkId,
                             recipient.RecipientKey,
                             text,
                             replyToMeshMessageId,
@@ -119,11 +122,7 @@ namespace TBot.Bot
                             replyToMeshMessageId,
                             relayGatewayId: deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
-                            new ChannelInternalInfo
-                            {
-                                Psk = recipient.RecipientKey,
-                                Hash = recipient.RecipientChannelXor.Value
-                            });
+                            recipient);
                 }
             }
         }
@@ -273,12 +272,13 @@ namespace TBot.Bot
                 maxCurrentStatus: DeliveryStatus.Queued);
         }
         public void StoreTelegramMessageStatus(
+            int networkId,
             long chatId,
             int messageId,
             MeshtasticMessageStatus status,
             bool trackForStatusResolve = false)
         {
-            botCache.StoreTelegramMessageStatus(chatId, messageId, status);
+            botCache.StoreTelegramMessageStatus(networkId, chatId, messageId, status);
             if (trackForStatusResolve)
             {
                 TrackedMessages.Add(status);
@@ -346,6 +346,7 @@ namespace TBot.Bot
                     meshtasticService.SendDirectTextMessage(
                             newMeshMessageId,
                             recipient.RecipientDeviceId.Value,
+                            recipient.NetworkId,
                             recipient.RecipientKey,
                             emojis,
                             replyToMeshMessageId,
@@ -361,11 +362,7 @@ namespace TBot.Bot
                             replyToMeshMessageId,
                             relayGatewayId: deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
-                            new ChannelInternalInfo
-                            {
-                                Psk = recipient.RecipientKey,
-                                Hash = recipient.RecipientChannelXor.Value
-                            },
+                            recipient,
                             isEmoji: true);
                 }
             }
@@ -373,9 +370,9 @@ namespace TBot.Bot
 
         }
 
-        private DateTime EstimateSendDelay(int messageCount)
+        private DateTime EstimateSendDelay(int networkId, int messageCount)
         {
-            var delay = meshtasticService.EstimateDelay(MessagePriority.Normal);
+            var delay = meshtasticService.EstimateDelay(networkId, MessagePriority.Normal);
             return DateTime.UtcNow
                 .Add(delay)
                 .Add(meshtasticService.SingleMessageQueueDelay * (messageCount - 1));

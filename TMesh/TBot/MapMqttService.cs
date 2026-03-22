@@ -38,7 +38,6 @@ namespace TBot
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
-
         public async Task StartAsync(CancellationToken ct = default)
         {
             if (_options.MapMqttServers == null || _options.MapMqttServers.Length == 0)
@@ -117,7 +116,7 @@ namespace TBot
 
                 client.DisconnectedAsync += async e =>
                 {
-                    if (e.Reason == MqttClientDisconnectReason.AdministrativeAction)
+                    if (_connectionCts.IsCancellationRequested)
                     {
                         return;
                     }

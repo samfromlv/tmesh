@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Org.BouncyCastle.Math.EC.Rfc7748;
 using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
@@ -208,6 +209,7 @@ namespace TBot
                           select new DeviceKey
                           {
                               DeviceId = r.DeviceId,
+                              NetworkId = d.NetworkId,
                               PublicKey = d.PublicKey,
                           }).ToListAsync();
         }
@@ -220,6 +222,7 @@ namespace TBot
                           select new ChannelKey
                           {
                               Id = c.Id,
+                              NetworkId = c.NetworkId,
                               ChannelXor = c.XorHash,
                               PreSharedKey = c.Key,
                               IsSingleDevice = c.IsSingleDevice,
@@ -233,10 +236,43 @@ namespace TBot
                           select new ChannelKey
                           {
                               Id = c.Id,
+                              NetworkId = c.NetworkId,
                               ChannelXor = c.XorHash,
                               PreSharedKey = c.Key,
                               IsSingleDevice = c.IsSingleDevice
                           }).ToListAsync();
+        }
+
+        public async Task<PublicChannel> GetNetworkPrimaryChannelCached(int networkId)
+        {
+            var allPrimary = await GetAllPrimaryChannelsCached();
+            if (allPrimary.TryGetValue(networkId, out var primary))
+            {
+                return primary;
+            }
+            return null;
+        }
+
+        public async Task<Dictionary<int, PublicChannel>> GetAllPrimaryChannelsCached()
+        {
+            if (memoryCache.TryGetValue<Dictionary<int, PublicChannel>>($"PrimaryPublicChannels", out var cached))
+            {
+                return cached;
+            }
+
+            var res = await db.PublicChannels
+                 .Where(c => c.IsPrimary)
+                 .DistinctBy(c => c.NetworkId)
+                 .AsNoTracking()
+                 .ToDictionaryAsync(c => c.NetworkId);
+
+            memoryCache.Set($"PrimaryPublicChannels", res, DateTimeOffset.UtcNow.AddHours(12));
+            return res;
+        }
+
+        public void InvalidatePrimaryChannelsCache()
+        {
+            memoryCache.Remove($"PrimaryPublicChannels");
         }
 
         public Task<List<DeviceKey>> GetDeviceKeysByChatIdCached(long chatId)
@@ -257,13 +293,31 @@ namespace TBot
             });
         }
 
-        public Task<List<ChannelKey>> GetChannelKeysByHashCached(byte hash)
+        public Task<List<ChannelKey>> GetChannelKeysByHashCached(int networkId, byte hash)
         {
             return memoryCache.GetOrCreateAsync($"GetChannelKeysByHash#{hash}", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(3);
                 return await GetChannelKeysByHash(hash);
             });
+        }
+
+        public Task<ILookup<byte, PublicChannel>> GetPublicChannelKeysLookupByHashCached(int networkId)
+        {
+            return memoryCache.GetOrCreateAsync($"GetPublicChannelKeysLookupByHash#{networkId}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12);
+                var keys = await (from c in db.PublicChannels
+                                  where c.NetworkId == networkId
+                                  select c).ToListAsync();
+                return keys.ToLookup(k => k.XorHash);
+            });
+        }
+
+        public async Task<IEnumerable<PublicChannel>> GetPublicChannelKeysByHashCached(int networkId, byte hash)
+        {
+            var lookup = await GetPublicChannelKeysLookupByHashCached(networkId);
+            return lookup[hash];
         }
 
         public void InvalidateDeviceKeysByChatIdCache(long chatId)
@@ -636,8 +690,9 @@ namespace TBot
         }
 
 
-        public async Task<bool> SaveDeviceAsync(
+        public async Task<(bool success, Device device)> SaveDeviceAsync(
             long deviceId,
+            int networkId,
             string nodeName,
             byte[] publicKey)
         {
@@ -653,6 +708,7 @@ namespace TBot
                 entity = new Device
                 {
                     DeviceId = deviceId,
+                    NetworkId = networkId,
                     NodeName = nodeName,
                     PublicKey = publicKey,
                     CreatedUtc = now,
@@ -662,6 +718,7 @@ namespace TBot
             }
             else if (!entity.HasRegistrations)
             {
+                entity.NetworkId = networkId;
                 entity.PublicKey = publicKey;
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
@@ -670,17 +727,18 @@ namespace TBot
                     && entity.PublicKey != null
                     && entity.PublicKey.AsSpan().SequenceEqual(publicKey))
             {
+                entity.NetworkId = networkId;
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
             }
             else
             {
-                return false;
+                return (false, entity);
             }
 
             await db.SaveChangesAsync();
             memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DeviceCacheDuration);
-            return true;
+            return (true, entity);
         }
 
         public async Task<bool> HasDeviceAsync(long deviceId)
@@ -874,7 +932,7 @@ namespace TBot
                 .OrderBy(x => x.SortOrder)
                 .ThenBy(x => x.Name)
                 .ToListAsync();
-            memoryCache.Set($"Networks", networks, TimeSpan.FromMinutes(180));
+            memoryCache.Set($"Networks", networks, TimeSpan.FromHours(12));
             return networks;
         }
 

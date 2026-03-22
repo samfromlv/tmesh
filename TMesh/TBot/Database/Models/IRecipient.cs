@@ -7,6 +7,8 @@
         public byte[] RecipientKey { get; }
         public byte? RecipientChannelXor { get; }
 
+        public int NetworkId { get; }
+
         public bool? IsSingleDeviceChannel { get; }
 
         public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device : RecipientType.Channel;

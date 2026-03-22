@@ -11,7 +11,7 @@ public class TBotOptions
     public bool MqttAllowUntrustedCertificates { get; set; }
     public bool MqttUseTls { get; set; }
     public string MqttMeshtasticTopicPrefix { get; set; }
-    public string MqttMeshtasticMapTopic { get; set; } = null;
+    //public string MqttMeshtasticMapTopic { get; set; } = null;
     public string MqttTelegramTopic { get; set; }
     public string MqttStatusTopic { get; set; }
     public string TelegramApiToken { get; set; } 
@@ -29,9 +29,9 @@ public class TBotOptions
     public string MeshtasticNodeNameLong { get; set; }
     public string AdminPassword { get; set; }
 
-    public string MeshtasticPrimaryChannelName { get; set; }
-    public string MeshtasticPrimaryChannelPskBase64 { get; set; }
-    public ChannelInfo[] MeshtasticSecondayChannels { get; set; }
+    //public string MeshtasticPrimaryChannelName { get; set; }
+    //public string MeshtasticPrimaryChannelPskBase64 { get; set; }
+    //public ChannelInfo[] MeshtasticSecondayChannels { get; set; }
     public string MeshtasticPublicKeyBase64 { get; set; }
     public string MeshtasticPrivateKeyBase64 { get; set; }
 
@@ -39,7 +39,7 @@ public class TBotOptions
 
     public int SentTBotNodeInfoEverySeconds { get; set; }
 
-    public long[] GatewayNodeIds { get; set; }
+    //public long[] GatewayNodeIds { get; set; }
 
     public int DirectGatewayRoutingSeconds { get; set; }
 

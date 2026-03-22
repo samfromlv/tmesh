@@ -11,6 +11,7 @@ using TBot.Bot;
 using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.MeshMessages;
+using TBot.Models.Queue;
 
 namespace TBot;
 
@@ -36,14 +37,17 @@ public class MessageLoopService(
     private BlockingCollection<AckMessage> _ackQueue;
     private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
     private Task _ackWorker;
-    private HashSet<long> _gatewayIds;
+    private Dictionary<long, int> _gatewayNetworkIds;
+    private Dictionary<int, PublicChannel> _primaryChannels;
     private HashSet<long> _registeredGatewayIds;
     private HashSet<long> _newGatewayIds;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _started = DateTime.UtcNow;
-        await FillGatewayIds();
+        using var scope = services.CreateScope();
+        await FillGatewayIds(scope);
+        await FillPrimaryChannels(scope);
         mqttService.TelegramUpdateReceivedAsync += HandleTelegramUpdate;
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
@@ -60,14 +64,19 @@ public class MessageLoopService(
         _ackQueue = new BlockingCollection<AckMessage>();
 #pragma warning restore IDE0028 // Simplify collection initialization
         _ackWorker = AckWorker(_ackQueue);
-        SendVirtualNodeInfo();
-        await PublishStats();
+        await SendVirtualNodeInfo(scope);
+        await PublishStats(scope);
     }
 
-    private void SendVirtualNodeInfo()
+    private async Task SendVirtualNodeInfo(IServiceScope scope)
     {
         _lastVirtualNodeInfoSent = DateTime.UtcNow;
-        meshtasticService.SendVirtualNodeInfo();
+        var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var primaryChannels = await regService.GetAllPrimaryChannelsCached();
+        foreach (var channel in primaryChannels.Values)
+        {
+            meshtasticService.SendVirtualNodeInfo(channel.Name, channel);
+        }
     }
 
     private async Task HandleMessageSent(DataEventArgs<long> args)
@@ -89,18 +98,19 @@ public class MessageLoopService(
     {
         try
         {
+            var scope = services.CreateScope();
             if ((DateTime.UtcNow - _lastVirtualNodeInfoSent).TotalSeconds >= _options.SentTBotNodeInfoEverySeconds)
             {
-                SendVirtualNodeInfo();
+                await SendVirtualNodeInfo(scope);
             }
 
-            await PublishStats();
+            await PublishStats(scope);
 
             if (_options.InactiveGatewayCleanupDays > 0
                 && (DateTime.UtcNow - _lastGatewayCleanup).TotalHours >= GatewayActivityRefreshEveryHours)
             {
                 _lastGatewayCleanup = DateTime.UtcNow;
-                await CheckGatewayActivity();
+                await CheckGatewayActivity(scope);
             }
         }
         catch (Exception ex)
@@ -110,12 +120,11 @@ public class MessageLoopService(
     }
 
 
-    private async Task CheckGatewayActivity()
+    private async Task CheckGatewayActivity(IServiceScope scope)
     {
         try
         {
             var threshold = DateTime.UtcNow.AddDays(-_options.InactiveGatewayCleanupDays);
-            using var scope = services.CreateScope();
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             await RefreshGatewayActivityInDb(registrationService);
 
@@ -129,7 +138,7 @@ public class MessageLoopService(
                 demoted.Count,
                 string.Join(", ", demoted.Select(d => MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId))));
 
-            await FillGatewayIds();
+            await FillGatewayIds(scope);
 
             var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
             foreach (var (deviceId, nodeName) in demoted)
@@ -160,7 +169,7 @@ public class MessageLoopService(
     private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
     {
         var relayThroughGatewayId = arg.Data.RelayThroughGatewayId;
-        if (relayThroughGatewayId.HasValue && !_gatewayIds.Contains(relayThroughGatewayId.Value))
+        if (relayThroughGatewayId.HasValue && !_gatewayNetworkIds.ContainsKey(relayThroughGatewayId.Value))
         {
             relayThroughGatewayId = null;
         }
@@ -168,11 +177,12 @@ public class MessageLoopService(
         meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
 
         return mqttService.PublishMeshtasticMessage(
+            arg.Data.NetworkId,
             arg.Data.Message,
             relayThroughGatewayId);
     }
 
-    private async Task PublishStats()
+    private async Task PublishStats(IServiceScope scope)
     {
         var now = DateTime.UtcNow;
         var min5ago = now.AddMinutes(-5);
@@ -188,7 +198,6 @@ public class MessageLoopService(
             Started = _started
         };
 
-        using var scope = services.CreateScope();
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
         if (analyticsService != null)
@@ -208,8 +217,8 @@ public class MessageLoopService(
 
     private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
     {
-        var stat = new Dictionary<string, DateTime?>(_gatewayIds.Count);
-        foreach (var gwId in _gatewayIds.OrderBy(x => x))
+        var stat = new Dictionary<string, DateTime?>(_gatewayNetworkIds.Count);
+        foreach (var gwId in _gatewayNetworkIds.Keys.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
             {
@@ -294,6 +303,29 @@ public class MessageLoopService(
         });
     }
 
+    public async Task FillPrimaryChannels(IServiceScope scope = null)
+    {
+        bool scopeCreated = false;
+        try
+        {
+            if (scope == null)
+            {
+                scope = services.CreateScope();
+                scopeCreated = true;
+            }
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var primaryChannels = await registrationService.GetAllPrimaryChannelsCached();
+            _primaryChannels = new Dictionary<int, PublicChannel>(primaryChannels);
+        }
+        finally
+        {
+            if (scopeCreated && scope != null)
+            {
+                scope.Dispose();
+            }
+        }
+    }
+
     public async Task FillGatewayIds(IServiceScope scope = null)
     {
         bool scopeCreated = false;
@@ -306,12 +338,12 @@ public class MessageLoopService(
             }
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             var registeredGateways = await registrationService.GetGatewaysCached();
-            var ids = new HashSet<long>(registeredGateways.Keys);
-            foreach (var id in _options.GatewayNodeIds)
+            var ids = new Dictionary<long, int>();
+            foreach (var gw in registeredGateways)
             {
-                ids.Add(id);
+                ids.Add(gw.Key, gw.Value.NetworkId);
             }
-            _gatewayIds = ids;
+            _gatewayNetworkIds = ids;
             _registeredGatewayIds = [.. registeredGateways.Keys];
             _newGatewayIds = [.. registeredGateways.Values
                     .Where(x => x.LastSeen == null)
@@ -327,20 +359,20 @@ public class MessageLoopService(
     }
 
 
-    private async Task HandleMeshtasticMessage(DataEventArgs<ServiceEnvelope> msg)
+    private async Task HandleMeshtasticMessage(DataEventArgs<NetworkServiceEnvelope> msg)
     {
         IServiceScope scope = null;
         try
         {
-            if (msg.Data == null || msg.Data.Packet == null)
+            if (msg.Data == null || msg.Data.Envelope.Packet == null)
             {
                 logger.LogWarning("Received Meshtastic message with null data");
                 return;
             }
 
-            if (!MeshtasticService.TryParseDeviceId(msg.Data.GatewayId, out var gatewayId))
+            if (!MeshtasticService.TryParseDeviceId(msg.Data.Envelope.GatewayId, out var gatewayId))
             {
-                logger.LogWarning("Received Meshtastic message with invalid gateway ID format: {GatewayId}", msg.Data.GatewayId);
+                logger.LogWarning("Received Meshtastic message with invalid gateway ID format: {GatewayId}", msg.Data.Envelope.GatewayId);
                 return;
             }
 
@@ -350,28 +382,37 @@ public class MessageLoopService(
                 return;
             }
 
-            if (!_gatewayIds.Contains(gatewayId))
+            if (!_gatewayNetworkIds.TryGetValue(gatewayId, out var networkId))
             {
                 logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
                 return;
             }
 
-            UpdateGatewayLastSeen(gatewayId);
-
-            if (mapMqttService.UplinkEnabled
-                && meshtasticService.IsUplinkPacket(msg.Data))
+            if (msg.Data.NetworkId == null || msg.Data.NetworkId != networkId)
             {
-                await UplinkToMap(msg.Data);
-            }
-
-            if (meshtasticService.IsLinkTrace(msg.Data))
-            {
-                scope ??= services.CreateScope();
-                await SaveLinkTrace(scope, gatewayId, msg.Data);
+                logger.LogWarning("Received Meshtastic message with invalid network ID {NetworkId} from gateway ID {GatewayId}", msg.Data.NetworkId, gatewayId);
                 return;
             }
 
-            if (!meshtasticService.TryStoreNoDup(msg.Data.Packet.Id))
+
+            var env = msg.Data.Envelope;
+
+            UpdateGatewayLastSeen(gatewayId);
+
+            if (mapMqttService.UplinkEnabled
+                && meshtasticService.IsUplinkPacket(env))
+            {
+                await UplinkToMap(env);
+            }
+
+            if (meshtasticService.IsLinkTrace(env))
+            {
+                scope ??= services.CreateScope();
+                await SaveLinkTrace(scope, gatewayId, env);
+                return;
+            }
+
+            if (!meshtasticService.TryStoreNoDup(env.Packet.Id))
             {
                 meshtasticService.AddStat(new MeshStat
                 {
@@ -380,12 +421,12 @@ public class MessageLoopService(
                 return;
             }
 
-            if (meshtasticService.TryBridge(msg.Data, _gatewayIds))
+            if (meshtasticService.TryBridge(env, _gatewayNetworkIds))
             {
                 return;
             }
 
-            var packetFromTo = MeshtasticService.GetPacketAddresses(msg.Data);
+            var packetFromTo = MeshtasticService.GetPacketAddresses(env);
             Device device = null;
             RegistrationService registrationService = null;
             var recipients = new List<IRecipient>(8);
@@ -403,29 +444,35 @@ public class MessageLoopService(
             {
                 scope ??= services.CreateScope();
                 registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
-                recipients.AddRange(meshtasticService.GetPublicChannelsByHash(packetFromTo.XorHash));
-                var channelRecipients = await registrationService.GetChannelKeysByHashCached(packetFromTo.XorHash);
+                recipients.AddRange(
+                    await registrationService.GetPublicChannelKeysByHashCached(
+                        networkId, packetFromTo.XorHash));
+                var channelRecipients =
+                    await registrationService.GetChannelKeysByHashCached(networkId, packetFromTo.XorHash);
                 recipients.AddRange(channelRecipients);
             }
 
-            var res = meshtasticService.TryDecryptMessage(msg.Data, recipients);
+            var res = meshtasticService.TryDecryptMessage(env, recipients);
+            if (res.msg != null)
+            {
+                res.msg.NetworkId = networkId;
+            }
             if (!res.success)
             {
-                await UplinkToMap(msg.Data);
+                await UplinkToMap(env);
                 return;
             }
 
             if (res.msg.MessageType == MeshMessageType.AckMessage)
             {
-                var ackMessage = (AckMessage)res.msg;
-                EnqueueAckMessage(ackMessage);
+                EnqueueAckMessage((AckMessage)res.msg);
                 return;
             }
 
             scope ??= services.CreateScope();
 
             var t1 = PerhapsSaveLinkTrace(scope, gatewayId, res.msg);
-            var t2 = PerhapsUplinkToMap(msg.Data, res.msg);
+            var t2 = PerhapsUplinkToMap(env, res.msg);
 
             await Task.WhenAll(t1.AsTask(), t2.AsTask());
 
@@ -480,7 +527,7 @@ public class MessageLoopService(
         MeshMessage msg)
     {
         if (msg.MessageType == MeshMessageType.DeviceMetrics
-            && (msg.DeviceId == gatewayId || _gatewayIds.Contains(msg.DeviceId)))
+            && (msg.DeviceId == gatewayId || _gatewayNetworkIds.ContainsKey(msg.DeviceId)))
         {
             await SaveLinkTrace(
                 scope: scope,
@@ -607,19 +654,25 @@ public class MessageLoopService(
                 || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var gatewayId))
                 return;
 
-            if (_gatewayIds.Contains(gatewayId))
+            if (_gatewayNetworkIds.ContainsKey(gatewayId))
             {
                 //We should not process telemetry messages from known gateways here, as they are already processed in HandleMeshtasticMessage.
                 return;
             }
 
             long deviceId = env.Packet.From;
-            if (!_gatewayIds.Contains(deviceId))
+            if (!_gatewayNetworkIds.TryGetValue(deviceId, out var networkId))
             {
                 return;
             }
 
-            var (success, msg) = meshtasticService.TryDecryptMessage(env, [meshtasticService.GetPrimaryChannel()]);
+            var primaryChannel = _primaryChannels.GetValueOrDefault(networkId);
+            if (primaryChannel == null)
+            {
+                return;
+            }
+
+            var (success, msg) = meshtasticService.TryDecryptMessage(env, [primaryChannel]);
 
             if (!success
                 || msg.MessageType != MeshMessageType.DeviceMetrics)
