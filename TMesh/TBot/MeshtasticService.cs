@@ -1,4 +1,5 @@
 ﻿using Google.Protobuf;
+using Meshtastic;
 using Meshtastic.Crypto;
 using Meshtastic.Protobufs;
 using Microsoft.Extensions.Caching.Memory;
@@ -614,6 +615,12 @@ namespace TBot
                 buffer = null;
                 return false;
             }
+            if (bytesWritten == 1 && bufferLong[0] == 1)
+            {
+                buffer = Resources.DEFAULT_PSK;
+                return true;
+            }
+
             if (bytesWritten != PskKeyLength && bytesWritten != PskKeyLengthShort)
             {
                 buffer = null;
