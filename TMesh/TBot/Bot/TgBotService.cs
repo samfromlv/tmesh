@@ -204,7 +204,8 @@ namespace TBot.Bot
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
 
             if (chatStateWithData != null 
-                && chatStateWithData.State != ChatState.Default)
+                && chatStateWithData.State != ChatState.Default
+                && chatStateWithData.State != ChatState.Admin)
             {
                 var res = await services.GetRequiredService<TgCommandBotService>().ProcessCommandChat(msg, chatStateWithData);
                 if (res.Handled)

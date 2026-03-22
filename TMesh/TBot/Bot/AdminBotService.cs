@@ -158,7 +158,7 @@ namespace TBot.Bot
             // Usage: add_network <name> <shortname> [sortorder]
             if (segments.Length < 3)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder]\nExample: add_network \"Saint Petersburg\" spb 10");
+                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder]\nExample: add_network \"Your city name\" CTY 0");
                 return TgResult.Ok;
             }
 
