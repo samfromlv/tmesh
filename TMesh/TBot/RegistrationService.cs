@@ -977,6 +977,57 @@ namespace TBot
             return networks.FirstOrDefault(n => n.Id == value);
         }
 
+        public void InvalidatePublicChannelsCache(int networkId)
+        {
+            memoryCache.Remove($"GetPublicChannelKeysLookupByHash#{networkId}");
+            memoryCache.Remove($"PrimaryPublicChannels");
+        }
+
+        public async Task<PublicChannel> AddPublicChannelAsync(int networkId, string name, byte[] key, bool isPrimary)
+        {
+            var xorHash = MeshtasticService.GenerateChannelHash(name, key);
+            var now = DateTime.UtcNow;
+            var entity = new PublicChannel
+            {
+                NetworkId = networkId,
+                Name = name,
+                Key = key,
+                XorHash = xorHash,
+                IsPrimary = isPrimary,
+                CreatedUtc = now
+            };
+            db.PublicChannels.Add(entity);
+            await db.SaveChangesAsync();
+            InvalidatePublicChannelsCache(networkId);
+            return entity;
+        }
+
+        public async Task<(bool found, int networkId)> RemovePublicChannelAsync(int id)
+        {
+            var entity = await db.PublicChannels.FirstOrDefaultAsync(c => c.Id == id);
+            if (entity == null) return (false, 0);
+            var networkId = entity.NetworkId;
+            db.PublicChannels.Remove(entity);
+            await db.SaveChangesAsync();
+            InvalidatePublicChannelsCache(networkId);
+            return (true, networkId);
+        }
+
+        public async Task<List<PublicChannel>> GetPublicChannelsByNetworkAsync(int networkId)
+        {
+            return await db.PublicChannels
+                .Where(c => c.NetworkId == networkId)
+                .OrderBy(c => c.IsPrimary ? 0 : 1)
+                .ThenBy(c => c.Name)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        public async Task<PublicChannel> GetPublicChannelByIdAsync(int id)
+        {
+            return await db.PublicChannels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+        }
+
         public string DeriveMqttPasswordForDevice(long deviceId)
         {
             var username = MeshtasticService.GetMeshtasticNodeHexId(deviceId);

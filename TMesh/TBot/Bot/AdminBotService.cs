@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
+using TBot.Database.Models;
 using TBot.Models;
 using Telegram.Bot;
 
@@ -87,6 +88,26 @@ namespace TBot.Bot
                     {
                         return await ListGateways(chatId);
                     }
+                case "list_networks":
+                    {
+                        return await ListNetworks(chatId);
+                    }
+                case "add_network":
+                    {
+                        return await AddNetwork(chatId, segments);
+                    }
+                case "remove_network":
+                    {
+                        return await RemoveNetwork(chatId, segments);
+                    }
+                case "add_public_channel":
+                    {
+                        return await AddPublicChannel(chatId, segments);
+                    }
+                case "remove_public_channel":
+                    {
+                        return await RemovePublicChannel(chatId, segments);
+                    }
                 case "nodeinfo":
                     {
                         return await ShowNodeInfo(chatId, segments);
@@ -98,6 +119,166 @@ namespace TBot.Bot
                         return TgResult.Ok;
                     }
             }
+        }
+
+        private async Task<TgResult> ListNetworks(long chatId)
+        {
+            var networks = await registrationService.GetNetworksCached();
+            if (networks.Count == 0)
+            {
+                await botClient.SendMessage(chatId, "No networks configured.");
+                return TgResult.Ok;
+            }
+
+            var sb = new StringBuilder();
+            foreach (var network in networks)
+            {
+                sb.AppendLine($"[{network.Id}] {network.Name} (short: {network.ShortName}, sort: {network.SortOrder}, analytics: {network.SaveAnalytics})");
+                var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
+                if (publicChannels.Count == 0)
+                {
+                    sb.AppendLine("  No public channels.");
+                }
+                else
+                {
+                    foreach (var ch in publicChannels)
+                    {
+                        var primaryMark = ch.IsPrimary ? " [primary]" : string.Empty;
+                        sb.AppendLine($"  • ch#{ch.Id} \"{ch.Name}\"{primaryMark}");
+                    }
+                }
+            }
+
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd());
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> AddNetwork(long chatId, string[] segments)
+        {
+            // Usage: add_network <name> <shortname> [sortorder]
+            if (segments.Length < 3)
+            {
+                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder]\nExample: add_network \"Saint Petersburg\" spb 10");
+                return TgResult.Ok;
+            }
+
+            var name = segments[1];
+            var shortName = segments[2];
+            var sortOrder = segments.Length >= 4 && int.TryParse(segments[3], out var so) ? so : 0;
+
+            var network = await registrationService.AddNetwork(new Database.Models.Network
+            {
+                Name = name,
+                ShortName = shortName,
+                SortOrder = sortOrder,
+                SaveAnalytics = false
+            });
+
+            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName})");
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> RemoveNetwork(long chatId, string[] segments)
+        {
+            // Usage: remove_network <id>
+            if (segments.Length < 2 || !int.TryParse(segments[1], out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Usage: remove_network <id>\nExample: remove_network 2");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            var removed = await registrationService.TryRemoveNetwork(networkId);
+            if (removed)
+            {
+                await botClient.SendMessage(chatId, $"Network [{networkId}] \"{network.Name}\" removed.");
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                    $"Cannot remove network [{networkId}] \"{network.Name}\": it still has registered devices, channels, or gateways. Remove them first.");
+            }
+
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> AddPublicChannel(long chatId, string[] segments)
+        {
+            // Usage: add_public_channel <networkId> <name> <key_hex> [primary]
+            if (segments.Length < 4)
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: add_public_channel <networkId> <name> <key_hex> [primary]\n" +
+                    "key_base64: channel key as base64 (16 or 32 bytes)\n" +
+                    "Example: add_public_channel 1 LongFast AQ== primary");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(segments[1], out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Invalid network ID.");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            var channelName = segments[2];
+            var keyBase64 = segments[3];
+
+            if (!MeshtasticService.TryParseChannelKey(keyBase64, out var key))
+            {
+                await botClient.SendMessage(chatId, $"Invalid key format: '{keyBase64}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).");
+                return TgResult.Ok;
+            }
+
+            var isPrimary = segments.Length >= 5 && segments[4].Equals("primary", StringComparison.OrdinalIgnoreCase);
+
+            var ch = await registrationService.AddPublicChannelAsync(networkId, channelName, key, isPrimary);
+            var primaryMark = isPrimary ? " [primary]" : string.Empty;
+            await botClient.SendMessage(chatId,
+                $"Public channel added: #{ch.Id} \"{ch.Name}\"{primaryMark} → network [{networkId}] \"{network.Name}\"");
+
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> RemovePublicChannel(long chatId, string[] segments)
+        {
+            // Usage: remove_public_channel <id>
+            if (segments.Length < 2 || !int.TryParse(segments[1], out var channelId))
+            {
+                await botClient.SendMessage(chatId, "Usage: remove_public_channel <id>\nExample: remove_public_channel 3");
+                return TgResult.Ok;
+            }
+
+            var ch = await registrationService.GetPublicChannelByIdAsync(channelId);
+            if (ch == null)
+            {
+                await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
+                return TgResult.Ok;
+            }
+
+            var (found, _) = await registrationService.RemovePublicChannelAsync(channelId);
+            if (found)
+            {
+                await botClient.SendMessage(chatId, $"Public channel #{channelId} \"{ch.Name}\" removed.");
+            }
+            else
+            {
+                await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
+            }
+
+            return TgResult.Ok;
         }
 
         private async Task<TgResult> ShowNodeInfo(long chatId, string[] segments)
