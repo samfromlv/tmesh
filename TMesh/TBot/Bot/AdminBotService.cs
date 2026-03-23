@@ -139,7 +139,8 @@ namespace TBot.Bot
             var sb = new StringBuilder();
             foreach (var network in networks)
             {
-                sb.AppendLine($"[{network.Id}] {network.Name} (short: {network.ShortName}, sort: {network.SortOrder}, analytics: {network.SaveAnalytics})");
+                var urlPart = network.Url != null ? $", url: {network.Url}" : string.Empty;
+                sb.AppendLine($"[{network.Id}] {network.Name} (short: {network.ShortName}, sort: {network.SortOrder}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}{urlPart})");
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
@@ -161,10 +162,10 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
-            // Usage: add_network <n> <shortname> [sortorder] [analytics]
+            // Usage: add_network <name> <shortname> [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
             if (segments.Length < 3)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network <n> <shortname> [sortorder] [analytics]\nExample: add_network \"Your city name\" CTY 0 true");
+                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false");
                 return TgResult.Ok;
             }
 
@@ -173,15 +174,38 @@ namespace TBot.Bot
             var sortOrder = segments.Length >= 4 && int.TryParse(segments[3], out var so) ? so : 0;
             var saveAnalytics = segments.Length >= 5 && bool.TryParse(segments[4], out var sa) && sa;
 
+            string url = null;
+            bool disablePongs = false;
+
+            foreach (var seg in segments.Skip(5))
+            {
+                var eqIdx = seg.IndexOf('=');
+                if (eqIdx <= 0) continue;
+                var key = seg[..eqIdx].ToLowerInvariant();
+                var value = seg[(eqIdx + 1)..];
+                switch (key)
+                {
+                    case "url":
+                        url = value;
+                        break;
+                    case "disablepongs":
+                        if (bool.TryParse(value, out var dp))
+                            disablePongs = dp;
+                        break;
+                }
+            }
+
             var network = await registrationService.AddNetwork(new Network
             {
                 Name = name,
                 ShortName = shortName,
                 SortOrder = sortOrder,
-                SaveAnalytics = saveAnalytics
+                SaveAnalytics = saveAnalytics,
+                Url = url,
+                DisablePongs = disablePongs
             });
 
-            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics})");
+            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}, url: {network.Url ?? "—"})");
             return new TgResult
             {
                 Handled = true,
@@ -192,12 +216,13 @@ namespace TBot.Bot
 
         private async Task<TgResult> UpdateNetwork(long chatId, string[] segments)
         {
-            // Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>]
+            // Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>]
             if (segments.Length < 3)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>]\n" +
-                    "Example: update_network 1 name=NewName shortname=NN analytics=true\n" +
+                    "Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>]\n" +
+                    "Example: update_network 1 name=NewName shortname=NN analytics=true url=https://example.com disablepongs=false\n" +
+                    "To clear url, use url=-\n" +
                     "At least one field to update must be provided.");
                 return TgResult.Ok;
             }
@@ -218,6 +243,8 @@ namespace TBot.Bot
             string newName = null;
             string newShortName = null;
             bool? newAnalytics = null;
+            string newUrl = null;
+            bool? newDisablePongs = null;
 
             foreach (var seg in segments.Skip(2))
             {
@@ -237,21 +264,28 @@ namespace TBot.Bot
                         if (bool.TryParse(value, out var analytics))
                             newAnalytics = analytics;
                         break;
+                    case "url":
+                        newUrl = value;
+                        break;
+                    case "disablepongs":
+                        if (bool.TryParse(value, out var dp))
+                            newDisablePongs = dp;
+                        break;
                 }
             }
 
-            if (newName == null && newShortName == null && newAnalytics == null)
+            if (newName == null && newShortName == null && newAnalytics == null && newUrl == null && newDisablePongs == null)
             {
                 await botClient.SendMessage(chatId,
-                    "No valid fields provided. Use name=<value>, shortname=<value>, or analytics=<true|false>.");
+                    "No valid fields provided. Use name=<value>, shortname=<value>, analytics=<true|false>, url=<value>, or disablepongs=<true|false>.");
                 return TgResult.Ok;
             }
 
-            await registrationService.UpdateNetworkAsync(networkId, newName, newShortName, newAnalytics);
+            await registrationService.UpdateNetworkAsync(networkId, newName, newShortName, newAnalytics, newUrl, newDisablePongs);
 
             var updated = await registrationService.GetNetwork(networkId);
             await botClient.SendMessage(chatId,
-                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics})");
+                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics}, disablepongs: {updated.DisablePongs}, url: {updated.Url ?? "—"})");
 
             return new TgResult
             {

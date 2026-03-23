@@ -133,7 +133,7 @@ namespace TBot.Bot
         {
             var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
-            var networks = await registrationService.GetNetworksCached();
+            var networks = await registrationService.GetNetworksLookupCached();
             if (devices.Count == 0
                 && channelRegs.Count == 0)
             {
@@ -162,12 +162,12 @@ namespace TBot.Bot
                 var gatewayIdSet = await registrationService.GetGatewaysCached();
 
                 var lines =
-                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}, Network { networks.FirstOrDefault(x=>x.Id == c.NetworkId)?.Name ?? "Unknown"}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
+                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}, Network { networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown"}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
                         .Concat(
                           devices.Select(d =>
                           {
                               var gatewayTag = gatewayIdSet.ContainsKey(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
-                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag} (Network {networks.FirstOrDefault(x => x.Id == d.NetworkId)?.Name ?? "Unknown"}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
+                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag} (Network {networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown"}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
                           })
                         );
 
@@ -580,8 +580,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var networks = await registrationService.GetNetworksCached();
-            var network = networks.FirstOrDefault(x => x.Id == networkId);
+            var network = await registrationService.GetNetwork(networkId);
             if (network == null)
             {
                 await botClient.SendMessage(chatId,
@@ -1006,7 +1005,7 @@ namespace TBot.Bot
                 var sb = new StringBuilder("Please select a network by replying with its ID:\n\n");
                 for (int i = 0; i < networks.Count; i++)
                 {
-                    sb.AppendLine($"ID {networks[i].Id} - {networks[i].Name}");
+                    sb.AppendLine($"  ID {networks[i].Id} - {networks[i].Name}");
                 }
                 sb.AppendLine();
                 sb.AppendLine($"If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator to add it - {_options.AdminTgContact}.");

@@ -921,6 +921,7 @@ namespace TBot
             db.Networks.Add(network);
             await db.SaveChangesAsync();
             memoryCache.Remove($"Networks");
+            memoryCache.Remove($"NetworksLookup");
             return network;
         }
 
@@ -972,13 +973,28 @@ namespace TBot
             db.Networks.Remove(network);
             await db.SaveChangesAsync();
             memoryCache.Remove($"Networks");
+            memoryCache.Remove($"NetworksLookup");
             return true;
         }
 
-        public async Task<Network> GetNetwork(int value)
+        public async Task<Dictionary<int, Network>> GetNetworksLookupCached()
         {
-            var networks = await GetNetworksCached();
-            return networks.FirstOrDefault(n => n.Id == value);
+            if (memoryCache.TryGetValue<Dictionary<int, Network>>($"NetworksLookup", out var cached))
+            {
+                return cached;
+            }
+
+            var networks = await db.Networks
+                .ToDictionaryAsync(n => n.Id);
+
+            memoryCache.Set($"NetworksLookup", networks, TimeSpan.FromHours(12));
+            return networks;
+        }
+
+        public async Task<Network> GetNetwork(int networkId)
+        {
+            var networks = await GetNetworksLookupCached();
+            return networks.GetValueOrDefault(networkId);
         }
 
         public void InvalidatePublicChannelsCache(int networkId)
@@ -1051,7 +1067,7 @@ namespace TBot
             return networkChannels.Any(c => c.Name == channelName && c.Key.SequenceEqual(key));
         }
 
-        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics)
+        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs)
         {
             var entity = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
             if (entity != null)
@@ -1068,8 +1084,17 @@ namespace TBot
                 {
                     entity.SaveAnalytics = newAnalytics.Value;
                 }
+                if (newUrl != null)
+                {
+                    entity.Url = newUrl == "-" ? null : newUrl;
+                }
+                if (newDisablePongs.HasValue)
+                {
+                    entity.DisablePongs = newDisablePongs.Value;
+                }
                 await db.SaveChangesAsync();
                 memoryCache.Remove($"Networks");
+                memoryCache.Remove($"NetworksLookup");
             }
         }
     }

@@ -127,6 +127,10 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(r => r.Id);
             e.Property(p => p.Name)
                 .IsRequired();
+            e.Property(p => p.Url);
+            e.Property(p => p.DisablePongs)
+                .IsRequired()
+                .HasDefaultValue(false);
             e.Property(p => p.SortOrder)
                 .IsRequired()
                 .HasDefaultValue(0);

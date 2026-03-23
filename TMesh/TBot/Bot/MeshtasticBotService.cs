@@ -98,7 +98,7 @@ namespace TBot.Bot
             }
 
             var network = await registrationService.GetNetwork(message.NetworkId);
-            if (network == null 
+            if (network == null
                 || !network.SaveAnalytics)
             {
                 return;
@@ -212,19 +212,32 @@ namespace TBot.Bot
                 return;
             }
 
-            meshtasticService.SendTextMessage(
-                message.DeviceId,
-                deviceOrNull.NetworkId,
-                deviceOrNull.PublicKey,
-                _options.Texts.PingReply ?? "pong",
-                replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
-                relayGatewayId: message.GatewayId,
-                hopLimit: message.GetSuggestedReplyHopLimit());
+            var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
 
-            meshtasticService.AddStat(new Shared.Models.MeshStat
+            if (!network.DisablePongs)
             {
-                PongSent = 1,
-            });
+                meshtasticService.SendTextMessage(
+                    message.DeviceId,
+                    deviceOrNull.NetworkId,
+                    deviceOrNull.PublicKey,
+                    GetPingReplyText(network),
+                    replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
+                    relayGatewayId: message.GatewayId,
+                    hopLimit: message.GetSuggestedReplyHopLimit());
+
+                meshtasticService.AddStat(new Shared.Models.MeshStat
+                {
+                    PongSent = 1,
+                });
+            }
+        }
+
+        private string GetPingReplyText(Network network)
+        {
+            var reply = network?.Url == null ?
+                _options.Texts.PingReply ?? "pong"
+                : (_options.Texts.PingReplyWithNetworkUrl ?? "pong") + $" {network.Url}";
+            return reply ?? "pong";
         }
 
         private async Task ProcessInboundPrivateChannelMeshTextMessage(TextMessage message, Device deviceOrNull)
@@ -251,9 +264,11 @@ namespace TBot.Bot
             if (cmdText != null &&
                 _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
+                var network = await registrationService.GetNetwork(channel.NetworkId);
+
                 meshtasticService.SendPrivateChannelTextMessage(
                     MeshtasticService.GetNextMeshtasticMessageId(),
-                    _options.Texts.PingReply ?? "pong",
+                    GetPingReplyText(network),
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit(),
@@ -392,11 +407,13 @@ namespace TBot.Bot
             if (cmdText != null &&
                 _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
+                var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
+
                 meshtasticService.SendTextMessage(
                     message.DeviceId,
                     deviceOrNull.NetworkId,
                     deviceOrNull.PublicKey,
-                    _options.Texts.PingReply ?? "pong",
+                    GetPingReplyText(network),
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());

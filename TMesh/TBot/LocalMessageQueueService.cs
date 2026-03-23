@@ -137,11 +137,9 @@ namespace TBot
                     return false; // No messages to process
                 case DequeueResult.Delay:
                     {
-                        var delayMs = Math.Min((int)result.Delay.TotalMilliseconds, _loopDelayMs);
-                        if (delayMs <= 0)
-                        {
-                            delayMs = 1; // Ensure we don't spin too fast
-                        }
+                        var delayMs = 
+                            Math.Min((int)result.Delay.TotalMilliseconds, _loopDelayMs)
+                            + 1/*To prevent 0 delay*/;
                         try
                         {
                             await Task.Delay(delayMs, token); // Wait before retrying

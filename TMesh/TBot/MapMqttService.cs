@@ -217,7 +217,7 @@ namespace TBot
                     }
                     else if (hasNetworkNameToken)
                     {
-                        foreach (var (networkShortName, channelName) in _networks)
+                        foreach (var (networkShortName, channelName) in _networks.Where(x => !string.IsNullOrEmpty(x.NetworkShortName)))
                         {
                             var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
 
