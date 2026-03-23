@@ -19,7 +19,7 @@ namespace TBot.Bot
         IServiceProvider services)
     {
         private readonly TBotOptions _options = options.Value;
-
+        public const string NetworkIdToken = "{{NetworkId}}";
 
         public async Task<TgResult> HandleCommand(
          long userId,
@@ -105,7 +105,7 @@ namespace TBot.Bot
             var sb = new StringBuilder();
             foreach (var network in networks)
             {
-                sb.AppendLine($"ID {network.Id} {network.Name}");
+                sb.AppendLine($"ID {network.Id} - {network.Name}");
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
@@ -122,6 +122,9 @@ namespace TBot.Bot
                 }
             }
 
+            sb.AppendLine();
+            sb.AppendLine($"If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator to add it - {_options.AdminTgContact}.");
+
             await botClient.SendMessage(chatId, sb.ToString().TrimEnd());
             return TgResult.Ok;
         }
@@ -130,6 +133,7 @@ namespace TBot.Bot
         {
             var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
+            var networks = await registrationService.GetNetworksCached();
             if (devices.Count == 0
                 && channelRegs.Count == 0)
             {
@@ -158,12 +162,12 @@ namespace TBot.Bot
                 var gatewayIdSet = await registrationService.GetGatewaysCached();
 
                 var lines =
-                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
+                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}, Network { networks.FirstOrDefault(x=>x.Id == c.NetworkId)?.Name ?? "Unknown"}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
                         .Concat(
                           devices.Select(d =>
                           {
                               var gatewayTag = gatewayIdSet.ContainsKey(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
-                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag}, last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
+                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag} (Network {networks.FirstOrDefault(x => x.Id == d.NetworkId)?.Name ?? "Unknown"}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
                           })
                         );
 
@@ -293,12 +297,28 @@ namespace TBot.Bot
 
             var mqttUsername = hexId;
             var mqttPassword = registrationService.DeriveMqttPasswordForDevice(deviceId);
-            var mqttAddress = _options.PublicMqttAddress ?? _options.MqttAddress;
-            var mqttTopic = _options.PublicMqttTopic ?? _options.MqttMeshtasticTopicPrefix;
+            var mqttAddress = _options.PublicMqttAddress;
+            var mqttTopic = _options.PublicMqttTopic.Replace(NetworkIdToken, MqttService.NetworkSegmentPrefix + device.NetworkId.ToString());
             var flasherAddress = _options.PublicFlasherAddress;
+            StringBuilder instructions = CreateGatewaySetupInstructions(hexId, deviceName, mqttUsername, mqttPassword, mqttAddress, mqttTopic, flasherAddress, _options.MeshtasticNodeNameLong);
 
+            await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
+
+            return new TgResult([device.NetworkId]);
+        }
+
+        public static StringBuilder CreateGatewaySetupInstructions(
+            string hexId, 
+            string deviceName, 
+            string mqttUsername, 
+            string mqttPassword,
+            string mqttAddress,
+            string mqttTopic, 
+            string flasherAddress,
+            string botNodeName)
+        {
             var instructions = new StringBuilder();
-            instructions.AppendLine($"\u2705 Device *{deviceName}* ({hexId}) has been promoted to gateway.");
+            instructions.AppendLine($"\u2705 Device *{deviceName ?? hexId}* ({hexId}) has been promoted to gateway.");
             instructions.AppendLine();
             instructions.AppendLine("\ud83d\udce1 *MQTT Gateway Setup Instructions*");
             instructions.AppendLine();
@@ -315,23 +335,24 @@ namespace TBot.Bot
             }
 
             instructions.AppendLine();
-            instructions.AppendLine($"\u2022 *Server address:* `{mqttAddress}`");
-            instructions.AppendLine($"\u2022 *Username:* `{mqttUsername}`");
-            instructions.AppendLine($"\u2022 *Password:* `{mqttPassword}`");
-            instructions.AppendLine($"\u2022 *Root topic:* `{mqttTopic}`");
-            instructions.AppendLine($"\u2022 *Encryption enabled:* On \u2705");
-            instructions.AppendLine($"\u2022 *JSON output enabled:* Off \u274c");
-            instructions.AppendLine($"\u2022 *TLS enabled:* Off \u274c");
+            instructions.AppendLine($"• *Server address:* `{mqttAddress}`");
+            instructions.AppendLine($"• *Username:* `{mqttUsername}`");
+            instructions.AppendLine($"• *Password:* `{mqttPassword}`");
+            instructions.AppendLine($"• *Root topic:* `{mqttTopic}`");
+            instructions.AppendLine($"• *Encryption enabled:* On \u2705");
+            instructions.AppendLine($"• *JSON output enabled:* Off \u274c");
+            instructions.AppendLine($"• *TLS enabled:* Off \u274c");
+            instructions.AppendLine($"• *Map reporting:* On ✅");
             instructions.AppendLine();
             instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
             instructions.AppendLine();
-            instructions.AppendLine("Please enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
+            instructions.AppendLine("Other settings:");
+            instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {botNodeName} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
+            instructions.AppendLine("• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
+            instructions.AppendLine("• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.");
             instructions.AppendLine();
             instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
-
-            await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
-
-            return new TgResult([device.NetworkId]);
+            return instructions;
         }
 
         private async Task<TgResult> StartDemoteFromGateway(long userId, long chatId, string deviceIdText)
@@ -760,7 +781,7 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId,
                     $"Device {MeshtasticService.GetMeshtasticNodeHexId(deviceId)} has not yet been seen by the {_options.MeshtasticNodeNameLong} node in the Meshtastic network.\r\n" +
                     $"1. Check that you are located in supported city (network) with /list_networks command.\r\n" +
-                    "2. Verify that primary channel on you device is configured correctly (see /list_networks).\r\n" +
+                    "2. Verify that primary channel on you device is configured correctly (see correct channels in /list_networks).\r\n" +
                     $"3. Find node {_options.MeshtasticNodeNameLong} in the node list, open it and click on 'Exchange user information'. {_options.MeshtasticNodeNameLong} broadcasts it's node info every {_options.SentTBotNodeInfoEverySeconds / 60} minutes.\r\n\r\n" +
                     "Registration aborted.");
                 registrationService.SetChatState(userId, chatId, ChatState.Default);
@@ -987,6 +1008,8 @@ namespace TBot.Bot
                 {
                     sb.AppendLine($"ID {networks[i].Id} - {networks[i].Name}");
                 }
+                sb.AppendLine();
+                sb.AppendLine($"If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator to add it - {_options.AdminTgContact}.");
                 sb.AppendLine("\nType /stop to cancel.");
 
                 // No parameters provided, start interactive registration

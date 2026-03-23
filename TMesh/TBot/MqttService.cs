@@ -192,7 +192,7 @@ namespace TBot
             {
                 var networkSegment = topic.AsSpan(
                     _topicPrefixNetworkCharIndex + 1/*Slash*/ + NetworkSegmentPrefix.Length,
-                    slashIndex - _topicPrefixNetworkCharIndex - 1);
+                    slashIndex - _topicPrefixNetworkCharIndex - 1/*Slash*/ - NetworkSegmentPrefix.Length);
                 if (int.TryParse(networkSegment, out int networkId))
                 {
                     return networkId;
@@ -261,7 +261,7 @@ namespace TBot
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();
                     await TelegramUpdateReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
                 }
-                else if (topic.StartsWith(_options.MqttMeshtasticTopicPrefix))
+                else if (topic.StartsWith(_topicPrefixBeforeNetwork))
                 {
                     if (topic.EndsWith(_ownNodeHexId))
                     {

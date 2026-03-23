@@ -343,6 +343,7 @@ namespace TBot
                           select new DeviceName
                           {
                               DeviceId = r.DeviceId,
+                              NetworkId = d.NetworkId,
                               NodeName = d.NodeName,
                               LastNodeInfo = d.UpdatedUtc,
                               LastPositionUpdate = d.LocationUpdatedUtc,
@@ -358,6 +359,7 @@ namespace TBot
                           {
                               Id = c.Id,
                               Name = c.Name,
+                              NetworkId = c.NetworkId,
                               IsSingleDevice = c.IsSingleDevice
                           }).ToListAsync();
         }

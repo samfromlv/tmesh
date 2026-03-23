@@ -59,6 +59,7 @@ public class TBotOptions
     public string PublicMqttAddress { get; set; }
     public string PublicMqttTopic { get; set; }
     public string PublicFlasherAddress { get; set; }
+    public string AdminTgContact { get; set; }
     public int InactiveGatewayCleanupDays { get; set; }
 
     /// <summary>

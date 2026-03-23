@@ -18,7 +18,7 @@ namespace TBot.Bot
         BotCache botCache,
         MeshtasticService meshtasticService)
     {
-        public List<MeshtasticMessageStatus> TrackedMessages { get; }
+        public List<MeshtasticMessageStatus> TrackedMessages { get; private set; }
 
         public Task SendAndTrackMeshtasticMessage(
            IRecipient recipient,
@@ -281,6 +281,7 @@ namespace TBot.Bot
             botCache.StoreTelegramMessageStatus(networkId, chatId, messageId, status);
             if (trackForStatusResolve)
             {
+                TrackedMessages ??= new List<MeshtasticMessageStatus>(); 
                 TrackedMessages.Add(status);
             }
         }

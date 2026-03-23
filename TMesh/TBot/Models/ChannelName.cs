@@ -9,6 +9,7 @@ namespace TBot.Models
     public class ChannelName
     {
         public int Id { get; set; }
+        public int NetworkId { get; set; }
 
         public string Name { get; set; }
 

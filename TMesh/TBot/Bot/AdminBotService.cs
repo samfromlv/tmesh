@@ -1,9 +1,11 @@
+using Linux.Bluetooth;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using TBot.Database.Models;
 using TBot.Models;
 using Telegram.Bot;
+using Telegram.Bot.Types.Enums;
 
 namespace TBot.Bot
 {
@@ -38,7 +40,7 @@ namespace TBot.Bot
                     return TgResult.NotHandled;
                 }
             }
-            else if (chatState == ChatState.Default && segments[0] != "login")
+            else if (chatState != ChatState.Admin && segments[0] != "login")
             {
                 return TgResult.NotHandled;
             }
@@ -297,10 +299,10 @@ namespace TBot.Bot
         private async Task<TgResult> AddPublicChannel(long chatId, string[] segments)
         {
             // Usage: add_public_channel <networkId> <n> <key_hex> [primary]
-            if (segments.Length < 4)
+            if (segments.Length < 5)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: add_public_channel <networkId> <n> <key_hex> [primary]\n" +
+                    "Usage: add_public_channel <networkId> <n> <key_hex> [primary/secondary]\n" +
                     "key_base64: channel key as base64 (16 or 32 bytes)\n" +
                     "Example: add_public_channel 1 LongFast AQ== primary");
                 return TgResult.Ok;
@@ -327,8 +329,16 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, $"Invalid key format: '{keyBase64}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).");
                 return TgResult.Ok;
             }
+            var channelType = segments[4].ToLowerInvariant();
 
-            var isPrimary = segments.Length >= 5 && segments[4].Equals("primary", StringComparison.OrdinalIgnoreCase);
+            if (!channelType.Equals("primary", StringComparison.OrdinalIgnoreCase)
+                && channelType.Equals("secondary", StringComparison.OrdinalIgnoreCase))
+            {
+                await botClient.SendMessage(chatId, $"Invalid channel type: '{segments[4]}'. The channel type must be either 'primary' or 'secondary'.");
+                return TgResult.Ok;
+            }
+
+            var isPrimary = channelType.Equals("primary", StringComparison.OrdinalIgnoreCase);
 
             // Check for duplicates in this network
             var existingChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
@@ -435,13 +445,20 @@ namespace TBot.Bot
             foreach (var network in networks)
             {
                 var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
-                sb.AppendLine($"\"{network.Name}\" network registered gateways:");
-                foreach (var gw in networkGateways)
+                sb.AppendLine($"[{network.Id}] \"{network.Name}\" network registered gateways:");
+                if (networkGateways.Any())
                 {
-                    var device = await registrationService.GetDeviceAsync(gw.DeviceId);
-                    var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
-                    var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "Never";
-                    sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId}), Last seen: {lastSeen}");
+                    foreach (var gw in networkGateways)
+                    {
+                        var device = await registrationService.GetDeviceAsync(gw.DeviceId);
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
+                        var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "Never";
+                        sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId}), Last seen: {lastSeen}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("• No gateways registered");
                 }
                 sb.AppendLine();
             }
@@ -481,7 +498,8 @@ namespace TBot.Bot
             if (string.IsNullOrWhiteSpace(nodeId)
                || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
             {
-                await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #)." +
+                    $"Example: /admin add_gateway <nodeId> <networkId>");
                 return TgResult.Ok;
             }
 
@@ -491,7 +509,8 @@ namespace TBot.Bot
 
             if (networkId == null)
             {
-                await botClient.SendMessage(chatId, $"Invalid or missing network ID. Please specify a valid integer network ID as the third argument.");
+                await botClient.SendMessage(chatId, $"Invalid or missing network ID. Please specify a valid integer network ID as the second argument." +
+                    $"Example: /admin add_gateway <nodeId> <networkId>");
                 return TgResult.Ok;
             }
 
@@ -504,12 +523,52 @@ namespace TBot.Bot
 
             var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
             var device = await registrationService.GetDeviceAsync(parsedNodeId);
+            if (device != null && device.NetworkId != networkId.Value)
+            {
+                await botClient.SendMessage(chatId, $"Device {device.NodeName} is already registered to a different network - {device.NetworkId}.");
+                return TgResult.Ok;
+            }
+
+            var gateways = await registrationService.GetGatewaysCached();
+            var existingGatewayRegistration = gateways.GetValueOrDefault(parsedNodeId);
+            if (existingGatewayRegistration != null && existingGatewayRegistration.NetworkId != networkId)
+            {
+                await botClient.SendMessage(chatId, $"Gateway {device?.NodeName ?? hexId} is already registered in a different network - [{existingGatewayRegistration.NetworkId}].");
+                return TgResult.Ok;
+            }
+
+
             var pwd = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
 
             await registrationService.RegisterGatewayAsync(parsedNodeId, networkId.Value);
-            await botClient.SendMessage(chatId, $"Added gateway {device?.NodeName ?? hexId}.\r\nMQTT username: {hexId}\r\nMQTT password: {pwd}\r\n\r\nPassword only works with TMesh device firmware.");
 
-            return new TgResult([networkId.Value]);
+            var mqttUsername = hexId;
+            var mqttPassword = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
+            var mqttAddress = _options.PublicMqttAddress;
+            var mqttTopic = _options.PublicMqttTopic.Replace(TgCommandBotService.NetworkIdToken, MqttService.NetworkSegmentPrefix + networkId.Value.ToString());
+            var instructions = TgCommandBotService.CreateGatewaySetupInstructions(
+                hexId,
+                device?.NodeName,
+                mqttUsername,
+                mqttPassword,
+                mqttAddress,
+                mqttTopic,
+                _options.PublicFlasherAddress,
+                _options.MeshtasticNodeNameLong);
+
+           
+            if (existingGatewayRegistration != null)
+            {
+                instructions.Insert(0, $"Gateway *{device?.NodeName ?? hexId}* is already registered in this network.\r\n\r\n");
+            }
+
+            await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
+
+            return new TgResult
+            {
+                Handled = true,
+                NetworkWithUpdatedGateways = [networkId.Value]
+            };
         }
 
         private async Task<TgResult> RemoveDevice(long chatId, string[] segments)
