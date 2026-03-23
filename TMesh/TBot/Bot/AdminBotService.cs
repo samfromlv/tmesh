@@ -366,7 +366,7 @@ namespace TBot.Bot
             var channelType = segments[4].ToLowerInvariant();
 
             if (!channelType.Equals("primary", StringComparison.OrdinalIgnoreCase)
-                && channelType.Equals("secondary", StringComparison.OrdinalIgnoreCase))
+                && !channelType.Equals("secondary", StringComparison.OrdinalIgnoreCase))
             {
                 await botClient.SendMessage(chatId, $"Invalid channel type: '{segments[4]}'. The channel type must be either 'primary' or 'secondary'.");
                 return TgResult.Ok;
