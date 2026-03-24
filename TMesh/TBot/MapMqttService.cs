@@ -40,7 +40,7 @@ namespace TBot
         private readonly MqttClientFactory _mqttClientFactory;
         private readonly IServiceProvider _services;
 
-        private List<(string NetworkShortName, string ChannelName)> _networks;
+        private Dictionary<int, (string NetworkShortName, string ChannelName)> _networks;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
 
@@ -68,22 +68,28 @@ namespace TBot
             _networks = networks.Select(n =>
             {
                 var primaryChannel = primaryChannels.GetValueOrDefault(n.Id);
-                return (NetworkShortName: n.ShortName, ChannelName: primaryChannel?.Name);
-            }).ToList();
+                return new
+                {
+                    n.Id,
+                    NetworkShortName = n.ShortName,
+                    ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
+                };
+            }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName));
         }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
 
         public async ValueTask PublishMeshtasticMessage(
+          int networkId,
           ServiceEnvelope envelope)
         {
             foreach (var (client, server) in _clients.Where(x => x.server.UplinkEnabled && x.mqttClient.IsConnected))
             {
-                await PublishToClientAsync(client, server, envelope);
+                await PublishToClientAsync(client, server, networkId, envelope);
             }
         }
 
-        private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, ServiceEnvelope envelope)
+        private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, int networkId, ServiceEnvelope envelope)
         {
             if (!server.UplinkEnabled)
             {
@@ -108,6 +114,15 @@ namespace TBot
                 if (topic == null)
                 {
                     return;
+                }
+
+                if (topic.Contains(NetworkShortNameToken))
+                {
+                    var network = _networks.GetValueOrDefault(networkId);
+                    if (network.NetworkShortName != null)
+                    {
+                        topic = topic.Replace(NetworkShortNameToken, network.NetworkShortName);
+                    }
                 }
 
                 var message = new MqttApplicationMessageBuilder()
@@ -217,7 +232,7 @@ namespace TBot
                     }
                     else if (hasNetworkNameToken)
                     {
-                        foreach (var (networkShortName, channelName) in _networks.Where(x => !string.IsNullOrEmpty(x.NetworkShortName)))
+                        foreach (var (networkShortName, channelName) in _networks.Values.Where(x => !string.IsNullOrEmpty(x.NetworkShortName)))
                         {
                             var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
 
@@ -230,7 +245,7 @@ namespace TBot
                     }
                     else
                     {
-                        foreach (var channelName in _networks.Select(x => x.ChannelName).Distinct())
+                        foreach (var channelName in _networks.Values.Select(x => x.ChannelName).Distinct())
                         {
                             var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
 

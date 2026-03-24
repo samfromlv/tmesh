@@ -370,7 +370,7 @@ public class MessageLoopService(
             if (mapMqttService.UplinkEnabled
                 && meshtasticService.IsUplinkPacket(env))
             {
-                await UplinkToMap(env);
+                await UplinkToMap(networkId, env);
             }
 
             if (meshtasticService.IsLinkTrace(env))
@@ -427,7 +427,7 @@ public class MessageLoopService(
             }
             if (!res.success)
             {
-                await UplinkToMap(env);
+                await UplinkToMap(networkId, env);
                 return;
             }
 
@@ -480,13 +480,13 @@ public class MessageLoopService(
             return;
         }
 
-        await UplinkToMap(data);
+        await UplinkToMap(msg.NetworkId, data);
     }
 
-    private async ValueTask UplinkToMap(ServiceEnvelope data)
+    private async ValueTask UplinkToMap(int networkId, ServiceEnvelope data)
     {
         meshtasticService.MarkUplinkPacket(data.Packet.Id);
-        await mapMqttService.PublishMeshtasticMessage(data);
+        await mapMqttService.PublishMeshtasticMessage(networkId, data);
     }
 
     private async ValueTask PerhapsSaveLinkTrace(
