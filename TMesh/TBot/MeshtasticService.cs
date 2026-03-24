@@ -339,11 +339,11 @@ namespace TBot
 
         private ServiceEnvelope PackAckMessage(
             long deviceId,
-            long messageId, 
+            long messageId,
             int messageHopLimit,
             IRecipient recipient)
         {
-            var packet = CreateAckMessagePacket(deviceId, recipient.RecipientType == RecipientType.Device? recipient.RecipientKey: null, messageId, messageHopLimit);
+            var packet = CreateAckMessagePacket(deviceId, recipient.RecipientType == RecipientType.Device ? recipient.RecipientKey : null, messageId, messageHopLimit);
             if (recipient.RecipientType == RecipientType.Channel)
             {
                 packet = EncryptPacketWithPsk(packet, recipient);
@@ -372,7 +372,7 @@ namespace TBot
         }
 
         private ServiceEnvelope PackNoPublicKeyMessage(
-            long deviceId, 
+            long deviceId,
             long messageId,
             int messageHopLimit,
             IRecipient primaryChannel)
@@ -397,7 +397,7 @@ namespace TBot
             return $"!{deviceId:x8}";
         }
 
-       
+
 
         private MeshPacket CreateTextMessagePacket(
             long newMessageId,
@@ -430,7 +430,7 @@ namespace TBot
                     ReplyId = replyToMessageId.HasValue ? (uint)replyToMessageId.Value : 0,
                     Portnum = PortNum.TextMessageApp,
                     Payload = bytes,
-                    Emoji = isEmoji? 1u: 0u
+                    Emoji = isEmoji ? 1u : 0u
                 },
             };
 
@@ -557,7 +557,7 @@ namespace TBot
                 ErrorReason = Routing.Types.Error.PkiUnknownPubkey
             };
 
-            var hopLimit  = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit);
+            var hopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit);
 
             var packet = new MeshPacket()
             {
@@ -974,7 +974,7 @@ namespace TBot
                 return default;
             }
             if (decodedPki.Portnum == PortNum.UnknownApp)
-            { 
+            {
                 var msg = MeshMessage.FromEnvelope<EncryptedDirectMessage>(envelope, null, null);
                 return (true, msg);
             }

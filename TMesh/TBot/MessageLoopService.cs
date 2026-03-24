@@ -174,7 +174,7 @@ public class MessageLoopService(
             relayThroughGatewayId = null;
         }
 
-        meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
+            meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
 
         return mqttService.PublishMeshtasticMessage(
             arg.Data.NetworkId,
