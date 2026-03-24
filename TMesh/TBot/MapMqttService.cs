@@ -46,13 +46,15 @@ namespace TBot
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
         public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
-        public async Task StartAsync(CancellationToken ct = default)
+        public async Task StartAsync(IServiceScope scope, CancellationToken ct = default)
         {
             if (_options.MapMqttServers == null || _options.MapMqttServers.Length == 0)
             {
                 _logger.LogInformation("MapMqttService: no servers configured, skipping.");
                 return;
             }
+
+            await FillNetworks(scope);
 
             foreach (var server in _options.MapMqttServers.Where(x => x.AnalyticsDownlinkEnabled || x.UplinkEnabled))
             {

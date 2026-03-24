@@ -55,7 +55,7 @@ public class MessageLoopService(
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
         await mqttService.ConnectAsync(linkedCts.Token);
         mapMqttService.MeshtasticMessageReceivedAsync += HandleMapMqttTelemetryAsync;
-        await mapMqttService.StartAsync(cancellationToken);
+        await mapMqttService.StartAsync(scope, cancellationToken);
         localMessageQueueService.SendMessage += LocalMessageQueueService_SendMessage;
         localMessageQueueService.Start();
         StartServiceInfoInfoTimer();
