@@ -145,7 +145,7 @@ namespace TBot.Bot
             {
                 sb.AppendLine();
                 var urlPart = network.Url != null ? $" — {network.Url}" : string.Empty;
-                sb.AppendLine($"*\\[{network.Id}\\] {StringHelper.EscapeMd(network.Name)}* (`{StringHelper.EscapeMd(network.ShortName)}`){StringHelper.EscapeMd(urlPart)}");
+                sb.AppendLine($"*\\[{network.Id}] {StringHelper.EscapeMd(network.Name)}* (`{StringHelper.EscapeMd(network.ShortName)}`){StringHelper.EscapeMd(urlPart)}");
                 sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}`");
 
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);

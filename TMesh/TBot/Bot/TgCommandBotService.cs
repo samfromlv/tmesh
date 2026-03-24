@@ -186,11 +186,11 @@ namespace TBot.Bot
                 if (channelRegs.Count > 0)
                 {
                     sb.AppendLine();
-                    sb.AppendLine("📡 *Channels:*");
+                    sb.AppendLine("*Channels:*");
                     foreach (var c in channelRegs)
                     {
                         var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
-                        var singleTag = c.IsSingleDevice ? " \\[Single Device\\]" : "";
+                        var singleTag = c.IsSingleDevice ? " \\[Single Device]" : "";
                         sb.AppendLine($"• *{StringHelper.EscapeMd(c.Name)}*{singleTag} — ID `{c.Id}`, network: {StringHelper.EscapeMd(networkName)}");
                     }
                 }
@@ -202,7 +202,7 @@ namespace TBot.Bot
                     foreach (var d in devices)
                     {
                         var isGateway = gatewayIdSet.ContainsKey(d.DeviceId);
-                        var gatewayTag = isGateway ? " 📡 \\[Gateway\\]" : "";
+                        var gatewayTag = isGateway ? " 📡 \\[Gateway]" : "";
                         var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId);
                         var positionStr = d.LastPositionUpdate != null
