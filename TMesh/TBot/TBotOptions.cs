@@ -81,4 +81,5 @@ public class MapMqttServerOptions
     public string MapTopic { get; set; }
     public bool UplinkEnabled { get; set; }
     public bool AnalyticsDownlinkEnabled { get; set; }
+    public int? DefaultNetworkId { get; set; }
 }

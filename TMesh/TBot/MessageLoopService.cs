@@ -622,21 +622,24 @@ public class MessageLoopService(
         }
     }
 
-    private async Task HandleMapMqttTelemetryAsync(DataEventArgs<ServiceEnvelope> args)
+    private async Task HandleMapMqttTelemetryAsync(DataEventArgs<NetworkServiceEnvelope> args)
     {
         try
         {
-            var env = args.Data;
+            var env = args.Data.Envelope;
             if (env?.Packet == null
+                || args.Data.NetworkId == null
                 || String.IsNullOrEmpty(env.GatewayId)
                 || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var gatewayId))
                 return;
 
-            if (_gatewayNetworkIds.TryGetValue(gatewayId, out var networkId))
+            if (_gatewayNetworkIds.TryGetValue(gatewayId, out _))
             {
                 //We should not process telemetry messages from known gateways here, as they are already processed in HandleMeshtasticMessage.
                 return;
             }
+
+            var networkId = args.Data.NetworkId.Value;
 
             long deviceId = env.Packet.From;
 

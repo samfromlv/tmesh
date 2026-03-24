@@ -41,11 +41,12 @@ namespace TBot
         private readonly IServiceProvider _services;
 
         private Dictionary<int, (string NetworkShortName, string ChannelName)> _networks;
+        private Dictionary<string, int> _networkByShortName;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
-        public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
+        public event Func<DataEventArgs<NetworkServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
         public async Task StartAsync(IServiceScope scope, CancellationToken ct = default)
         {
             if (_options.MapMqttServers == null || _options.MapMqttServers.Length == 0)
@@ -77,6 +78,11 @@ namespace TBot
                     ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
                 };
             }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName));
+
+            _networkByShortName = _networks
+                .Where(x => !string.IsNullOrEmpty(x.Value.NetworkShortName))
+                .DistinctBy(x => x.Value.NetworkShortName)
+                .ToDictionary(x => x.Value.NetworkShortName, x => x.Key);
         }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
@@ -281,6 +287,8 @@ namespace TBot
                 if (payload.Length == 0)
                     return;
 
+                int? networkId = GetNetworkIdFromTopic(args.ApplicationMessage.Topic, server);
+
                 ServiceEnvelope env;
                 try
                 {
@@ -290,12 +298,37 @@ namespace TBot
                 {
                     return; // not a valid ServiceEnvelope
                 }
-                await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<ServiceEnvelope>(env));
+                await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<NetworkServiceEnvelope>(new NetworkServiceEnvelope
+                {
+                     NetworkId = networkId,
+                     Envelope = env
+                }));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "MapMqtt: error handling packet");
             }
+        }
+
+        private int? GetNetworkIdFromTopic(string topic, MapMqttServerOptions server)
+        {
+            var networkNameTokenIndex = server.EncryptedTopicPrefix.IndexOf(NetworkShortNameToken);
+            if (networkNameTokenIndex < 0)
+                return server.DefaultNetworkId;
+
+
+            var nextSlashIndex = topic.IndexOf('/', networkNameTokenIndex);
+            if (nextSlashIndex < 0)
+                return server.DefaultNetworkId;
+
+
+            var networkShortName = topic.Substring(networkNameTokenIndex, nextSlashIndex - networkNameTokenIndex);
+            if (string.IsNullOrEmpty(networkShortName))
+            {
+                return server.DefaultNetworkId;
+            }
+            var networkId = _networkByShortName.GetValueOrDefault(networkShortName);
+            return networkId != 0 ? networkId : server.DefaultNetworkId;
         }
 
         public async ValueTask DisposeAsync()
