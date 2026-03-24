@@ -12,6 +12,8 @@ namespace TBot.Models.MeshMessages
     public abstract class MeshMessage
     {
         public long Id { get; set; }
+
+        public int NetworkId { get; set; }
         public abstract MeshMessageType MessageType { get; }
         public long DeviceId { get; set; }
         public long? ChannelId { get; set; }
@@ -38,7 +40,7 @@ namespace TBot.Models.MeshMessages
             {
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
-                ChannelId = recipient?.RecipientChannelId,
+                ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,
                 GatewayId = MeshtasticService.PraseDeviceHexId(env.GatewayId),
                 NeedAck = env.Packet.WantAck

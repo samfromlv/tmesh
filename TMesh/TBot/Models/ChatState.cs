@@ -11,6 +11,7 @@ namespace TBot.Models
         Default,
         AddingDevice_NeedId,
         AddingDevice_NeedCode,
+        AddingChannel_NeedNetwork,
         AddingChannel_NeedName,
         AddingChannel_NeedKey,
         AddingChannel_NeedSingleDevice,

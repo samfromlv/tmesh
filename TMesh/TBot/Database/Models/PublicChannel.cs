@@ -1,17 +1,17 @@
 namespace TBot.Database.Models;
 
-public class Channel: IRecipient
+public class PublicChannel: IRecipient
 {
     // Primary key
     public int Id { get; set; }
     public int NetworkId { get; set; }
-
     public string Name { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public byte[] Key { get; set; }
     public byte XorHash { get; set; }
+
+    public bool IsPrimary { get; set; }
     public System.DateTime CreatedUtc { get; set; }
-    public bool IsSingleDevice { get; set; }
 
     long? IRecipient.RecipientDeviceId => null;
 
@@ -19,7 +19,7 @@ public class Channel: IRecipient
 
     byte? IRecipient.RecipientChannelXor => XorHash;
 
-    long? IRecipient.RecipientPrivateChannelId => Id;
+    long? IRecipient.RecipientPrivateChannelId => null;
 
-    bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
+    bool? IRecipient.IsSingleDeviceChannel => null;
 }

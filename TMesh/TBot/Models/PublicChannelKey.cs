@@ -7,12 +7,12 @@ using TBot.Database.Models;
 
 namespace TBot.Models
 {
-    public class ChannelKey : IRecipient
+    public class PublicChannelKey : IRecipient
     {
         public long Id { get; set; }
+        public byte ChannelXor { get; set; }
 
         public int NetworkId { get; set; }
-        public byte ChannelXor { get; set; }
         public byte[] PreSharedKey { get; set; }
         public bool IsSingleDevice { get; set; }
 
@@ -22,7 +22,7 @@ namespace TBot.Models
 
         byte? IRecipient.RecipientChannelXor => ChannelXor;
 
-        long? IRecipient.RecipientPrivateChannelId => Id;
+        long? IRecipient.RecipientPrivateChannelId => null;
 
         bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
     }

@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using Meshtastic.Protobufs;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -18,14 +19,18 @@ namespace TBot
         const string ClientId = "TMesh";
 #endif
 
+        const string NetworkShortNameToken = "{{NetworkShortName}}";
+
         public MapMqttService(
             ILogger<MapMqttService> logger,
             IOptions<TBotOptions> options,
-            MqttClientFactory mqttClientFactory)
+            MqttClientFactory mqttClientFactory,
+            IServiceProvider services)
         {
             _logger = logger;
             _options = options.Value;
             _mqttClientFactory = mqttClientFactory;
+            _services = services;
         }
 
         private readonly CancellationTokenSource _connectionCts = new();
@@ -33,13 +38,16 @@ namespace TBot
         private readonly ILogger<MapMqttService> _logger;
         private readonly TBotOptions _options;
         private readonly MqttClientFactory _mqttClientFactory;
+        private readonly IServiceProvider _services;
+
+        private Dictionary<int, (string NetworkShortName, string ChannelName)> _networks;
+        private Dictionary<string, int> _networkByShortName;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
-        public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
-
-        public async Task StartAsync(CancellationToken ct = default)
+        public event Func<DataEventArgs<NetworkServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
+        public async Task StartAsync(IServiceScope scope, CancellationToken ct = default)
         {
             if (_options.MapMqttServers == null || _options.MapMqttServers.Length == 0)
             {
@@ -47,25 +55,49 @@ namespace TBot
                 return;
             }
 
+            await FillNetworks(scope);
+
             foreach (var server in _options.MapMqttServers.Where(x => x.AnalyticsDownlinkEnabled || x.UplinkEnabled))
             {
                 await ConnectServerAsync(server, ct);
             }
         }
 
+        public async Task FillNetworks(IServiceScope scope)
+        {
+            var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var networks = await regService.GetNetworksCached();
+            var primaryChannels = await regService.GetAllPrimaryChannelsCached();
+            _networks = networks.Select(n =>
+            {
+                var primaryChannel = primaryChannels.GetValueOrDefault(n.Id);
+                return new
+                {
+                    n.Id,
+                    NetworkShortName = n.ShortName,
+                    ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
+                };
+            }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName));
+
+            _networkByShortName = _networks
+                .Where(x => !string.IsNullOrEmpty(x.Value.NetworkShortName))
+                .DistinctBy(x => x.Value.NetworkShortName)
+                .ToDictionary(x => x.Value.NetworkShortName, x => x.Key);
+        }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
 
         public async ValueTask PublishMeshtasticMessage(
+          int networkId,
           ServiceEnvelope envelope)
         {
             foreach (var (client, server) in _clients.Where(x => x.server.UplinkEnabled && x.mqttClient.IsConnected))
             {
-                await PublishToClientAsync(client, server, envelope);
+                await PublishToClientAsync(client, server, networkId, envelope);
             }
         }
 
-        private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, ServiceEnvelope envelope)
+        private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, int networkId, ServiceEnvelope envelope)
         {
             if (!server.UplinkEnabled)
             {
@@ -92,11 +124,21 @@ namespace TBot
                     return;
                 }
 
+                if (topic.Contains(NetworkShortNameToken))
+                {
+                    var network = _networks.GetValueOrDefault(networkId);
+                    if (network.NetworkShortName != null)
+                    {
+                        topic = topic.Replace(NetworkShortNameToken, network.NetworkShortName);
+                    }
+                }
+
                 var message = new MqttApplicationMessageBuilder()
                     .WithTopic(topic)
                     .WithPayload(envelope.ToByteArray())
                     .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build();
+
                 await client.PublishAsync(message);
                 _logger.LogInformation("Published map MQTT message to {topic}", topic);
             }
@@ -117,7 +159,7 @@ namespace TBot
 
                 client.DisconnectedAsync += async e =>
                 {
-                    if (e.Reason == MqttClientDisconnectReason.AdministrativeAction)
+                    if (_connectionCts.IsCancellationRequested)
                     {
                         return;
                     }
@@ -188,16 +230,45 @@ namespace TBot
 
                 if (server.AnalyticsDownlinkEnabled)
                 {
-                    var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + _options.MeshtasticPrimaryChannelName + "/#";
+                    var topicFilters = new List<MqttTopicFilter>();
+                    var hasNetworkNameToken = server.EncryptedTopicPrefix.Contains(NetworkShortNameToken);
+                    if (hasNetworkNameToken && (_networks == null || _networks.Count == 0))
+                    {
+                        _logger.LogWarning("MapMqtt [{Server}] has {Token} in topic prefix but no networks found, skipping subscription.",
+                            server.Address, NetworkShortNameToken);
+                        return true; // not a failure condition, just means we won't receive messages until networks are available
+                    }
+                    else if (hasNetworkNameToken)
+                    {
+                        foreach (var (networkShortName, channelName) in _networks.Values.Where(x => !string.IsNullOrEmpty(x.NetworkShortName)))
+                        {
+                            var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
+
+                            topicFilters.Add(new MqttTopicFilter
+                            {
+                                Topic = topic,
+                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                            });
+                        }
+                    }
+                    else
+                    {
+                        foreach (var channelName in _networks.Values.Select(x => x.ChannelName).Distinct())
+                        {
+                            var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
+
+                            topicFilters.Add(new MqttTopicFilter
+                            {
+                                Topic = topic,
+                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                            });
+                        }
+                    }
+
                     await client.SubscribeAsync(new MqttClientSubscribeOptions
                     {
-                        TopicFilters = [new MqttTopicFilter
-                        {
-                            Topic = topic,
-                            QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                        }]
+                        TopicFilters = topicFilters
                     }, ct);
-                    _logger.LogInformation("MapMqtt [{Server}] subscribed to {Topic}", server.Address, topic);
                 }
                 return true;
             }
@@ -216,6 +287,8 @@ namespace TBot
                 if (payload.Length == 0)
                     return;
 
+                int? networkId = GetNetworkIdFromTopic(args.ApplicationMessage.Topic, server);
+
                 ServiceEnvelope env;
                 try
                 {
@@ -225,12 +298,37 @@ namespace TBot
                 {
                     return; // not a valid ServiceEnvelope
                 }
-                await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<ServiceEnvelope>(env));
+                await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<NetworkServiceEnvelope>(new NetworkServiceEnvelope
+                {
+                     NetworkId = networkId,
+                     Envelope = env
+                }));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "MapMqtt: error handling packet");
             }
+        }
+
+        private int? GetNetworkIdFromTopic(string topic, MapMqttServerOptions server)
+        {
+            var networkNameTokenIndex = server.EncryptedTopicPrefix.IndexOf(NetworkShortNameToken);
+            if (networkNameTokenIndex < 0)
+                return server.DefaultNetworkId;
+
+
+            var nextSlashIndex = topic.IndexOf('/', networkNameTokenIndex);
+            if (nextSlashIndex < 0)
+                return server.DefaultNetworkId;
+
+
+            var networkShortName = topic.Substring(networkNameTokenIndex, nextSlashIndex - networkNameTokenIndex);
+            if (string.IsNullOrEmpty(networkShortName))
+            {
+                return server.DefaultNetworkId;
+            }
+            var networkId = _networkByShortName.GetValueOrDefault(networkShortName);
+            return networkId != 0 ? networkId : server.DefaultNetworkId;
         }
 
         public async ValueTask DisposeAsync()

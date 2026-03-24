@@ -28,6 +28,7 @@ namespace TBot.Analytics
         }
 
         public async Task RecordLinkTrace(
+            int networkId,
             long packetId,
             long fromGatewayId,
             long toGatewayId,
@@ -41,6 +42,7 @@ namespace TBot.Analytics
             var localNow = tz.ConvertFromUtcToDefaultTimezone(now);
             db.Traces.Add(new LinkTrace
             {
+                NetworkId = networkId,
                 PacketId = (uint)packetId,
                 FromGatewayId = (uint)fromGatewayId,
                 ToGatewayId = (uint)toGatewayId,

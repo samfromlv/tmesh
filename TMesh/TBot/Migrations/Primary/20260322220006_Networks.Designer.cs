@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TBot.Database;
 
@@ -10,9 +11,11 @@ using TBot.Database;
 namespace TBot.Migrations.Primary
 {
     [DbContext(typeof(TBotDbContext))]
-    partial class TBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260322220006_Networks")]
+    partial class Networks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
@@ -198,11 +201,6 @@ namespace TBot.Migrations.Primary
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("DisablePongs")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(false);
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -218,9 +216,6 @@ namespace TBot.Migrations.Primary
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(0);
-
-                    b.Property<string>("Url")
-                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

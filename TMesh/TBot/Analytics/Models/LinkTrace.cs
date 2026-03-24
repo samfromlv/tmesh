@@ -9,6 +9,7 @@ namespace TBot.Analytics.Models
 {
     public class LinkTrace
     {
+        public int NetworkId { get; set; }
         public long Id { get; set; }
         public uint PacketId { get; set; }
         public uint FromGatewayId { get; set; }

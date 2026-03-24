@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Packets;
 using Shared.Models;
+using System.Text;
 using System.Text.Json;
 using TBot.Models;
 
@@ -19,6 +20,8 @@ namespace TBot
         const string ClientId = "TBot";
 #endif
 
+        public const string NetworkSegmentPrefix = "N";
+
 
         public MqttService(
             ILogger<MqttService> logger,
@@ -28,7 +31,17 @@ namespace TBot
             _logger = logger;
             _options = options.Value;
             _mqttClientFactory = mqttClientFactory;
-            SetMeshtasticTopic();
+            _ownNodeHexId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+            _topicPrefixNetworkCharIndex = _options.MqttMeshtasticTopicPrefix.IndexOf("/+/");
+            if (_topicPrefixNetworkCharIndex == -1)
+            {
+                throw new InvalidOperationException("Invalid MQTT Meshtastic topic prefix. Network segment is missing /+/");
+            }
+
+            _topicPrefixBeforeNetwork = _options.MqttMeshtasticTopicPrefix.Substring(0, _topicPrefixNetworkCharIndex + 1/*Slash*/);
+            _topicPrefixAfterNetwork = _options.MqttMeshtasticTopicPrefix
+                .Substring(_topicPrefixNetworkCharIndex + 3 - 1/*Slash*/).TrimEnd('/');
+
         }
 
         private readonly ILogger<MqttService> _logger;
@@ -37,24 +50,15 @@ namespace TBot
         private readonly MqttClientFactory _mqttClientFactory;
         private IMqttClient _client;
         private readonly SemaphoreSlim _connectLock = new(1, 1);
-        private string _ourGatewayMeshtasicTopic;
-        private string _directGatewayPrefix;
+        private readonly string _ownNodeHexId;
+        private readonly int _topicPrefixNetworkCharIndex;
+        private readonly string _topicPrefixBeforeNetwork;
+        private readonly string _topicPrefixAfterNetwork;
 
         public event Func<DataEventArgs<string>, Task> TelegramUpdateReceivedAsync;
-        public event Func<DataEventArgs<ServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
+        public event Func<DataEventArgs<NetworkServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
         public event Func<DataEventArgs<long>, Task> MessageSent;
 
-        private void SetMeshtasticTopic()
-        {
-            _ourGatewayMeshtasicTopic = string.Concat(
-                _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
-                "/PKI/",
-                MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId));
-
-            _directGatewayPrefix = string.Concat(
-                _options.MqttMeshtasticTopicPrefix.TrimEnd('/'),
-                "/PKI/");
-        }
 
         public async Task ConnectAsync(CancellationToken ct = default)
         {
@@ -81,7 +85,7 @@ namespace TBot
                 _client.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
                 _client.DisconnectedAsync += async e =>
                 {
-                    if (e.Reason == MqttClientDisconnectReason.AdministrativeAction)
+                    if (_connectionCts.IsCancellationRequested)
                     {
                         return; // don't attempt reconnect if we intentionally disconnected
                     }
@@ -134,39 +138,15 @@ namespace TBot
 
                 var filters = new List<MqttTopicFilter>()
                 {
-                     new() {
+                    new() {
                         Topic = _options.MqttTelegramTopic,
                         QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
                     },
                     new() {
                         NoLocal = true,
-                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/" + MeshtasticService.PKIChannelName + "/#",
-                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                    },
-                    new() {
-                        NoLocal = true,
-                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/" + MeshtasticService.UnknownChannelName + "/#",
-                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                    },
-                    new() {
-                        NoLocal = true,
-                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') +'/' + _options.MeshtasticPrimaryChannelName + "/#",
-                        QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                        Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + "/#"
                     }
                 };
-
-                if (_options.MeshtasticSecondayChannels != null)
-                {
-                    foreach (var item in _options.MeshtasticSecondayChannels)
-                    {
-                        filters.Add(new MqttTopicFilter
-                        {
-                            NoLocal = true,
-                            Topic = _options.MqttMeshtasticTopicPrefix.TrimEnd('/') + '/' + item.Name + "/#",
-                            QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                        });
-                    }
-                }
 
                 if (!string.IsNullOrEmpty(_options.MqttMeshtasticMapTopic))
                 {
@@ -182,7 +162,8 @@ namespace TBot
                     new MqttClientSubscribeOptions
                     {
                         TopicFilters = filters
-                    }, ct);
+                    },
+                    ct);
 
                 _logger.LogInformation("Subscribed to mqtt topics");
                 return true;
@@ -196,22 +177,53 @@ namespace TBot
             {
                 _connectLock.Release();
             }
+        }
 
+        private int? GetNetworkIdFromTopic(string topic)
+        {
+            if (topic.Length <= _topicPrefixNetworkCharIndex)
+            {
+                return null;
+            }
+
+            var slashIndex = topic.IndexOf('/', _topicPrefixNetworkCharIndex + 1);
+
+            if (slashIndex > _topicPrefixNetworkCharIndex)
+            {
+                var networkSegment = topic.AsSpan(
+                    _topicPrefixNetworkCharIndex + 1/*Slash*/ + NetworkSegmentPrefix.Length,
+                    slashIndex - _topicPrefixNetworkCharIndex - 1/*Slash*/ - NetworkSegmentPrefix.Length);
+                if (int.TryParse(networkSegment, out int networkId))
+                {
+                    return networkId;
+                }
+            }
+            return null;
         }
 
 
-
         public async Task PublishMeshtasticMessage(
+            int networkId,
             ServiceEnvelope envelope,
             long? relayThroughGatewayId)
         {
-            var topic = relayThroughGatewayId == null
-                ? _ourGatewayMeshtasicTopic
-                : string.Concat(_directGatewayPrefix,
-                    MeshtasticService.GetMeshtasticNodeHexId(relayThroughGatewayId.Value));
+            var topic = new StringBuilder(_topicPrefixBeforeNetwork);
+            topic.Append(NetworkSegmentPrefix);
+            topic.Append(networkId);
+            topic.Append(_topicPrefixAfterNetwork);
+            topic.Append("/PKI/");
+
+            if (relayThroughGatewayId == null)
+            {
+                topic.Append(_ownNodeHexId);
+            }
+            else
+            {
+                topic.Append(MeshtasticService.GetMeshtasticNodeHexId(relayThroughGatewayId.Value));
+            }
 
             var message = new MqttApplicationMessageBuilder()
-                .WithTopic(topic)
+                .WithTopic(topic.ToString())
                 .WithPayload(envelope.ToByteArray())
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build();
@@ -249,11 +261,18 @@ namespace TBot
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();
                     await TelegramUpdateReceivedAsync?.Invoke(new DataEventArgs<string>(payload));
                 }
-                else if (topic.StartsWith(_options.MqttMeshtasticTopicPrefix))
+                else if (topic.StartsWith(_topicPrefixBeforeNetwork))
                 {
-                    if (topic == _ourGatewayMeshtasicTopic)
+                    if (topic.EndsWith(_ownNodeHexId))
                     {
                         _logger.LogDebug("Ignoring Meshtastic message sent by ourselves");
+                        return;
+                    }
+
+                    var networkId = GetNetworkIdFromTopic(topic);
+                    if (networkId == null)
+                    {
+                        _logger.LogInformation("Received Meshtastic message on unknown network: {Topic}", topic);
                         return;
                     }
 
@@ -274,7 +293,11 @@ namespace TBot
                         return;
                     }
 
-                    await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<ServiceEnvelope>(env));
+                    await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<NetworkServiceEnvelope>(new NetworkServiceEnvelope
+                    {
+                        Envelope = env,
+                        NetworkId = networkId
+                    }));
                 }
                 else
                 {

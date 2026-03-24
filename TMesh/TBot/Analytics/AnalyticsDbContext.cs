@@ -14,6 +14,7 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
         {
             e.HasKey(r => new { r.DeviceId, r.Timestamp });
             e.Property(r => r.DeviceId).IsRequired();
+            e.Property(r => r.NetworkId).IsRequired().HasDefaultValue(1);
             e.Property(r => r.Timestamp).IsRequired();
             e.Property(r => r.Latitude);
             e.Property(r => r.Longitude);
@@ -23,6 +24,10 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.AirUtil);
 
             e.HasIndex(r => r.Timestamp);
+            e.HasIndex(r => new { 
+                r.NetworkId,
+                r.Timestamp,
+            });
         });
 
         modelBuilder.Entity<LinkTrace>(e =>
@@ -30,6 +35,7 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.HasKey(r => r.Id);
             e.Property(r => r.Id)
                 .ValueGeneratedOnAdd();
+            e.Property(r => r.NetworkId).IsRequired().HasDefaultValue(1);
             e.Property(r => r.PacketId).IsRequired();
             e.Property(r => r.FromGatewayId).IsRequired();
             e.Property(r => r.ToGatewayId).IsRequired();
@@ -40,7 +46,7 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.ToLongitude).IsRequired();
             e.Property(r => r.FromLatitude).IsRequired();
             e.Property(r => r.FromLongitude).IsRequired();
-            e.HasIndex(r => r.RecDate)
+            e.HasIndex(r => new { r.NetworkId, r.RecDate })
                 .IncludeProperties(r => new
                 {
                     r.PacketId,

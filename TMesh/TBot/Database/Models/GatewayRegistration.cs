@@ -9,6 +9,7 @@ namespace TBot.Database.Models
     public class GatewayRegistration
     {
         public long DeviceId { get; set; }
+        public int NetworkId { get; set; }
         public System.DateTime CreatedUtc { get; set; }
         public System.DateTime UpdatedUtc { get; set; }
         public System.DateTime? LastSeenUtc { get; set; }

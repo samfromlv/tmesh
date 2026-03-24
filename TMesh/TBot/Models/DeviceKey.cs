@@ -10,6 +10,7 @@ namespace TBot.Models
     public class DeviceKey: IRecipient
     {
         public long DeviceId { get; set; }
+        public int NetworkId { get; set; }
         public byte[] PublicKey { get; set; }
 
         long? IRecipient.RecipientDeviceId => DeviceId;
@@ -18,7 +19,7 @@ namespace TBot.Models
 
         byte? IRecipient.RecipientChannelXor => null;
 
-        long? IRecipient.RecipientChannelId => null;
+        long? IRecipient.RecipientPrivateChannelId => null;
 
         bool? IRecipient.IsSingleDeviceChannel => null;
     }

@@ -29,17 +29,15 @@ public class TBotOptions
     public string MeshtasticNodeNameLong { get; set; }
     public string AdminPassword { get; set; }
 
-    public string MeshtasticPrimaryChannelName { get; set; }
-    public string MeshtasticPrimaryChannelPskBase64 { get; set; }
-    public ChannelInfo[] MeshtasticSecondayChannels { get; set; }
+    //public string MeshtasticPrimaryChannelName { get; set; }
+    //public string MeshtasticPrimaryChannelPskBase64 { get; set; }
+    //public ChannelInfo[] MeshtasticSecondayChannels { get; set; }
     public string MeshtasticPublicKeyBase64 { get; set; }
     public string MeshtasticPrivateKeyBase64 { get; set; }
 
     public int MeshtasticMaxOutgoingMessagesPerMinute { get; set; }
 
     public int SentTBotNodeInfoEverySeconds { get; set; }
-
-    public long[] GatewayNodeIds { get; set; }
 
     public int DirectGatewayRoutingSeconds { get; set; }
 
@@ -61,6 +59,7 @@ public class TBotOptions
     public string PublicMqttAddress { get; set; }
     public string PublicMqttTopic { get; set; }
     public string PublicFlasherAddress { get; set; }
+    public string AdminTgContact { get; set; }
     public int InactiveGatewayCleanupDays { get; set; }
 
     /// <summary>
@@ -82,4 +81,5 @@ public class MapMqttServerOptions
     public string MapTopic { get; set; }
     public bool UplinkEnabled { get; set; }
     public bool AnalyticsDownlinkEnabled { get; set; }
+    public int? DefaultNetworkId { get; set; }
 }
