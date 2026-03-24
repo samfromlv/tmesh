@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TBot.Models;
@@ -84,11 +85,23 @@ namespace TBot
                     {
                         break;
                     }
+                    
                     while (!token.IsCancellationRequested)
                     {
-                        if (!await Loop(token))
+                        try
                         {
-                            break; // No more messages to process
+                            if (!await Loop(token))
+                            {
+                                break; // No more messages to process
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (Exception)
+                        {
+                            await Task.Delay(_delayMs);
                         }
                     }
                 }

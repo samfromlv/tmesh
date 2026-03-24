@@ -1190,6 +1190,7 @@ namespace TBot
             var routing = Routing.Parser.ParseFrom(decoded.Payload);
             var msg = MeshMessage.FromEnvelope<AckMessage>(envelope, decoded, recipient);
             msg.NeedAck = false;
+            msg.AckedMessageId = decoded.RequestId;
             msg.IsPkiEncrypted = envelope.Packet.PkiEncrypted;
             msg.Success = routing.ErrorReason == Routing.Types.Error.None;
             return msg;
