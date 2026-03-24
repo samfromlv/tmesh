@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using TBot.Database.Models;
+using TBot.Helpers;
 using TBot.Models;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
@@ -136,27 +137,50 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            var gateways = await registrationService.GetGatewaysCached();
             var sb = new StringBuilder();
+            sb.AppendLine("🌐 *Networks:*");
+
             foreach (var network in networks)
             {
-                var urlPart = network.Url != null ? $", url: {network.Url}" : string.Empty;
-                sb.AppendLine($"[{network.Id}] {network.Name} (short: {network.ShortName}, sort: {network.SortOrder}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}{urlPart})");
+                sb.AppendLine();
+                var urlPart = network.Url != null ? $" — {network.Url}" : string.Empty;
+                sb.AppendLine($"*\\[{network.Id}\\] {StringHelper.EscapeMd(network.Name)}* (`{StringHelper.EscapeMd(network.ShortName)}`){StringHelper.EscapeMd(urlPart)}");
+                sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}`");
+
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
-                    sb.AppendLine("  No public channels.");
+                    sb.AppendLine("  _No public channels_");
                 }
                 else
                 {
                     foreach (var ch in publicChannels)
                     {
-                        var primaryMark = ch.IsPrimary ? " [primary]" : string.Empty;
-                        sb.AppendLine($"  • ch#{ch.Id} \"{ch.Name}\"{primaryMark}");
+                        var primaryMark = ch.IsPrimary ? " ⭐" : "  ";
+                        sb.AppendLine($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMd(ch.Name)}`");
                     }
+                }
+
+                var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
+                if (networkGateways.Count > 0)
+                {
+                    sb.AppendLine("  📡 _Gateways:_");
+                    foreach (var gw in networkGateways)
+                    {
+                        var device = await registrationService.GetDeviceAsync(gw.DeviceId);
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
+                        var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm") : "never";
+                        sb.AppendLine($"  • {StringHelper.EscapeMd(device?.NodeName ?? hexId)} `{hexId}` — seen: {lastSeen}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("  📡 _No gateways_");
                 }
             }
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd());
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
 
@@ -453,50 +477,56 @@ namespace TBot.Bot
             var device = await registrationService.GetDeviceAsync(parsedNodeId);
             if (device == null)
             {
-                await botClient.SendMessage(chatId, "Not found.");
+                await botClient.SendMessage(chatId, "Node not found.");
                 return TgResult.Ok;
             }
 
-            //idented
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
+            var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
             var json = JsonSerializer.Serialize(device, TgBotService.IdentedOptions);
 
-            var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
+            var sb = new StringBuilder();
+            sb.AppendLine($"📟 *{StringHelper.EscapeMd(device.NodeName)}* `{hexId}`");
+            sb.AppendLine($"  Registrations: `{registrations.Count}`");
+            sb.AppendLine();
+            sb.AppendLine($"```");
+            sb.AppendLine(json);
+            sb.AppendLine($"```");
 
-
-            await botClient.SendMessage(
-                chatId,
-                $"Found node:\r\n\r\n" +
-                json + "\r\n\r\nRegistrations: " + registrations.Count);
-
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
 
         private async Task<TgResult> ListGateways(long chatId)
         {
-            var sb = new StringBuilder();
             var networks = await registrationService.GetNetworksCached();
             var gateways = await registrationService.GetGatewaysCached();
+
+            var sb = new StringBuilder();
+            sb.AppendLine("📡 *Registered gateways:*");
+
             foreach (var network in networks)
             {
                 var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
-                sb.AppendLine($"[{network.Id}] \"{network.Name}\" network registered gateways:");
+                sb.AppendLine();
+                sb.AppendLine($"*{StringHelper.EscapeMd(network.Name)}* (ID `{network.Id}`)");
                 if (networkGateways.Any())
                 {
                     foreach (var gw in networkGateways)
                     {
                         var device = await registrationService.GetDeviceAsync(gw.DeviceId);
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
-                        var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "Never";
-                        sb.AppendLine($"• {device?.NodeName ?? hexId} ({hexId}), Last seen: {lastSeen}");
+                        var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "never";
+                        sb.AppendLine($"  • *{StringHelper.EscapeMd(device?.NodeName ?? hexId)}* `{hexId}` — seen: {lastSeen}");
                     }
                 }
                 else
                 {
-                    sb.AppendLine("• No gateways registered");
+                    sb.AppendLine("  _No gateways registered_");
                 }
-                sb.AppendLine();
             }
-            await botClient.SendMessage(chatId, sb.ToString());
+
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
 
@@ -593,7 +623,7 @@ namespace TBot.Bot
            
             if (existingGatewayRegistration != null)
             {
-                instructions.Insert(0, $"Gateway *{device?.NodeName ?? hexId}* is already registered in this network.\r\n\r\n");
+                instructions.Insert(0, $"Gateway *{StringHelper.EscapeMd(device?.NodeName ?? hexId)}* is already registered in this network.\r\n\r\n");
             }
 
             await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);

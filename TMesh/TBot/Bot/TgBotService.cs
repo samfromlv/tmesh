@@ -374,7 +374,7 @@ namespace TBot.Bot
             }
 
             var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
-            var text = $"\u26a0\ufe0f Gateway *{deviceName}* ({hexId}) has been automatically demoted due to inactivity. " +
+            var text = $"\u26a0\ufe0f Gateway *{StringHelper.EscapeMd(deviceName)}* ({hexId}) has been automatically demoted due to inactivity. " +
                        "It has not been seen on the network for an extended period. " +
                        "Use /promote_to_gateway to restore gateway status once the device is back online.";
 

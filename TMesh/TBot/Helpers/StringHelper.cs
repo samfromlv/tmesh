@@ -14,5 +14,13 @@ namespace TBot.Helpers
             return value.Length <= maxLength ? value : value.Substring(0, maxLength);
         }
 
+        /// <summary>
+        /// Escapes special characters for Telegram Markdown v1 in user-supplied strings.
+        /// Handles: _ * ` [
+        /// </summary>
+        public static string EscapeMd(string text)
+        {
+            return text?.Replace("_", "\\_").Replace("*", "\\*").Replace("`", "\\`").Replace("[", "\\[") ?? string.Empty;
+        }
     }
 }

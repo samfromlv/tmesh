@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
+using TBot.Helpers;
 using TBot.Models;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -102,30 +103,48 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            var gateways = await registrationService.GetGatewaysCached();
             var sb = new StringBuilder();
+            sb.AppendLine("🌐 *Available networks:*");
+
             foreach (var network in networks)
             {
-                sb.AppendLine($"ID {network.Id} - {network.Name}");
+                sb.AppendLine();
+                var urlPart = !string.IsNullOrEmpty(network.Url) ? $" — [{StringHelper.EscapeMd(network.Url)}]({network.Url})" : string.Empty;
+                sb.AppendLine($"📍 *{StringHelper.EscapeMd(network.Name)}* - ID `{network.Id}` {urlPart}");
+
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
-                    sb.AppendLine("  No public channels.");
+                    sb.AppendLine("  _No public channels_");
                 }
                 else
                 {
-                    sb.AppendLine("  Public channels:");
-                    foreach (var ch in publicChannels.OrderByDescending(x=>x.IsPrimary).ThenBy(x=>x.Name))
+                    foreach (var ch in publicChannels.OrderByDescending(x => x.IsPrimary).ThenBy(x => x.Name))
                     {
-                        var primaryMark = ch.IsPrimary ? " [primary]" : string.Empty;
-                        sb.AppendLine($"  • {ch.Name} Key: {MeshtasticService.PskKeyToBase64(ch.Key)} {primaryMark}");
+                        var primaryMark = ch.IsPrimary ? " ⭐" : "  ";
+                        sb.AppendLine($"{primaryMark} `{StringHelper.EscapeMd(ch.Name)}` — key: `{StringHelper.EscapeMd(MeshtasticService.PskKeyToBase64(ch.Key))}`");
+                    }
+                }
+
+                var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
+                if (networkGateways.Count > 0)
+                {
+                    sb.AppendLine($"  📡 _Gateways:_");
+                    foreach (var gw in networkGateways)
+                    {
+                        var device = await registrationService.GetDeviceAsync(gw.DeviceId);
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
+                        var name = device?.NodeName ?? hexId;
+                        sb.AppendLine($"  • {StringHelper.EscapeMd(name)} `{hexId}`");
                     }
                 }
             }
 
             sb.AppendLine();
-            sb.AppendLine($"If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator to add it - {_options.AdminTgContact}.");
+            sb.AppendLine($"_If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator — {StringHelper.EscapeMd(_options.AdminTgContact)}_");
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd());
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
 
@@ -161,18 +180,40 @@ namespace TBot.Bot
 
                 var gatewayIdSet = await registrationService.GetGatewaysCached();
 
-                var lines =
-                        channelRegs.Select(c => $"• Channel: {c.Name} (ID {c.Id}, Network { networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown"}) {(c.IsSingleDevice ? " [Single Device]" : "")}")
-                        .Concat(
-                          devices.Select(d =>
-                          {
-                              var gatewayTag = gatewayIdSet.ContainsKey(d.DeviceId) ? " [Gateway \ud83d\udce1]" : "";
-                              return $"• Device: {d.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId)}){gatewayTag} (Network {networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown"}), last node info {FormatTimeSpan(now - d.LastNodeInfo)} ago, last position update {(d.LastPositionUpdate != null ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago" : "N/A")}";
-                          })
-                        );
+                var sb = new StringBuilder();
+                sb.AppendLine($"*{StringHelper.EscapeMd(hasFilter ? "Filtered" : "Registered")} channels and devices:*");
 
-                var text = $"{(hasFilter ? "Filtered" : "Registered")} channels and devices:\r\n" + string.Join("\r\n", lines);
-                await botClient.SendMessage(chatId, text);
+                if (channelRegs.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("📡 *Channels:*");
+                    foreach (var c in channelRegs)
+                    {
+                        var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
+                        var singleTag = c.IsSingleDevice ? " \\[Single Device\\]" : "";
+                        sb.AppendLine($"• *{StringHelper.EscapeMd(c.Name)}*{singleTag} — ID `{c.Id}`, network: {StringHelper.EscapeMd(networkName)}");
+                    }
+                }
+
+                if (devices.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("📟 *Devices:*");
+                    foreach (var d in devices)
+                    {
+                        var isGateway = gatewayIdSet.ContainsKey(d.DeviceId);
+                        var gatewayTag = isGateway ? " 📡 \\[Gateway\\]" : "";
+                        var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
+                        var hexId = MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId);
+                        var positionStr = d.LastPositionUpdate != null
+                            ? FormatTimeSpan(now - d.LastPositionUpdate.Value) + " ago"
+                            : "N/A";
+                        sb.AppendLine($"• *{StringHelper.EscapeMd(d.NodeName)}*{gatewayTag}");
+                        sb.AppendLine($"  `{hexId}` · {StringHelper.EscapeMd(networkName)} · node info: {FormatTimeSpan(now - d.LastNodeInfo)} ago · position: {positionStr}");
+                    }
+                }
+
+                await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             }
 
             return TgResult.Ok;
@@ -318,7 +359,7 @@ namespace TBot.Bot
             string botNodeName)
         {
             var instructions = new StringBuilder();
-            instructions.AppendLine($"\u2705 Device *{deviceName ?? hexId}* ({hexId}) has been promoted to gateway.");
+            instructions.AppendLine($"\u2705 Device *{StringHelper.EscapeMd(deviceName ?? hexId)}* ({hexId}) has been promoted to gateway.");
             instructions.AppendLine();
             instructions.AppendLine("\ud83d\udce1 *MQTT Gateway Setup Instructions*");
             instructions.AppendLine();
@@ -347,7 +388,7 @@ namespace TBot.Bot
             instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
             instructions.AppendLine();
             instructions.AppendLine("Other settings:");
-            instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {botNodeName} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
+            instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {StringHelper.EscapeMd(botNodeName)} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
             instructions.AppendLine("• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
             instructions.AppendLine("• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.");
             instructions.AppendLine();
@@ -459,7 +500,7 @@ namespace TBot.Bot
             });
 
             await botClient.SendMessage(chatId,
-                $"Device: *{deviceName}* ({hexId})\n\n" +
+                $"Device: *{StringHelper.EscapeMd(deviceName)}* ({hexId})\n\n" +
                 $"⚠️ To act as a gateway this device must have custom TMesh firmware installed.{flasherLine}\n\n" +
                 "Have you already flashed the TMesh firmware on this device? Reply \"*yes*\" to confirm and receive MQTT setup instructions, or /stop to cancel.",
                 parseMode: ParseMode.Markdown);
@@ -1002,18 +1043,16 @@ namespace TBot.Bot
             int networkId;
             if (string.IsNullOrEmpty(networkIdText))
             {
-                var sb = new StringBuilder("Please select a network by replying with its ID:\n\n");
-                for (int i = 0; i < networks.Count; i++)
+                var sb = new StringBuilder("Please select a network by replying with its ID:\n");
+                foreach (var n in networks)
                 {
-                    sb.AppendLine($"  ID {networks[i].Id} - {networks[i].Name}");
+                    sb.AppendLine($"*{StringHelper.EscapeMd(n.Name)}* - ID `{n.Id}`");
                 }
                 sb.AppendLine();
-                sb.AppendLine($"If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator to add it - {_options.AdminTgContact}.");
+                sb.AppendLine($"_If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator — {StringHelper.EscapeMd(_options.AdminTgContact)}_");
                 sb.AppendLine("\nType /stop to cancel.");
 
-                // No parameters provided, start interactive registration
-                await botClient.SendMessage(chatId,
-                    sb.ToString());
+                await botClient.SendMessage(chatId, sb.ToString(), parseMode: ParseMode.Markdown);
                 registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedNetwork);
                 return TgResult.Ok;
             }
@@ -1030,19 +1069,13 @@ namespace TBot.Bot
                     return TgResult.Ok;
                 }
 
-                if (!networks.Any(x=> x.Id == networkId))
+                if (!networks.Any(x => x.Id == networkId))
                 {
-                    var sb = new StringBuilder($"Network ID {networkId} not found. Please make sure to provide a valid network ID.\n\n");
-                    sb.AppendLine("Available networks:");
-                    for (int i = 0; i < networks.Count; i++)
-                    {
-                        sb.AppendLine($"ID {networks[i].Id} - {networks[i].Name}");
-                    }
-
-                    sb.AppendLine("Please reply with valid network ID or type /stop to cancel the registration.");
-
-                    await botClient.SendMessage(chatId,
-                        sb.ToString());
+                    var sb = new StringBuilder($"Network ID {networkId} not found. Please make sure to provide a valid network ID.\n\n*Available networks:*\n");
+                    foreach (var n in networks)
+                        sb.AppendLine($"*{StringHelper.EscapeMd(n.Name)}* - ID `{n.Id}`");
+                    sb.AppendLine("\nPlease reply with valid network ID or type /stop to cancel the registration.");
+                    await botClient.SendMessage(chatId, sb.ToString(), parseMode: ParseMode.Markdown);
                     return TgResult.Ok;
                 }
             }
