@@ -32,9 +32,7 @@ namespace TBot.Helpers
 
             // SHA256 => 32 bytes => base64url_no_pad length is always 43 chars, so 23 is safe
             var pwd = b64.Length >= 23 ? b64[..23] : b64;
-
-            var prefix = username[^2..];
-            return $"{prefix}_{pwd}";
+            return pwd;
         }
 
         /// <summary>
