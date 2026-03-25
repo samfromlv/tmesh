@@ -551,7 +551,7 @@ namespace TBot.Bot
                 message.NodeName,
                 message.PublicKey);
 
-            if (res.device != null && res.device.PublicKey != null)
+            if (message.NeedAck && res.device != null && res.device.PublicKey != null)
             {
                 meshtasticService.AckMeshtasticMessage(
                   message,
