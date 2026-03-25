@@ -13,6 +13,7 @@ namespace TBot.Bot
     public class AdminBotService(
         TelegramBotClient botClient,
         IOptions<TBotOptions> options,
+        BotCache botCache,
         RegistrationService registrationService,
         MeshtasticService meshtasticService)
     {
@@ -629,7 +630,7 @@ namespace TBot.Bot
             var pwd = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
 
             await registrationService.RegisterGatewayAsync(parsedNodeId, networkId.Value);
-
+            botCache.StoreGatewayRegistraionChat(parsedNodeId, chatId);
             var mqttUsername = hexId;
             var mqttPassword = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
             var mqttAddress = _options.PublicMqttAddress;
@@ -642,7 +643,9 @@ namespace TBot.Bot
                 mqttAddress,
                 mqttTopic,
                 _options.PublicFlasherAddress,
-                _options.MeshtasticNodeNameLong);
+                network.SaveAnalytics,
+                _options.MeshtasticNodeNameLong,
+                includeInfoAboutFirstSeenMessage: false);
 
 
             if (existingGatewayRegistration != null)

@@ -336,12 +336,24 @@ namespace TBot.Bot
             await registrationService.RegisterGatewayAsync(deviceId, device.NetworkId);
             botCache.StoreGatewayRegistraionChat(deviceId, chatId);
 
+
             var mqttUsername = hexId;
             var mqttPassword = registrationService.DeriveMqttPasswordForDevice(deviceId);
             var mqttAddress = _options.PublicMqttAddress;
             var mqttTopic = _options.PublicMqttTopic.Replace(NetworkIdToken, MqttService.NetworkSegmentPrefix + device.NetworkId.ToString());
             var flasherAddress = _options.PublicFlasherAddress;
-            StringBuilder instructions = CreateGatewaySetupInstructions(hexId, deviceName, mqttUsername, mqttPassword, mqttAddress, mqttTopic, flasherAddress, _options.MeshtasticNodeNameLong);
+            var network = await registrationService.GetNetwork(device.NetworkId);
+            StringBuilder instructions = CreateGatewaySetupInstructions(
+                hexId,
+                deviceName,
+                mqttUsername,
+                mqttPassword,
+                mqttAddress,
+                mqttTopic,
+                flasherAddress,
+                network.SaveAnalytics,
+                _options.MeshtasticNodeNameLong,
+                includeInfoAboutFirstSeenMessage: true);
 
             await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
 
@@ -349,14 +361,16 @@ namespace TBot.Bot
         }
 
         public static StringBuilder CreateGatewaySetupInstructions(
-            string hexId, 
-            string deviceName, 
-            string mqttUsername, 
+            string hexId,
+            string deviceName,
+            string mqttUsername,
             string mqttPassword,
             string mqttAddress,
-            string mqttTopic, 
+            string mqttTopic,
             string flasherAddress,
-            string botNodeName)
+            bool networkAnalyticsEnabled,
+            string botNodeName,
+            bool includeInfoAboutFirstSeenMessage)
         {
             var instructions = new StringBuilder();
             instructions.AppendLine($"\u2705 Device *{StringHelper.EscapeMd(deviceName ?? hexId)}* ({hexId}) has been promoted to gateway.");
@@ -385,14 +399,18 @@ namespace TBot.Bot
             instructions.AppendLine($"• *TLS enabled:* Off \u274c");
             instructions.AppendLine($"• *Map reporting:* On ✅");
             instructions.AppendLine();
-            instructions.AppendLine("\u26a0\ufe0f The MQTT password only works with custom TMesh firmware.");
-            instructions.AppendLine();
             instructions.AppendLine("Other settings:");
             instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {StringHelper.EscapeMd(botNodeName)} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
-            instructions.AppendLine("• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
-            instructions.AppendLine("• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.");
-            instructions.AppendLine();
-            instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
+            if (networkAnalyticsEnabled)
+            {
+                instructions.AppendLine("• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
+                instructions.AppendLine("• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.");
+            }
+            if (includeInfoAboutFirstSeenMessage)
+            {
+                instructions.AppendLine();
+                instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
+            }
             return instructions;
         }
 
