@@ -188,37 +188,57 @@ public class MessageLoopService(
         var min5ago = now.AddMinutes(-5);
         var min15ago = now.AddMinutes(-15);
         var hour1ago = now.AddHours(-1);
+        var hours24ago = now.AddHours(-24);
+
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var networksLookup = await registrationService.GetNetworksLookupCached();
+
+        // Include all networks from database, not just those with stats
+        var networks = await registrationService.GetNetworksCached();
+
+        var allStats = new List<NetworkStats>(networks.Count);
+        var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
+
+        foreach (var network in networks)
+        {
+            var networkStats = new NetworkStats
+            {
+                Id = network.Id,
+                Name = network.Name,
+                Mesh5Min = meshtasticService.AggregateStartFrom(network.Id, min5ago),
+                Mesh15Min = meshtasticService.AggregateStartFrom(network.Id, min15ago),
+                Mesh1Hour = meshtasticService.AggregateStartFrom(network.Id, hour1ago),
+                DeviceChatRegistrations = await registrationService.GetDeviceRegistrationsCountByNetwork(network.Id),
+                ChannelChatRegistrations = await registrationService.GetChannelRegistrationsCountByNetwork(network.Id),
+                Devices = await registrationService.GetDevicesCountByNetwork(network.Id),
+                Devices24h = await registrationService.GetActiveDevicesCountByNetwork(network.Id, hours24ago),
+                GatewaysLastSeen = await GetGatewaysLastSeenStatByNetwork(now, registrationService, network.Id)
+            };
+
+            if (analyticsService != null && network.SaveAnalytics)
+            {
+                networkStats.TelemetrySaved24H = await analyticsService.GetStatisticsByNetwork(network.Id, hours24ago);
+            }
+
+            allStats.Add(networkStats);
+        }
 
         var botStats = new BotStats
         {
-            Mesh5Min = meshtasticService.AggregateStartFrom(min5ago),
-            Mesh15Min = meshtasticService.AggregateStartFrom(min15ago),
-            Mesh1Hour = meshtasticService.AggregateStartFrom(hour1ago),
+            Networks = allStats,
             LastUpdate = now,
             Started = _started
         };
 
-        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-        var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
-        if (analyticsService != null)
-        {
-            botStats.TelemetrySaved24H = await analyticsService.GetStatistics(now.AddHours(-24));
-        }
-
-        botStats.DeviceChatRegistrations = await registrationService.GetTotalDeviceRegistrationsCount();
-        botStats.ChannelChatRegistrations = await registrationService.GetTotalChannelRegistrationsCount();
-        botStats.Devices = await registrationService.GetTotalDevicesCount();
-        botStats.Devices24h = await registrationService.GetActiveDevicesCount(now.AddHours(-24));
-        botStats.GatewaysLastSeen = await GetGatewaysLastSeenStat(now, registrationService);
-
-
         await mqttService.PublishStatus(botStats);
     }
 
-    private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStat(DateTime utcNow, RegistrationService regService)
+    private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStatByNetwork(DateTime utcNow, RegistrationService regService, int networkId)
     {
-        var stat = new Dictionary<string, DateTime?>(_gatewayNetworkIds.Count);
-        foreach (var gwId in _gatewayNetworkIds.Keys.OrderBy(x => x))
+        var stat = new Dictionary<string, DateTime?>();
+        var gatewaysInNetwork = _gatewayNetworkIds.Where(g => g.Value == networkId).Select(g => g.Key);
+        
+        foreach (var gwId in gatewaysInNetwork.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
             {
@@ -384,6 +404,7 @@ public class MessageLoopService(
             {
                 meshtasticService.AddStat(new MeshStat
                 {
+                    NetworkId = networkId,
                     DupsIgnored = 1,
                 });
                 return;
@@ -541,6 +562,7 @@ public class MessageLoopService(
             }
             meshtasticService.AddStat(new MeshStat
             {
+                NetworkId = networkId,
                 LinkTraces = 1,
             });
 

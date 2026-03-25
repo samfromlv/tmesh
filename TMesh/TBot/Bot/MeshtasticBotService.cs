@@ -227,6 +227,7 @@ namespace TBot.Bot
 
                 meshtasticService.AddStat(new Shared.Models.MeshStat
                 {
+                    NetworkId = deviceOrNull.NetworkId,
                     PongSent = 1,
                 });
             }

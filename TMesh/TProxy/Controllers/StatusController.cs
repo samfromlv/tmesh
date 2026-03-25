@@ -14,7 +14,7 @@ namespace TProxy.Controllers
         };
 
         [HttpGet("bot")]
-        public IActionResult Bot()
+        public IActionResult Bot(int? networkId)
         {
             var status = publisher.LastStatusPayload;
             if (status == null)
@@ -22,6 +22,22 @@ namespace TProxy.Controllers
                 return NotFound();
             }
             return Json(status, _jsonOptions);
+        }
+
+        [HttpGet("network/{id}")]
+        public IActionResult Network(int id)
+        {
+            var status = publisher.LastStatusPayload;
+            if (status == null)
+            {
+                return NotFound();
+            }
+            var networkStatus = status.Networks.FirstOrDefault(n => n.Id == id);
+            if (networkStatus == null)
+            {
+                return NotFound();
+            }
+            return Json(networkStatus, _jsonOptions);
         }
 
         [HttpGet("gateway/{id}")]
@@ -43,13 +59,19 @@ namespace TProxy.Controllers
                 return StatusCode(503, "No recent updates");
             }
 
-            if (!status.GatewaysLastSeen.TryGetValue(id, out DateTime? lastSeen))
+            // Search for gateway in all networks
+            DateTime? lastSeen = null;
+            foreach (var network in status.Networks)
             {
-                return NotFound("Gateway ID not found");
+                if (network.GatewaysLastSeen?.TryGetValue(id, out var networkLastSeen) == true)
+                {
+                    lastSeen = networkLastSeen;
+                    break;
+                }
             }
             if (lastSeen == null)
             {
-                return StatusCode(503, "Gateway offline. No last activity");
+                return NotFound("Gateway ID not found");
             }
             if (lastSeen < DateTime.UtcNow.AddMinutes(-60))
             {
@@ -60,7 +82,7 @@ namespace TProxy.Controllers
 
 
         [HttpGet("bot/health")]
-        public IActionResult BotHealth(int? gatewayDeadMinutes, string gatewayCheckMode = "all")
+        public IActionResult BotHealth(int? networkId, int? gatewayDeadMinutes, string gatewayCheckMode = "all")
         {
             var started = publisher.Started;
             if ((DateTime.UtcNow - started).TotalMinutes < 5)
@@ -73,19 +95,28 @@ namespace TProxy.Controllers
             {
                 return StatusCode(503, "No recent updates");
             }
-            if (status.GatewaysLastSeen.Count == 0
-                || status.GatewaysLastSeen.Values.All(x => x == null))
+
+            // Collect all gateways from all networks
+            var allGateways = status.Networks
+                .Where(n => networkId == null || n.Id == networkId)
+                .Where(n => n.GatewaysLastSeen != null)
+                .SelectMany(n => n.GatewaysLastSeen.Values)
+                .ToList();
+
+            if (allGateways.Count == 0 || allGateways.All(x => x == null))
             {
                 return StatusCode(503, "No gateways connected");
             }
+
             bool gatewayCheckAny = gatewayCheckMode.Equals("any", StringComparison.CurrentCultureIgnoreCase);
             var border = DateTime.UtcNow.AddMinutes(-1 * (gatewayDeadMinutes ?? 60));
-            if (gatewayCheckAny && status.GatewaysLastSeen.Values.Any(t => t < border))
+
+            if (gatewayCheckAny && allGateways.Any(t => t < border))
             {
-                var unhealthCount = status.GatewaysLastSeen.Values.Count(t => t < border);
+                var unhealthCount = allGateways.Count(t => t < border);
                 return StatusCode(503, $"Some gateways offline - {unhealthCount}");
             }
-            else if (!gatewayCheckAny && status.GatewaysLastSeen.Values.All(t => t < border))
+            else if (!gatewayCheckAny && allGateways.All(t => t < border))
             {
                 return StatusCode(503, "All gateways offline");
             }

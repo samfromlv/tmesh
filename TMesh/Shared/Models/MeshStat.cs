@@ -8,6 +8,7 @@ namespace Shared.Models
 {
     public class MeshStat
     {
+        public int NetworkId { get; set; }
         public int DupsIgnored { get; set; }
         public int LinkTraces { get; set; }
         public int NodeInfoRecieved { get; set; }

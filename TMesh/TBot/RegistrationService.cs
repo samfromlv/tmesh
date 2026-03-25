@@ -64,12 +64,14 @@ namespace TBot
             long telegramUserId,
             long chatId,
             long deviceId,
+            int networkId,
             string code,
             DateTimeOffset expiresUtc)
         {
             memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
             {
                 Code = code,
+                NetworkId = networkId,
                 Tries = 0,
                 DeviceId = deviceId,
                 ExpiresUtc = expiresUtc.UtcDateTime
@@ -81,6 +83,7 @@ namespace TBot
             long chatId,
             string channelName,
             byte[] channelKey,
+            int networkId,
             bool? isSingleDevice,
             string code,
             DateTimeOffset expiresUtc)
@@ -88,6 +91,7 @@ namespace TBot
             memoryCache.Set(GetPendingCodeCacheKey(telegramUserId, chatId), new PendingCode
             {
                 Code = code,
+                NetworkId = networkId,
                 Tries = 0,
                 ChannelName = channelName,
                 ChannelKey = channelKey,
@@ -229,10 +233,10 @@ namespace TBot
                           }).ToListAsync();
         }
 
-        private async Task<List<ChannelKey>> GetChannelKeysByHash(byte hash)
+        private async Task<List<ChannelKey>> GetChannelKeysByHash(int networkId, byte hash)
         {
             return await (from c in db.Channels
-                          where c.XorHash == hash
+                          where c.NetworkId == networkId && c.XorHash == hash
                           select new ChannelKey
                           {
                               Id = c.Id,
@@ -296,10 +300,10 @@ namespace TBot
 
         public Task<List<ChannelKey>> GetChannelKeysByHashCached(int networkId, byte hash)
         {
-            return memoryCache.GetOrCreateAsync($"GetChannelKeysByHash#{hash}", async entry =>
+            return memoryCache.GetOrCreateAsync($"GetChannelKeysByHash#{networkId}#{hash}", async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(3);
-                return await GetChannelKeysByHash(hash);
+                return await GetChannelKeysByHash(networkId, hash);
             });
         }
 
@@ -330,9 +334,9 @@ namespace TBot
         {
             memoryCache.Remove($"ChannelKeysByChatId#{chatId}");
         }
-        public void InvalidateChannelKeysByHashCache(byte hash)
+        public void InvalidateChannelKeysByHashCache(int networkId, byte hash)
         {
-            memoryCache.Remove($"GetChannelKeysByHash#{hash}");
+            memoryCache.Remove($"GetChannelKeysByHash#{networkId}#{hash}");
         }
 
         public async Task<List<DeviceName>> GetDeviceNamesByChatId(long chatId)
@@ -491,7 +495,8 @@ namespace TBot
             else if (storedCode.ChannelName != null && storedCode.ChannelKey != null)
             {
                 var channel = await db.Channels.FirstOrDefaultAsync(c =>
-                    c.Name == storedCode.ChannelName
+                    c.NetworkId == storedCode.NetworkId
+                    && c.Name == storedCode.ChannelName
                     && c.Key == storedCode.ChannelKey);
 
                 var now = DateTime.UtcNow;
@@ -502,13 +507,14 @@ namespace TBot
                     {
                         Name = storedCode.ChannelName,
                         Key = storedCode.ChannelKey,
+                        NetworkId = storedCode.NetworkId,
                         XorHash = MeshtasticService.GenerateChannelHash(storedCode.ChannelName, storedCode.ChannelKey),
                         IsSingleDevice = storedCode.IsSingleDevice ?? false,
                         CreatedUtc = now
                     };
                     db.Channels.Add(channel);
                     await db.SaveChangesAsync();
-                    InvalidateChannelKeysByHashCache(channel.XorHash);
+                    InvalidateChannelKeysByHashCache(storedCode.NetworkId, channel.XorHash);
                 }
 
                 var reg = await db.ChannelRegistrations.FirstOrDefaultAsync(x =>
@@ -678,10 +684,10 @@ namespace TBot
             memoryCache.Remove($"Channel#{channelId}");
         }
 
-        public async Task<Channel> FindChannelAsync(string channelName, byte[] key)
+        public async Task<Channel> FindChannelAsync(int networkId, string channelName, byte[] key)
         {
             return await db.Channels.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Name == channelName && p.Key == key);
+                .FirstOrDefaultAsync(p => p.NetworkId == networkId && p.Name == channelName && p.Key == key);
         }
 
         public async Task SaveAssumeChanged(Device device)
@@ -859,7 +865,7 @@ namespace TBot
             if (removeChannel)
             {
                 InvalidateChannelCache(channelId);
-                InvalidateChannelKeysByHashCache(channel.XorHash);
+                InvalidateChannelKeysByHashCache(channel.NetworkId, channel.XorHash);
             }
             return (true, userOrChatRegs.Count > 1);
         }
@@ -891,29 +897,41 @@ namespace TBot
             if (removeChannel)
             {
                 InvalidateChannelCache(channelId);
-                InvalidateChannelKeysByHashCache(channel.XorHash);
+                InvalidateChannelKeysByHashCache(channel.NetworkId, channel.XorHash);
             }
             return true;
         }
 
-        public async Task<int> GetTotalDeviceRegistrationsCount()
+        public async Task<int> GetDeviceRegistrationsCountByNetwork(int networkId)
         {
-            return await db.DeviceRegistrations.CountAsync();
+            return await db.DeviceRegistrations
+                .Join(db.Devices,
+                    reg => reg.DeviceId,
+                    dev => dev.DeviceId,
+                    (reg, dev) => new { reg, dev })
+                .Where(x => x.dev.NetworkId == networkId)
+                .CountAsync();
         }
 
-        public async Task<int> GetTotalChannelRegistrationsCount()
+        public async Task<int> GetChannelRegistrationsCountByNetwork(int networkId)
         {
-            return await db.ChannelRegistrations.CountAsync();
+            return await db.ChannelRegistrations
+                .Join(db.Channels,
+                    reg => reg.ChannelId,
+                    ch => ch.Id,
+                    (reg, ch) => new { reg, ch })
+                .Where(x => x.ch.NetworkId == networkId)
+                .CountAsync();
         }
 
-        public async Task<int> GetTotalDevicesCount()
+        public async Task<int> GetDevicesCountByNetwork(int networkId)
         {
-            return await db.Devices.CountAsync();
+            return await db.Devices.CountAsync(d => d.NetworkId == networkId);
         }
 
-        public async Task<int> GetActiveDevicesCount(DateTime fromUtc)
+        public async Task<int> GetActiveDevicesCountByNetwork(int networkId, DateTime fromUtc)
         {
-            return await db.Devices.CountAsync(d => d.UpdatedUtc >= fromUtc);
+            return await db.Devices.CountAsync(d => d.NetworkId == networkId && d.UpdatedUtc >= fromUtc);
         }
 
         public async Task<Network> AddNetwork(Network network)

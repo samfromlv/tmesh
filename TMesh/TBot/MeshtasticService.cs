@@ -37,8 +37,8 @@ namespace TBot
         internal const uint BroadcastDeviceId = uint.MaxValue;
         public const string PKIChannelName = "PKI";
         public const string UnknownChannelName = "UCH";
-        private static readonly LinkedList<MeshStat> meshStats = new();
-        private readonly LinkedList<MeshStat> _meshStatsQueue = meshStats;
+        private static readonly Dictionary<int, LinkedList<MeshStat>> meshStatsByNetwork = new();
+        private readonly Dictionary<int, LinkedList<MeshStat>> _meshStatsQueueByNetwork = meshStatsByNetwork;
 
         public MeshtasticService(
             MqttService mqttService,
@@ -79,6 +79,7 @@ namespace TBot
 
             AddStat(new MeshStat
             {
+                NetworkId = recipient.NetworkId,
                 TextMessagesSent = 1,
             });
             var delay = QueueMessage(envelope, recipient.NetworkId, MessagePriority.Normal, relayGatewayId);
@@ -108,6 +109,7 @@ namespace TBot
 
             AddStat(new MeshStat
             {
+                NetworkId = channel.NetworkId,
                 TextMessagesSent = 1,
             });
             var delay = QueueMessage(envelope, channel.NetworkId, MessagePriority.Normal, relayGatewayId);
@@ -158,6 +160,7 @@ namespace TBot
                 isEmoji);
             AddStat(new MeshStat
             {
+                NetworkId = networkId,
                 TextMessagesSent = 1,
             });
             var delay = QueueMessage(envelope, networkId, MessagePriority.Normal, relayGatewayId);
@@ -205,6 +208,7 @@ namespace TBot
             var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, recipient);
             AddStat(new MeshStat
             {
+                NetworkId = msg.NetworkId,
                 AckSent = 1
             });
             QueueMessage(envelope, msg.NetworkId, MessagePriority.High, relayGatewayId);
@@ -231,6 +235,7 @@ namespace TBot
 
             AddStat(new MeshStat
             {
+                NetworkId = msg.NetworkId,
                 TraceRoutes = 1
             });
             QueueMessage(envelope, msg.NetworkId, MessagePriority.Low, relayGatewayId);
@@ -245,6 +250,7 @@ namespace TBot
             var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply, primaryChannel);
             AddStat(new MeshStat
             {
+                NetworkId = msg.NetworkId,
                 NakSent = 1
             });
             QueueMessage(envelope, msg.NetworkId, MessagePriority.Low, relayGatewayId);
@@ -891,7 +897,7 @@ namespace TBot
             {
                 var newMsg = envelope.Clone();
                 newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                IncreaseBridgeDirectMessagesToGatewaysStat();
+                IncreaseBridgeDirectMessagesToGatewaysStat(receiverNetworkId);
                 QueueMessage(newMsg, receiverNetworkId, MessagePriority.High, receiverDeviceId);
                 return true;
             }
@@ -987,6 +993,7 @@ namespace TBot
                 msg.ReplyTo = decodedPki.ReplyId;
                 AddStat(new MeshStat
                 {
+                    NetworkId = device.NetworkId,
                     DirectTextMessagesRecieved = 1,
                 });
 
@@ -996,6 +1003,7 @@ namespace TBot
             {
                 AddStat(new MeshStat
                 {
+                    NetworkId = device.NetworkId,
                     AckRecieved = 1,
                 });
                 return (true, DecodeAck(envelope, decodedPki, device));
@@ -1034,6 +1042,7 @@ namespace TBot
             {
                 AddStat(new MeshStat
                 {
+                    NetworkId = recipient.NetworkId,
                     AckRecieved = 1,
                 });
                 return (true, DecodeAck(envelope, decoded, recipient));
@@ -1110,6 +1119,7 @@ namespace TBot
                 msg.ReplyTo = decoded.ReplyId;
                 AddStat(new MeshStat
                 {
+                    NetworkId = recipient.NetworkId,
                     PublicTextMessagesRecieved = recipient.IsPublicChannel ? 1 : 0,
                     PrivateChannelTextMessagesRecieved = recipient.IsPublicChannel ? 0 : 1
                 });
@@ -1211,6 +1221,7 @@ namespace TBot
             }
             AddStat(new MeshStat
             {
+                NetworkId = recipient.NetworkId,
                 NodeInfoRecieved = 1,
             });
             var msg = MeshMessage.FromEnvelope<NodeInfoMessage>(envelope, decoded, recipient);
@@ -1220,23 +1231,30 @@ namespace TBot
             return (true, msg);
         }
 
-        public void IncreaseBridgeDirectMessagesToGatewaysStat()
+        public void IncreaseBridgeDirectMessagesToGatewaysStat(int networkId)
         {
             AddStat(new MeshStat
             {
+                NetworkId = networkId,
                 BridgeDirectMessagesToGateways = 1
             });
         }
 
-        public MeshStat AggregateStartFrom(DateTime fromUtc)
+        public MeshStat AggregateStartFrom(int networkId, DateTime fromUtc)
         {
             var aggregate = new MeshStat()
             {
+                NetworkId = networkId,
                 IntervalStart = fromUtc
             };
-            lock (_meshStatsQueue)
+            lock (_meshStatsQueueByNetwork)
             {
-                foreach (var stat in _meshStatsQueue)
+                if (!_meshStatsQueueByNetwork.TryGetValue(networkId, out var queue))
+                {
+                    return aggregate;
+                }
+
+                foreach (var stat in queue)
                 {
                     if (stat.IntervalStart >= fromUtc)
                     {
@@ -1253,7 +1271,7 @@ namespace TBot
 
         public void AddStat(MeshStat stat)
         {
-            lock (_meshStatsQueue)
+            lock (_meshStatsQueueByNetwork)
             {
                 var roundedUtcNow = DateTime.UtcNow;
                 roundedUtcNow = new DateTime(
@@ -1265,7 +1283,13 @@ namespace TBot
                     0,
                     DateTimeKind.Utc);
 
-                var existingStat = _meshStatsQueue.First?.Value;
+                if (!_meshStatsQueueByNetwork.TryGetValue(stat.NetworkId, out var queue))
+                {
+                    queue = new LinkedList<MeshStat>();
+                    _meshStatsQueueByNetwork[stat.NetworkId] = queue;
+                }
+
+                var existingStat = queue.First?.Value;
 
                 if (existingStat != null)
                 {
@@ -1277,11 +1301,11 @@ namespace TBot
                     }
                 }
                 stat.IntervalStart = roundedUtcNow;
-                _meshStatsQueue.AddFirst(stat);
+                queue.AddFirst(stat);
                 var border = roundedUtcNow.AddMinutes(-KeepStatsForMinutes);
-                while (_meshStatsQueue.Count > 0 && _meshStatsQueue.Last.Value.IntervalStart < border)
+                while (queue.Count > 0 && queue.Last.Value.IntervalStart < border)
                 {
-                    _meshStatsQueue.RemoveLast();
+                    queue.RemoveLast();
                 }
             }
         }

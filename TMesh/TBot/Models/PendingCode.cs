@@ -11,6 +11,8 @@ namespace TBot.Models
         public int Tries { get; set; }
         public string Code { get; set; }
         public long? DeviceId { get; set; }
+
+        public int NetworkId { get; set; }
         public string ChannelName { get; set; }
         public byte[] ChannelKey { get; set; }
         public bool? IsSingleDevice { get; set; }

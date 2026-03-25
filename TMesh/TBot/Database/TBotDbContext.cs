@@ -97,11 +97,10 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
 
             e.Property(p => p.IsSingleDevice);
 
-            e.HasIndex(p => new { p.Name, p.Key })
+            e.HasIndex(p => new {p.NetworkId, p.Name, p.Key })
                 .IsUnique();
 
-            e.HasIndex(p => p.XorHash);
-            e.HasIndex(p => p.NetworkId);
+            e.HasIndex(p => new { p.NetworkId, p.XorHash });
         });
 
         modelBuilder.Entity<ChannelRegistration>(e =>
@@ -149,6 +148,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasKey(p => p.Id);
             e.Property(r => r.Id)
                .ValueGeneratedOnAdd();
+            e.Property(r => r.NetworkId).IsRequired();
             e.Property(p => p.Name)
                 .IsRequired()
                 // Use binary collation for the Name property to ensure case-sensitive and accent-sensitive comparisons

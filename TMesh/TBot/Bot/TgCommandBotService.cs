@@ -764,9 +764,17 @@ namespace TBot.Bot
             return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, MeshtasticService.PskKeyToBase64(state.ChannelKey), isSingleDevice, state.NetworkId);
         }
 
-        private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice, int? networkId = null)
+        private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice, int? networkId)
         {
-            var dbChannel = await registrationService.FindChannelAsync(channelName, channelKey);
+            if (networkId == null)
+            {
+                await botClient.SendMessage(chatId,
+                    $"Registration data is corrupted, network is missing in chat state. Registration process aborted. Please try again.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return TgResult.Ok;
+            }
+
+            var dbChannel = await registrationService.FindChannelAsync(networkId.Value, channelName, channelKey);
             if (dbChannel != null && await registrationService.HasChannelRegistrationAsync(chatId, dbChannel.Id))
             {
                 await botClient.SendMessage(chatId, $"Channel {channelName} with same key is already registered in this chat. Registration aborted.");
@@ -804,7 +812,7 @@ namespace TBot.Bot
             }
 
             var code = RegistrationService.GenerateRandomCode();
-            registrationService.StoreChannelPendingCodeAsync(userId, chatId, channelName, channelKey, isSingleDevice, code, DateTimeOffset.UtcNow.AddMinutes(5));
+            registrationService.StoreChannelPendingCodeAsync(userId, chatId, channelName, channelKey, networkId.Value, isSingleDevice, code, DateTimeOffset.UtcNow.AddMinutes(5));
 
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to channel {channelName}. Please reply with the received code here. The code is valid for 5 minutes.");
@@ -862,7 +870,7 @@ namespace TBot.Bot
             }
 
             var code = RegistrationService.GenerateRandomCode();
-            registrationService.StoreDevicePendingCodeAsync(userId, chatId, deviceId, code, DateTimeOffset.UtcNow.AddMinutes(5));
+            registrationService.StoreDevicePendingCodeAsync(userId, chatId, deviceId, device.NetworkId, code, DateTimeOffset.UtcNow.AddMinutes(5));
 
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}). Please reply with the received code here. The code is valid for 5 minutes.");

@@ -8,22 +8,10 @@ namespace Shared.Models
 {
     public class BotStats
     {
-        public MeshStat Mesh5Min { get; set; }
-        public MeshStat Mesh15Min { get; set; }
-        public MeshStat Mesh1Hour { get; set; }
-
-        public int DeviceChatRegistrations { get; set; }
-        public int ChannelChatRegistrations { get; set; }
-
-        public int Devices24h { get; set; }
-        public int Devices { get; set; }
-
-        public int TelemetrySaved24H { get; set; }
+        public List<NetworkStats> Networks { get; set; }
 
         public DateTime LastUpdate { get; set; }
 
         public DateTime Started { get; set; }
-
-        public Dictionary<string, DateTime?> GatewaysLastSeen { get; set; }
     }
 }

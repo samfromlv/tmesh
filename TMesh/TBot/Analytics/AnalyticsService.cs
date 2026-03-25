@@ -27,6 +27,14 @@ namespace TBot.Analytics
                  .CountAsync();
         }
 
+        public async Task<int> GetStatisticsByNetwork(int networkId, DateTime fromUtc)
+        {
+            var from = Instant.FromDateTimeUtc(DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc));
+            return await db.DeviceMetrics
+                .Where(m => m.NetworkId == networkId && m.Timestamp >= from)
+                .CountAsync();
+        }
+
         public async Task RecordLinkTrace(
             int networkId,
             long packetId,
