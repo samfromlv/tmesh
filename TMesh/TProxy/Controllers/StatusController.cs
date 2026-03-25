@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 namespace TProxy.Controllers
 {
@@ -11,6 +11,7 @@ namespace TProxy.Controllers
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
             WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
         [HttpGet("bot")]
