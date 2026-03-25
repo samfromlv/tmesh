@@ -186,22 +186,46 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
-            // Usage: add_network <name> (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
-            if (segments.Length < 3)
+            // Usage: add_network "<name>" (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
+            
+            // Reconstruct the full command from segments to properly parse quoted strings
+            var fullCommand = string.Join(' ', segments);
+            
+            // Try to extract the name from quotes
+            var nameStartIdx = fullCommand.IndexOf('"');
+            if (nameStartIdx == -1)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false");
+                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false\nNote: Network name must be enclosed in double quotes.");
                 return TgResult.Ok;
             }
 
-            var name = segments[1];
-            var shortName = segments[2];
-            var sortOrder = segments.Length >= 4 && int.TryParse(segments[3], out var so) ? so : 0;
-            var saveAnalytics = segments.Length >= 5 && bool.TryParse(segments[4], out var sa) && sa;
+            var nameEndIdx = fullCommand.IndexOf('"', nameStartIdx + 1);
+            if (nameEndIdx == -1)
+            {
+                await botClient.SendMessage(chatId, "Invalid command: Network name must be enclosed in double quotes.\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false");
+                return TgResult.Ok;
+            }
+
+            var name = fullCommand.Substring(nameStartIdx + 1, nameEndIdx - nameStartIdx - 1);
+            
+            // Parse the remaining arguments after the quoted name
+            var remainingCommand = fullCommand[(nameEndIdx + 1)..].Trim();
+            var remainingSegments = remainingCommand.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            
+            if (remainingSegments.Length < 1)
+            {
+                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false\nNote: shortname is required.");
+                return TgResult.Ok;
+            }
+
+            var shortName = remainingSegments[0];
+            var sortOrder = remainingSegments.Length >= 2 && int.TryParse(remainingSegments[1], out var so) ? so : 0;
+            var saveAnalytics = remainingSegments.Length >= 3 && bool.TryParse(remainingSegments[2], out var sa) && sa;
 
             string url = null;
             bool disablePongs = false;
 
-            foreach (var seg in segments.Skip(5))
+            foreach (var seg in remainingSegments.Skip(3))
             {
                 var eqIdx = seg.IndexOf('=');
                 if (eqIdx <= 0) continue;
