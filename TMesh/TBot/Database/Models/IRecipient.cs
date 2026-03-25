@@ -1,9 +1,12 @@
-﻿namespace TBot.Database.Models
+﻿using System.Text.Json.Serialization;
+
+namespace TBot.Database.Models
 {
     public interface IRecipient
     {
         public long? RecipientDeviceId { get; }
         public long? RecipientPrivateChannelId { get; }
+        [JsonIgnore]
         public byte[] RecipientKey { get; }
         public byte? RecipientChannelXor { get; }
 

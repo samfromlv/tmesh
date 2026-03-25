@@ -166,7 +166,7 @@ public class MessageLoopService(
         }
     }
 
-    private Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
+    private async Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
     {
         var relayThroughGatewayId = arg.Data.RelayThroughGatewayId;
         if (relayThroughGatewayId.HasValue && !_gatewayNetworkIds.ContainsKey(relayThroughGatewayId.Value))
@@ -174,9 +174,9 @@ public class MessageLoopService(
             relayThroughGatewayId = null;
         }
 
-            meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
+        meshtasticService.StoreNoDup(arg.Data.Message.Packet.Id);
 
-        return mqttService.PublishMeshtasticMessage(
+        await mqttService.PublishMeshtasticMessage(
             arg.Data.NetworkId,
             arg.Data.Message,
             relayThroughGatewayId);
@@ -424,6 +424,10 @@ public class MessageLoopService(
             if (res.msg != null)
             {
                 res.msg.NetworkId = networkId;
+                if (_options.DebugPacketsViaMqtt)
+                {
+                    mqttService.PublishMessageToDebug(res.msg);
+                }
             }
             if (!res.success)
             {

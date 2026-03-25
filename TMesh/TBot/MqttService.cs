@@ -7,7 +7,9 @@ using MQTTnet.Packets;
 using Shared.Models;
 using System.Text;
 using System.Text.Json;
+using TBot.Bot;
 using TBot.Models;
+using TBot.Models.MeshMessages;
 
 namespace TBot
 {
@@ -201,6 +203,38 @@ namespace TBot
             return null;
         }
 
+        public void PublishMessageToDebug<T>(T msg)
+            where T : MeshMessage
+        {
+            if (_client?.IsConnected != true)
+            {
+                return;
+            }
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    const string topic = "TBot/debug/in";
+                    var data = JsonSerializer.Serialize(msg, TgBotService.IdentedOptions);
+                    var message = new MqttApplicationMessageBuilder()
+                       .WithTopic(topic)
+                       .WithPayload(data)
+                       .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtMostOnce)
+                       .Build();
+
+                    if (_client?.IsConnected != true)
+                    {
+                        return;
+                    }
+                    await _client.PublishAsync(message);
+                }
+                catch (Exception x)
+                {
+                    _logger.LogWarning(x, "Failed to publish message to debug");
+                }
+            });
+        }
 
         public async Task PublishMeshtasticMessage(
             int networkId,

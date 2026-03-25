@@ -67,6 +67,8 @@ public class TBotOptions
     /// </summary>
     public MapMqttServerOptions[] MapMqttServers { get; set; }
     public int MaxQueueLengthForChannelAckEmojis { get; set; }
+    public bool DebugPacketsViaMqtt { get; set; }
+
 }
 
 public class MapMqttServerOptions
@@ -82,4 +84,5 @@ public class MapMqttServerOptions
     public bool UplinkEnabled { get; set; }
     public bool AnalyticsDownlinkEnabled { get; set; }
     public int? DefaultNetworkId { get; set; }
+
 }

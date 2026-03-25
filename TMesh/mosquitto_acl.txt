@@ -10,5 +10,7 @@ topic read TProxy/prod/telegram/update
 topic write TBot/prod/status
 topic readwrite msh/RU/+/2/e/#
 topic read msh/RU/+/2/map/
+topic write TBot/debug/out
+topic write TBot/debug/in
 user dev
 topic readwrite #

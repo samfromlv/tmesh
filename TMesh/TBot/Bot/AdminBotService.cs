@@ -186,7 +186,7 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
-            // Usage: add_network <name> <shortname> [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
+            // Usage: add_network <name> (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
             if (segments.Length < 3)
             {
                 await botClient.SendMessage(chatId, "Usage: add_network <name> <shortname> [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false");
@@ -222,7 +222,7 @@ namespace TBot.Bot
             var network = await registrationService.AddNetwork(new Network
             {
                 Name = name,
-                ShortName = shortName,
+                ShortName = shortName == "-" ? null : shortName,
                 SortOrder = sortOrder,
                 SaveAnalytics = saveAnalytics,
                 Url = url,
@@ -620,7 +620,7 @@ namespace TBot.Bot
                 _options.PublicFlasherAddress,
                 _options.MeshtasticNodeNameLong);
 
-           
+
             if (existingGatewayRegistration != null)
             {
                 instructions.Insert(0, $"Gateway *{StringHelper.EscapeMd(device?.NodeName ?? hexId)}* is already registered in this network.\r\n\r\n");

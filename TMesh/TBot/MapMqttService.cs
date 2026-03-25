@@ -40,8 +40,8 @@ namespace TBot
         private readonly MqttClientFactory _mqttClientFactory;
         private readonly IServiceProvider _services;
 
-        private Dictionary<int, (string NetworkShortName, string ChannelName)> _networks;
-        private Dictionary<string, int> _networkByShortName;
+        private Dictionary<int, (string NetworkShortName, string ChannelName, bool SaveAnalytics)> _networks;
+        private ILookup<string, int> _networkByShortName;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
 
@@ -75,14 +75,14 @@ namespace TBot
                 {
                     n.Id,
                     NetworkShortName = n.ShortName,
+                    SaveAnalytics = n.SaveAnalytics,
                     ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
                 };
-            }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName));
+            }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName, x.SaveAnalytics));
 
             _networkByShortName = _networks
                 .Where(x => !string.IsNullOrEmpty(x.Value.NetworkShortName))
-                .DistinctBy(x => x.Value.NetworkShortName)
-                .ToDictionary(x => x.Value.NetworkShortName, x => x.Key);
+                .ToLookup(x => x.Value.NetworkShortName, x => x.Key);
         }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
@@ -240,7 +240,7 @@ namespace TBot
                     }
                     else if (hasNetworkNameToken)
                     {
-                        foreach (var (networkShortName, channelName) in _networks.Values.Where(x => !string.IsNullOrEmpty(x.NetworkShortName)))
+                        foreach (var (networkShortName, channelName, _) in _networks.Values.Where(x => !string.IsNullOrEmpty(x.NetworkShortName) && x.SaveAnalytics).Distinct())
                         {
                             var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
 
@@ -253,7 +253,7 @@ namespace TBot
                     }
                     else
                     {
-                        foreach (var channelName in _networks.Values.Select(x => x.ChannelName).Distinct())
+                        foreach (var channelName in _networks.Values.Where(x => x.SaveAnalytics).Select(x => x.ChannelName).Distinct())
                         {
                             var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
 
@@ -287,7 +287,16 @@ namespace TBot
                 if (payload.Length == 0)
                     return;
 
-                int? networkId = GetNetworkIdFromTopic(args.ApplicationMessage.Topic, server);
+                int? networkId = GetNetworkIdFromTopicWithSaveAnalyticsEnabled(args.ApplicationMessage.Topic, server);
+
+                if (networkId.HasValue)
+                {
+                    var network = _networks.GetValueOrDefault(networkId.Value);
+                    if (!network.SaveAnalytics)
+                    {
+                        return;
+                    }
+                }
 
                 ServiceEnvelope env;
                 try
@@ -310,7 +319,7 @@ namespace TBot
             }
         }
 
-        private int? GetNetworkIdFromTopic(string topic, MapMqttServerOptions server)
+        private int? GetNetworkIdFromTopicWithSaveAnalyticsEnabled(string topic, MapMqttServerOptions server)
         {
             var networkNameTokenIndex = server.EncryptedTopicPrefix.IndexOf(NetworkShortNameToken);
             if (networkNameTokenIndex < 0)
@@ -327,8 +336,16 @@ namespace TBot
             {
                 return server.DefaultNetworkId;
             }
-            var networkId = _networkByShortName.GetValueOrDefault(networkShortName);
-            return networkId != 0 ? networkId : server.DefaultNetworkId;
+            var networkIds = _networkByShortName[networkShortName];
+            foreach (var id in networkIds)
+            {
+                var network = _networks.GetValueOrDefault(id);
+                if (network.SaveAnalytics)
+                {
+                    return id;
+                }
+            }
+            return server.DefaultNetworkId;
         }
 
         public async ValueTask DisposeAsync()
