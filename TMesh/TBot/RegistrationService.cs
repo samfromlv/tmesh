@@ -1085,6 +1085,110 @@ namespace TBot
             return networkChannels.Any(c => c.Name == channelName && c.Key.SequenceEqual(key));
         }
 
+        // ── TgChat / Chat feature ───────────────────────────────────────────────
+
+        public async Task<TBot.Database.Models.TgChat> GetTgChatByChatIdAsync(long chatId)
+        {
+            return await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+        }
+
+        public async Task<TBot.Database.Models.TgChat> GetTgChatByHandleAsync(string handle)
+        {
+            if (string.IsNullOrEmpty(handle)) return null;
+            var normalized = handle.TrimStart('@').ToLowerInvariant();
+            return await db.TgChats
+                .Where(c => c.IsActive && c.TelegramUserHandle != null)
+                .FirstOrDefaultAsync(c => c.TelegramUserHandle.ToLower() == normalized);
+        }
+
+        public async Task<TBot.Database.Models.TgChat> RegisterTgChatAsync(long chatId, long telegramUserId, string handle)
+        {
+            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            var now = DateTime.UtcNow;
+            if (entity == null)
+            {
+                entity = new TBot.Database.Models.TgChat
+                {
+                    ChatId = chatId,
+                    TelegramUserId = telegramUserId,
+                    TelegramUserHandle = NormalizeHandle(handle),
+                    IsActive = true,
+                    CreatedUtc = now
+                };
+                db.TgChats.Add(entity);
+            }
+            else
+            {
+                entity.TelegramUserId = telegramUserId;
+                entity.TelegramUserHandle = NormalizeHandle(handle);
+                entity.IsActive = true;
+            }
+            await db.SaveChangesAsync();
+            memoryCache.Remove($"TgChatByHandle#{NormalizeHandle(handle)}");
+            return entity;
+        }
+
+        public async Task<bool> DisableTgChatAsync(long chatId)
+        {
+            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            if (entity == null) return false;
+            entity.IsActive = false;
+            await db.SaveChangesAsync();
+            if (entity.TelegramUserHandle != null)
+                memoryCache.Remove($"TgChatByHandle#{entity.TelegramUserHandle}");
+            return true;
+        }
+
+        public async Task<bool> IsDeviceApprovedForChatAsync(long tgChatId, long deviceId)
+        {
+            return await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId);
+        }
+
+        public async Task ApproveDeviceForChatAsync(long tgChatId, long deviceId)
+        {
+            var exists = await db.TgChatApprovedDevices
+                .AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId);
+            if (!exists)
+            {
+                db.TgChatApprovedDevices.Add(new TBot.Database.Models.TgChatApprovedDevice
+                {
+                    TgChatId = tgChatId,
+                    DeviceId = deviceId,
+                    CreatedUtc = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task UpdateLastChatDeviceAsync(long tgChatId, long deviceId)
+        {
+            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.Id == tgChatId);
+            if (entity != null)
+            {
+                entity.LastChatDeviceId = deviceId;
+                entity.LastChatStartDate = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task<List<TgChat>> GetAllActiveTgChatsAsync()
+        {
+            return await db.TgChats.Where(c => c.IsActive).ToListAsync();
+        }
+
+        public async Task<List<Device>> GetAllDevicesAsync()
+        {
+            return await db.Devices.ToListAsync();
+        }
+
+        private static string NormalizeHandle(string handle)
+        {
+            if (string.IsNullOrEmpty(handle)) return null;
+            return handle.TrimStart('@').ToLowerInvariant();
+        }
+
+        // ── end TgChat ──────────────────────────────────────────────────────────
+
         internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs)
         {
             var entity = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);

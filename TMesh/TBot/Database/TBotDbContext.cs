@@ -12,6 +12,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
     public DbSet<Network> Networks => Set<Network>();
     public DbSet<ChannelRegistration> ChannelRegistrations => Set<ChannelRegistration>();
     public DbSet<GatewayRegistration> GatewayRegistrations => Set<GatewayRegistration>();
+    public DbSet<TgChat> TgChats => Set<TgChat>();
+    public DbSet<TgChatApprovedDevice> TgChatApprovedDevices => Set<TgChatApprovedDevice>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceRegistration>(e =>
@@ -171,6 +173,35 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasIndex(p => p.IsPrimary);
         }
         );
+
+        modelBuilder.Entity<TgChat>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).ValueGeneratedOnAdd();
+            e.Property(p => p.ChatId).IsRequired();
+            e.Property(p => p.TelegramUserId).IsRequired();
+            e.Property(p => p.TelegramUserHandle);
+            e.Property(p => p.IsActive).IsRequired();
+            e.Property(p => p.CreatedUtc).IsRequired();
+            e.Property(p => p.LastChatDeviceId);
+            e.Property(p => p.LastChatStartDate);
+
+            e.HasIndex(p => p.ChatId).IsUnique();
+            e.HasIndex(p => p.TelegramUserId);
+            e.HasIndex(p => p.TelegramUserHandle);
+        });
+
+        modelBuilder.Entity<TgChatApprovedDevice>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).ValueGeneratedOnAdd();
+            e.Property(p => p.TgChatId).IsRequired();
+            e.Property(p => p.DeviceId).IsRequired();
+            e.Property(p => p.CreatedUtc).IsRequired();
+
+            e.HasIndex(p => new { p.TgChatId, p.DeviceId }).IsUnique();
+            e.HasIndex(p => p.DeviceId);
+        });
     }
 }
 

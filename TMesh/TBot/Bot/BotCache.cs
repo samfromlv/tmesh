@@ -143,5 +143,111 @@ namespace TBot.Bot
             }, DateTime.UtcNow.AddSeconds(_options.DirectGatewayRoutingSeconds));
         }
 
+        // ── Active chat sessions ──────────────────────────────────────────────
+
+        private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromHours(1);
+
+        public void StoreActiveMeshChat(long chatId, long deviceId)
+        {
+            memoryCache.Set(ActiveChatKey(chatId, deviceId), true, ChatSessionTtl);
+        }
+
+        public bool HasActiveMeshChat(long chatId, long deviceId)
+        {
+            return memoryCache.TryGetValue(ActiveChatKey(chatId, deviceId), out _);
+        }
+
+        public void RemoveActiveMeshChat(long chatId, long deviceId)
+        {
+            memoryCache.Remove(ActiveChatKey(chatId, deviceId));
+        }
+
+        public void AddActiveChatDevice(long chatId, long deviceId)
+        {
+            StoreActiveMeshChat(chatId, deviceId);
+            var listKey = ActiveChatListKey(chatId);
+            var list = memoryCache.Get<HashSet<long>>(listKey) ?? new HashSet<long>();
+            list.Add(deviceId);
+            memoryCache.Set(listKey, list, ChatSessionTtl);
+        }
+
+        public void RemoveActiveChatDevice(long chatId, long deviceId)
+        {
+            RemoveActiveMeshChat(chatId, deviceId);
+            var listKey = ActiveChatListKey(chatId);
+            if (memoryCache.TryGetValue<HashSet<long>>(listKey, out var list))
+            {
+                list.Remove(deviceId);
+                if (list.Count > 0)
+                    memoryCache.Set(listKey, list, ChatSessionTtl);
+                else
+                    memoryCache.Remove(listKey);
+            }
+        }
+
+        public HashSet<long> GetActiveChatDevices(long chatId)
+        {
+            return memoryCache.Get<HashSet<long>>(ActiveChatListKey(chatId)) ?? new HashSet<long>();
+        }
+
+        public void StorePendingChatRequest_MeshToTg(long deviceId, long tgChatId)
+        {
+            memoryCache.Set(PendingMeshToTgKey(deviceId), tgChatId, TimeSpan.FromMinutes(10));
+            memoryCache.Set(PendingMeshToTgReverseKey(tgChatId), deviceId, TimeSpan.FromMinutes(10));
+        }
+
+        public long? GetPendingChatRequest_MeshToTg(long deviceId)
+        {
+            if (memoryCache.TryGetValue<long>(PendingMeshToTgKey(deviceId), out var v)) return v;
+            return null;
+        }
+
+        public long? GetPendingChatRequest_MeshToTg_ByChatId(long chatId)
+        {
+            if (memoryCache.TryGetValue<long>(PendingMeshToTgReverseKey(chatId), out var deviceId)) return deviceId;
+            return null;
+        }
+
+        public void RemovePendingChatRequest_MeshToTg(long deviceId)
+        {
+            if (memoryCache.TryGetValue<long>(PendingMeshToTgKey(deviceId), out var chatId))
+            {
+                memoryCache.Remove(PendingMeshToTgReverseKey(chatId));
+            }
+            memoryCache.Remove(PendingMeshToTgKey(deviceId));
+        }
+
+        public void StorePendingChatRequest_TgToMesh(long chatId, long deviceId)
+        {
+            memoryCache.Set(PendingTgToMeshKey(chatId, deviceId), true, TimeSpan.FromMinutes(10));
+            memoryCache.Set(PendingTgToMeshReverseKey(chatId), deviceId, TimeSpan.FromMinutes(10));
+        }
+
+        public bool HasPendingChatRequest_TgToMesh(long chatId, long deviceId)
+        {
+            return memoryCache.TryGetValue(PendingTgToMeshKey(chatId, deviceId), out _);
+        }
+
+        public long? GetPendingChatRequest_TgToMesh(long chatId)
+        {
+            if (memoryCache.TryGetValue<long>(PendingTgToMeshReverseKey(chatId), out var deviceId)) return deviceId;
+            return null;
+        }
+
+        public void RemovePendingChatRequest_TgToMesh(long chatId, long deviceId)
+        {
+            memoryCache.Remove(PendingTgToMeshKey(chatId, deviceId));
+            memoryCache.Remove(PendingTgToMeshReverseKey(chatId));
+        }
+
+        // ── end active chat sessions ──────────────────────────────────────────
+
+        private static string ActiveChatKey(long chatId, long deviceId) => $"ActiveChat_{chatId}_{deviceId}";
+        private static string ActiveChatListKey(long chatId) => $"ActiveChatList_{chatId}";
+        private static string PendingMeshToTgKey(long deviceId) => $"PendingChatMeshToTg_{deviceId}";
+        private static string PendingMeshToTgReverseKey(long chatId) => $"PendingChatMeshToTgReverse_{chatId}";
+        private static string PendingTgToMeshKey(long chatId, long deviceId) => $"PendingChatTgToMesh_{chatId}_{deviceId}";
+        private static string PendingTgToMeshReverseKey(long chatId) => $"PendingChatTgToMeshReverse_{chatId}";
+
     }
 }
