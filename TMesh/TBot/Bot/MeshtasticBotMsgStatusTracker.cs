@@ -1,10 +1,6 @@
-﻿using Meshtastic.Discovery;
+﻿using Meshtastic.Protobufs;
 using Microsoft.Extensions.Options;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.MeshMessages;
@@ -16,8 +12,11 @@ namespace TBot.Bot
 {
     public class MeshtasticBotMsgStatusTracker(TelegramBotClient botClient,
         BotCache botCache,
-        MeshtasticService meshtasticService)
+        MeshtasticService meshtasticService,
+        RegistrationService regService,
+        IOptions<TBotOptions> options)
     {
+        private readonly TBotOptions _options = options.Value;
         public List<MeshtasticMessageStatus> TrackedMessages { get; private set; }
 
         public Task SendAndTrackMeshtasticMessage(
@@ -128,9 +127,10 @@ namespace TBot.Bot
         }
 
         public async Task UpdateMeshMessageStatus(
-      long meshMessageId,
-      DeliveryStatus newStatus,
-      DeliveryStatus? maxCurrentStatus = null)
+          long meshMessageId,
+          DeliveryStatus newStatus,
+          string replyText = null,
+          DeliveryStatus? maxCurrentStatus = null)
         {
             var status = botCache.GetMeshMessageStatus(meshMessageId);
             if (status == null)
@@ -159,6 +159,18 @@ namespace TBot.Bot
                 }
             }
             await ReportStatus(status);
+            if (replyText != null)
+            {
+                await botClient.SendMessage(
+                    status.TelegramChatId,
+                    replyText,
+                    replyParameters: new ReplyParameters
+                    {
+                        AllowSendingWithoutReply = true,
+                        ChatId = status.TelegramChatId,
+                        MessageId = status.TelegramMessageId,
+                    });
+            }
         }
 
         public async Task ResolveMessageStatus(long chatId, int telegramMessageId)
@@ -257,11 +269,38 @@ namespace TBot.Bot
             foreach (var item in batch)
             {
                 botCache.StoreDeviceGateway(item);
+
+                var status = item.Success ? DeliveryStatus.Delivered : DeliveryStatus.Failed;
+                var replyText = GetRoutingErrorReply(item.Error);
+
+                if (item.Error == Routing.Types.Error.PkiUnknownPubkey
+                    && item.DeviceId != MeshtasticService.BroadcastDeviceId)
+                {
+                    var primaryChannel = await regService.GetNetworkPrimaryChannelCached(item.NetworkId);
+                    if (primaryChannel != null)
+                    {
+                        meshtasticService.SendVirtualNodeInfo(
+                            primaryChannel.Name,
+                            primaryChannel,
+                            item.DeviceId,
+                            item.GatewayId);
+                    }
+                }
+
                 await UpdateMeshMessageStatus(item.AckedMessageId,
-                    item.Success
-                    ? DeliveryStatus.Delivered
-                    : DeliveryStatus.Failed);
+                    status,
+                    replyText);
             }
+        }
+
+        private string GetRoutingErrorReply(Routing.Types.Error error)
+        {
+            return error switch
+            {
+                Routing.Types.Error.None => null,
+                Routing.Types.Error.PkiUnknownPubkey => $"Device received the message but was not able to decrypt it because it has no key of the {_options.MeshtasticNodeNameLong}. {_options.MeshtasticNodeNameLong} has sent its key to the node. Please try again.",
+                _ => $"Message was delivered to the device but device replied with error - {error} (code: {(int)error})"
+            };
         }
 
         public async Task ProcessMessageSent(long meshtasticMessageId)
@@ -281,7 +320,7 @@ namespace TBot.Bot
             botCache.StoreTelegramMessageStatus(networkId, chatId, messageId, status);
             if (trackForStatusResolve)
             {
-                TrackedMessages ??= new List<MeshtasticMessageStatus>(); 
+                TrackedMessages ??= new List<MeshtasticMessageStatus>();
                 TrackedMessages.Add(status);
             }
         }

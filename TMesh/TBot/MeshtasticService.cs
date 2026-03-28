@@ -691,17 +691,23 @@ namespace TBot
             return byteCount <= MaxTextMessageBytes;
         }
 
-        public void SendVirtualNodeInfo(string primaryChannelName, IRecipient primaryChannel)
+        public void SendVirtualNodeInfo(
+            string primaryChannelName, 
+            IRecipient primaryChannel, 
+            long destinationDeviceId = BroadcastDeviceId,
+            long? relayThroughGatewayId = null)
         {
-            var packet = CreateTMeshVirtualNodeInfo(primaryChannel);
+            var packet = CreateTMeshVirtualNodeInfo(primaryChannel, destinationDeviceId);
             var envelope = CreateMeshtasticEnvelope(packet, primaryChannelName);
             var id = envelope.Packet.Id;
             StoreNoDup(id);
-            _localMessageQueueService.EnqueueMessage(new QueuedMessage
-            {
-                NetworkId = primaryChannel.NetworkId,
-                Message = envelope
-            }, MessagePriority.Low);
+            QueueMessage(
+                envelope,
+                primaryChannel.NetworkId,
+                destinationDeviceId == BroadcastDeviceId
+                    ? MessagePriority.Low
+                    : MessagePriority.High,
+                relayThroughGatewayId);
         }
 
         public void StoreNoDup(uint id)
@@ -781,13 +787,13 @@ namespace TBot
             return mac;
         }
 
-        private MeshPacket CreateTMeshVirtualNodeInfo(IRecipient primaryChannel)
+        private MeshPacket CreateTMeshVirtualNodeInfo(IRecipient primaryChannel, long destinationDeviceId = BroadcastDeviceId)
         {
             var packet = new MeshPacket()
             {
                 Channel = 0,
                 WantAck = false,
-                To = BroadcastDeviceId,
+                To = (uint)destinationDeviceId,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Background,
                 Id = GenerateNewMessageId(),
@@ -1198,11 +1204,13 @@ namespace TBot
         private static AckMessage DecodeAck(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             var routing = Routing.Parser.ParseFrom(decoded.Payload);
+
             var msg = MeshMessage.FromEnvelope<AckMessage>(envelope, decoded, recipient);
             msg.NeedAck = false;
             msg.AckedMessageId = decoded.RequestId;
             msg.IsPkiEncrypted = envelope.Packet.PkiEncrypted;
             msg.Success = routing.ErrorReason == Routing.Types.Error.None;
+            msg.Error = routing.ErrorReason;
             return msg;
         }
 

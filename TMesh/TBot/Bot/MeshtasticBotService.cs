@@ -67,17 +67,14 @@ namespace TBot.Bot
 
         private async Task SendNoPublicKeyNak(MeshMessage message)
         {
-            if (message.NeedAck)
+            var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
+            if (primaryChannel != null)
             {
-                var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
-                if (primaryChannel != null)
-                {
-                    meshtasticService.AckMeshtasticMessage(message, primaryChannel, message.GatewayId);
-                }
-                else
-                {
-                    logger.LogWarning("Received encrypted direct message for network {NetworkId} without primary channel, cannot send ack", message.NetworkId);
-                }
+                meshtasticService.NakNoPubKeyMeshtasticMessage(message, message.GatewayId, primaryChannel);
+            }
+            else
+            {
+                logger.LogWarning("Received encrypted direct message for network {NetworkId} without primary channel, cannot send ack", message.NetworkId);
             }
         }
 
