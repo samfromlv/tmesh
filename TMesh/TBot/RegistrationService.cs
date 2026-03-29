@@ -786,6 +786,20 @@ namespace TBot
             memoryCache.Remove(GetDeviceCacheKey(deviceId));
         }
 
+        public async Task RemoveAllForTgChat(long chatId)
+        {
+            var deviceRegs = await GetDeviceKeysByChatIdCached(chatId);
+            foreach (var reg in deviceRegs)
+            {
+                await RemoveDeviceFromChatAsync(chatId, reg.DeviceId);
+            }
+            var channelRegs = await GetChannelKeysByChatIdCached(chatId);
+            foreach (var reg in channelRegs)
+            {
+                await RemoveChannelFromChat(chatId, (int)reg.Id);
+            }
+        }
+
 
         // Remove all registrations for a device in a chat (any user can remove)
         public async Task<bool> RemoveDeviceFromChatAsync(long chatId, long deviceId)

@@ -11,6 +11,7 @@ using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.MeshMessages;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -155,15 +156,17 @@ namespace TBot.Bot
 
             foreach (var chatId in chatIds)
             {
-                await botClient.SendMessage(
+                var msg = await TrySendMessage(
                     chatId,
                     $"{deviceOrNull.NodeName} sent a location:");
+                if (msg == null) continue;
+
                 await botClient.SendLocation(
-                    chatId,
-                    message.Latitude,
-                    message.Longitude,
-                    heading: message.HeadingDegrees,
-                    horizontalAccuracy: Math.Min(message.AccuracyMeters, 1500));
+                        chatId,
+                        message.Latitude,
+                        message.Longitude,
+                        heading: message.HeadingDegrees,
+                        horizontalAccuracy: Math.Min(message.AccuracyMeters, 1500));
             }
 
         }
@@ -301,15 +304,18 @@ namespace TBot.Bot
                 if (replyToStatus != null
                         && chatIds.Any(x => x == replyToStatus.TelegramChatId))
                 {
-                    var msg = await botClient.SendMessage(
-                        replyToStatus.TelegramChatId,
-                        $"{deviceName} [#{channel.Name}]: {text}",
+                    var msg = await TrySendMessage(
+                        chatId: replyToStatus.TelegramChatId,
+                        text: $"{deviceName} [#{channel.Name}]: {text}",
                         replyParameters: new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
                             ChatId = replyToStatus.TelegramChatId,
                             MessageId = replyToStatus.TelegramMessageId,
                         });
+
+                    if (msg == null)
+                        return;
 
                     var status = new MeshtasticMessageStatus
                     {
@@ -341,9 +347,11 @@ namespace TBot.Bot
             {
                 foreach (var chatId in chatIds)
                 {
-                    var msg = await botClient.SendMessage(
-                        chatId,
-                        $"{deviceName} [#{channel.Name}]: {text}");
+                    var msg = await TrySendMessage(
+                        chatId: chatId,
+                        text: $"{deviceName} [#{channel.Name}]: {text}");
+
+                    if (msg == null) continue;
 
                     var status = new MeshtasticMessageStatus
                     {
@@ -378,6 +386,21 @@ namespace TBot.Bot
                     channel,
                     isEmoji: true);
             }
+        }
+
+
+
+        private Task<Message> TrySendMessage(
+          long chatId,
+          string text,
+          ReplyParameters replyParameters = null)
+        {
+            return botClient.TrySendMessage(
+                 registrationService,
+                 logger,
+                 chatId,
+                 text,
+                 replyParameters);
         }
 
         private async Task ProcessInboundDirectMeshTextMessage(TextMessage message, Device deviceOrNull)
@@ -445,15 +468,19 @@ namespace TBot.Bot
                 if (replyToStatus != null
                         && chatIds.Any(x => x == replyToStatus.TelegramChatId))
                 {
-                    var msg = await botClient.SendMessage(
-                        replyToStatus.TelegramChatId,
-                        $"{deviceOrNull.NodeName}: {text}",
+                    var msg = await TrySendMessage(
+                        chatId: replyToStatus.TelegramChatId,
+                        text: $"{deviceOrNull.NodeName}: {text}",
                         replyParameters: new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
                             ChatId = replyToStatus.TelegramChatId,
                             MessageId = replyToStatus.TelegramMessageId,
                         });
+
+                    if (msg == null)
+                        return;
+
 
                     var status = new MeshtasticMessageStatus
                     {
@@ -486,9 +513,12 @@ namespace TBot.Bot
             {
                 foreach (var chatId in chatIds)
                 {
-                    var msg = await botClient.SendMessage(
-                        chatId,
-                        $"{deviceOrNull.NodeName}: {text}");
+                    var msg = await TrySendDeviceTgMessage(
+                        deviceId: message.DeviceId,
+                        chatId: chatId,
+                        text: $"{deviceOrNull.NodeName}: {text}");
+
+                    if (msg == null) continue;
 
                     var status = new MeshtasticMessageStatus
                     {
@@ -535,9 +565,10 @@ namespace TBot.Bot
             var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
             foreach (var chatId in chatIds)
             {
-                await botClient.SendMessage(
-                    chatId,
-                    $"{deviceOrNull.NodeName} trace\r\n" + text);
+                await TrySendDeviceTgMessage(
+                    deviceId: message.DeviceId,
+                    chatId: chatId,
+                    text: $"{deviceOrNull.NodeName} trace\r\n" + text);
             }
         }
 
@@ -570,9 +601,10 @@ namespace TBot.Bot
                 var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
                 foreach (var chatId in chatIds)
                 {
-                    await botClient.SendMessage(
-                        chatId,
-                        $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automaticly after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
+                    await TrySendDeviceTgMessage(
+                        deviceId: message.DeviceId,
+                        chatId: chatId,
+                        text: $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
                 }
             }
         }

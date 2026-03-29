@@ -1,10 +1,13 @@
 ﻿using Meshtastic.Protobufs;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using TBot.Database.Models;
+using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.MeshMessages;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -14,7 +17,8 @@ namespace TBot.Bot
         BotCache botCache,
         MeshtasticService meshtasticService,
         RegistrationService regService,
-        IOptions<TBotOptions> options)
+        IOptions<TBotOptions> options,
+        ILogger<MeshtasticBotMsgStatusTracker> logger)
     {
         private readonly TBotOptions _options = options.Value;
         public List<MeshtasticMessageStatus> TrackedMessages { get; private set; }
@@ -161,7 +165,9 @@ namespace TBot.Bot
             await ReportStatus(status);
             if (replyText != null)
             {
-                await botClient.SendMessage(
+                await botClient.TrySendMessage(
+                    regService,
+                    logger,
                     status.TelegramChatId,
                     replyText,
                     replyParameters: new ReplyParameters
@@ -206,17 +212,35 @@ namespace TBot.Bot
                 var deliveryStatus = status.MeshMessages.First().Value;
                 string reactionEmoji = ConvertDeliveryStatusToString(deliveryStatus.Status);
 
-                await botClient.SetMessageReaction(
-                          status.TelegramChatId,
-                          status.TelegramMessageId,
-                          [reactionEmoji]);
+                try
+                {
+                    await botClient.SetMessageReaction(
+                              status.TelegramChatId,
+                              status.TelegramMessageId,
+                              [reactionEmoji]);
+                }
+                catch (ApiRequestException e) when (e.IsChatGoneError())
+                {
+                    await regService.RemoveAllForTgChat(status.TelegramChatId);
+                    return;
+                }
 
                 int? deletedReplyId = status.BotReplyId;
                 if (deletedReplyId != null)
                 {
-                    await botClient.DeleteMessage(
-                        status.TelegramChatId,
-                        deletedReplyId.Value);
+
+                    try
+                    {
+                        await botClient.DeleteMessage(
+                            status.TelegramChatId,
+                            deletedReplyId.Value);
+                    }
+                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError() || e.IsChatGoneError())
+                    {
+                        // If the message was already deleted or chat is gone, we can ignore it
+                        return;
+                    }
+
                     if (deletedReplyId == status.BotReplyId)
                     {
                         status.BotReplyId = null;
@@ -242,14 +266,24 @@ namespace TBot.Bot
                 }
                 if (status.BotReplyId != null)
                 {
-                    await botClient.EditMessageText(
-                        status.TelegramChatId,
-                        status.BotReplyId.Value,
-                        sb.ToString());
+                    try
+                    {
+                        await botClient.EditMessageText(
+                            status.TelegramChatId,
+                            status.BotReplyId.Value,
+                            sb.ToString());
+                    }
+                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError() || e.IsChatGoneError())
+                    {
+                        // If the message was already deleted or chat is gone, we can ignore it
+                        return;
+                    }
                 }
                 else
                 {
-                    var replyMsg = await botClient.SendMessage(
+                    var replyMsg = await botClient.TrySendMessage(
+                           regService,
+                           logger,
                            status.TelegramChatId,
                            sb.ToString(),
                            replyParameters: new ReplyParameters
@@ -258,6 +292,11 @@ namespace TBot.Bot
                                ChatId = status.TelegramChatId,
                                MessageId = status.TelegramMessageId,
                            });
+
+                    if (replyMsg == null)
+                    {
+                        return;
+                    }
 
                     status.BotReplyId = replyMsg.MessageId;
                 }
