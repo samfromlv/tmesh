@@ -216,7 +216,7 @@ namespace TBot
                 try
                 {
                     const string topic = "TBot/debug/in";
-                    var data = JsonSerializer.Serialize(msg, TgBotService.IdentedOptions);
+                    var data = JsonSerializer.Serialize(msg, msg.GetType(), TgBotService.IdentedOptions);
                     var message = new MqttApplicationMessageBuilder()
                        .WithTopic(topic)
                        .WithPayload(data)
