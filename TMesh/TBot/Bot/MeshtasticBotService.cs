@@ -513,8 +513,7 @@ namespace TBot.Bot
             {
                 foreach (var chatId in chatIds)
                 {
-                    var msg = await TrySendDeviceTgMessage(
-                        deviceId: message.DeviceId,
+                    var msg = await TrySendMessage(
                         chatId: chatId,
                         text: $"{deviceOrNull.NodeName}: {text}");
 
@@ -565,8 +564,7 @@ namespace TBot.Bot
             var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
             foreach (var chatId in chatIds)
             {
-                await TrySendDeviceTgMessage(
-                    deviceId: message.DeviceId,
+                await TrySendMessage(
                     chatId: chatId,
                     text: $"{deviceOrNull.NodeName} trace\r\n" + text);
             }
@@ -601,8 +599,7 @@ namespace TBot.Bot
                 var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
                 foreach (var chatId in chatIds)
                 {
-                    await TrySendDeviceTgMessage(
-                        deviceId: message.DeviceId,
+                    await TrySendMessage(
                         chatId: chatId,
                         text: $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
                 }
