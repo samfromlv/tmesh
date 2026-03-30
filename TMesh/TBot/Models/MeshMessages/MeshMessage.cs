@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using TBot.Database.Models;
 
@@ -12,6 +13,10 @@ namespace TBot.Models.MeshMessages
     public abstract class MeshMessage
     {
         public long Id { get; set; }
+
+        public string HexId => MeshtasticService.GetMeshtasticNodeHexId(DeviceId);
+
+        public string MessageTypeStr => MessageType.ToString();
 
         public int NetworkId { get; set; }
         public abstract MeshMessageType MessageType { get; }

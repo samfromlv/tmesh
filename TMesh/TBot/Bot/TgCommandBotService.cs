@@ -896,7 +896,6 @@ namespace TBot.Bot
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}). Please reply with the received code here. The code is valid for 5 minutes.");
 
-
             registrationService.SetChatState(userId, chatId, ChatState.AddingDevice_NeedCode);
 
             return new TgResult(new OutgoingTextMessage

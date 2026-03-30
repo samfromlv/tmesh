@@ -7,6 +7,7 @@ using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -203,7 +204,7 @@ namespace TBot.Bot
 
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
 
-            if (chatStateWithData != null 
+            if (chatStateWithData != null
                 && chatStateWithData.State != ChatState.Default
                 && chatStateWithData.State != ChatState.Admin)
             {
@@ -468,7 +469,12 @@ namespace TBot.Bot
 
             foreach (var chatId in chatIds)
             {
-                await botClient.SendMessage(chatId, text, parseMode: ParseMode.Markdown);
+                await botClient.TrySendMessage(
+                    registrationService,
+                    logger,
+                    chatId,
+                    text,
+                    parseMode: ParseMode.Markdown);
             }
         }
         internal async Task NotifyNewGatewaySeen(long gatewayId)
@@ -490,7 +496,11 @@ namespace TBot.Bot
             }
             foreach (var id in chatIds)
             {
-                await botClient.SendMessage(id, $"First packet received from gateway {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)}. Gateway is now online.");
+                await botClient.TrySendMessage(
+                    registrationService,
+                    logger,
+                    id,
+                    $"First packet received from gateway {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)}. Gateway is now online.");
             }
         }
     }
