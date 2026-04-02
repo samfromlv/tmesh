@@ -193,10 +193,12 @@ namespace TBot
             }
         }
 
+        public const int CodeLength = 6;
+
         public static string GenerateRandomCode()
         {
-            return Random.Shared.Next(0, 1_000_000)
-                .ToString("D6");
+            return Random.Shared.Next(0, (int)Math.Pow(10, CodeLength))
+                .ToString($"D{CodeLength}");
         }
 
         public ChatStateWithData GetChatState(long telegramUserId, long chatId)
@@ -1106,40 +1108,67 @@ namespace TBot
             return await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
         }
 
-        public async Task<TBot.Database.Models.TgChat> GetTgChatByHandleAsync(string handle)
+        public async Task<TgChat> GetTgChatByNameAsync(string chatName)
         {
-            if (string.IsNullOrEmpty(handle)) return null;
-            var normalized = handle.TrimStart('@').ToLowerInvariant();
-            return await db.TgChats
-                .Where(c => c.IsActive && c.TelegramUserHandle != null)
-                .FirstOrDefaultAsync(c => c.TelegramUserHandle.ToLower() == normalized);
+            if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{chatName}", out var cached))
+            {
+                return cached;
+            }
+
+            if (string.IsNullOrEmpty(chatName)) return null;
+            var normalized = chatName.ToLowerInvariant();
+            var entity = await db.TgChats
+                .FirstOrDefaultAsync(c => c.IsActive && c.ChatName == normalized);
+
+            if (entity != null)
+            {
+                memoryCache.Set($"TgChatByName#{chatName}", entity, TimeSpan.FromMinutes(10));
+            }
+            return entity;
         }
 
-        public async Task<TBot.Database.Models.TgChat> RegisterTgChatAsync(long chatId, long telegramUserId, string handle)
+        public async Task<bool> TgChatNameTaken(string chatName, bool isPrivate)
         {
-            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
-            var now = DateTime.UtcNow;
-            if (entity == null)
+            var normalized = NormalizeChatName(chatName, isPrivate);
+            return await db.TgChats.AnyAsync(c => c.ChatName == normalized);
+        }
+
+        public async Task<TgChat> RegisterTgChatAsync(long chatId, string chatName, bool isPrivate)
+        {
+            var normalizedName = NormalizeChatName(chatName, isPrivate);
+
+            var byNameEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatName == normalizedName);
+            if (byNameEntity != null && byNameEntity.ChatId != chatId)
             {
-                entity = new TBot.Database.Models.TgChat
+                throw new Exception($"Chat name {chatName} is already taken by another chat");
+            }
+
+            var byChatEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            var now = DateTime.UtcNow;
+            string oldName = null;
+            if (byChatEntity == null)
+            {
+                byChatEntity = new TgChat
                 {
                     ChatId = chatId,
-                    TelegramUserId = telegramUserId,
-                    TelegramUserHandle = NormalizeHandle(handle),
+                    ChatName = normalizedName,
+                    IsPrivate = isPrivate,
                     IsActive = true,
                     CreatedUtc = now
                 };
-                db.TgChats.Add(entity);
+                db.TgChats.Add(byChatEntity);
             }
             else
             {
-                entity.TelegramUserId = telegramUserId;
-                entity.TelegramUserHandle = NormalizeHandle(handle);
-                entity.IsActive = true;
+                oldName = byChatEntity.ChatName;
+                byChatEntity.ChatName = chatName;
+                byChatEntity.IsPrivate = isPrivate;
+                byChatEntity.IsActive = true;
             }
             await db.SaveChangesAsync();
-            memoryCache.Remove($"TgChatByHandle#{NormalizeHandle(handle)}");
-            return entity;
+            memoryCache.Remove($"TgChatByName#{oldName}");
+            memoryCache.Set($"TgChatByName#{normalizedName}", byChatEntity, TimeSpan.FromMinutes(10));
+            return byChatEntity;
         }
 
         public async Task<bool> DisableTgChatAsync(long chatId)
@@ -1148,14 +1177,23 @@ namespace TBot
             if (entity == null) return false;
             entity.IsActive = false;
             await db.SaveChangesAsync();
-            if (entity.TelegramUserHandle != null)
-                memoryCache.Remove($"TgChatByHandle#{entity.TelegramUserHandle}");
+            if (entity.ChatName != null)
+                memoryCache.Remove($"TgChatByName#{entity.ChatName}");
             return true;
         }
 
-        public async Task<bool> IsDeviceApprovedForChatAsync(long tgChatId, long deviceId)
+        public async Task<bool> IsDeviceApprovedForChatAsync(long? tgChatId, long deviceId)
         {
-            return await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId);
+            return ( tgChatId.HasValue && 
+                    await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId))
+                || await db.DeviceRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.DeviceId == deviceId);
+        }
+
+        public async Task<bool> IsChannelApprovedForChatAsync(long? tgChatId, int channelId)
+        {
+            return (tgChatId.HasValue && 
+                    await db.TgChatApprovedChannels.AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId))
+                || await db.ChannelRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.ChannelId == channelId);
         }
 
         public async Task ApproveDeviceForChatAsync(long tgChatId, long deviceId)
@@ -1164,7 +1202,7 @@ namespace TBot
                 .AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId);
             if (!exists)
             {
-                db.TgChatApprovedDevices.Add(new TBot.Database.Models.TgChatApprovedDevice
+                db.TgChatApprovedDevices.Add(new TgChatApprovedDevice
                 {
                     TgChatId = tgChatId,
                     DeviceId = deviceId,
@@ -1174,20 +1212,20 @@ namespace TBot
             }
         }
 
-        public async Task UpdateLastChatDeviceAsync(long tgChatId, long deviceId)
+        public async Task ApproveChannelForChatAsync(long tgChatId, int channelId)
         {
-            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.Id == tgChatId);
-            if (entity != null)
+            var exists = await db.TgChatApprovedChannels
+                .AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId);
+            if (!exists)
             {
-                entity.LastChatDeviceId = deviceId;
-                entity.LastChatStartDate = DateTime.UtcNow;
+                db.TgChatApprovedChannels.Add(new TgChatApprovedChannel
+                {
+                    TgChatId = tgChatId,
+                    ChannelId = channelId,
+                    CreatedUtc = DateTime.UtcNow
+                });
                 await db.SaveChangesAsync();
             }
-        }
-
-        public async Task<List<TgChat>> GetAllActiveTgChatsAsync()
-        {
-            return await db.TgChats.Where(c => c.IsActive).ToListAsync();
         }
 
         public async Task<List<Device>> GetAllDevicesAsync()
@@ -1195,10 +1233,11 @@ namespace TBot
             return await db.Devices.ToListAsync();
         }
 
-        private static string NormalizeHandle(string handle)
+        public static string NormalizeChatName(string chatName, bool isPrivate)
         {
-            if (string.IsNullOrEmpty(handle)) return null;
-            return handle.TrimStart('@').ToLowerInvariant();
+            var trimmed = chatName?.Trim();
+            if (string.IsNullOrEmpty(trimmed)) return null;
+            return isPrivate ? $"@{trimmed.TrimStart('@')}" : trimmed;
         }
 
         // ── end TgChat ──────────────────────────────────────────────────────────

@@ -17,7 +17,11 @@ using TBot.Models.Queue;
 
 namespace TBot
 {
-    public class MeshtasticService
+    public class MeshtasticService(
+        LocalMessageQueueService localMessageQueueService,
+        IMemoryCache memoryCache,
+        IOptions<TBotOptions> options,
+        ILogger<MeshtasticService> logger)
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
         public const int MaxHops = 7;
@@ -37,30 +41,9 @@ namespace TBot
         internal const uint BroadcastDeviceId = uint.MaxValue;
         public const string PKIChannelName = "PKI";
         public const string UnknownChannelName = "UCH";
-        private static readonly Dictionary<int, LinkedList<MeshStat>> meshStatsByNetwork = new();
+        private static readonly Dictionary<int, LinkedList<MeshStat>> meshStatsByNetwork = [];
         private readonly Dictionary<int, LinkedList<MeshStat>> _meshStatsQueueByNetwork = meshStatsByNetwork;
-
-        public MeshtasticService(
-            MqttService mqttService,
-            LocalMessageQueueService localMessageQueueService,
-            IMemoryCache memoryCache,
-            IOptions<TBotOptions> options,
-            ILogger<MeshtasticService> logger)
-        {
-            _mqttService = mqttService;
-            _localMessageQueueService = localMessageQueueService;
-            _logger = logger;
-            _memoryCache = memoryCache;
-            _options = options.Value;
-        }
-
-
-        private readonly MqttService _mqttService;
-        private readonly ILogger<MeshtasticService> _logger;
-        private readonly IMemoryCache _memoryCache;
-        private readonly TBotOptions _options;
-        private readonly LocalMessageQueueService _localMessageQueueService;
-
+        private readonly TBotOptions _options = options.Value;
 
         public QueueResult SendPublicTextMessage(
             string text,
@@ -119,7 +102,51 @@ namespace TBot
                 EstimatedSendDelay = delay
             };
         }
+
         public QueueResult SendTextMessage(
+            IRecipient recipient,
+            string text,
+            long? replyToMessageId,
+            long? relayGatewayId,
+            int hopLimit,
+            string publicChannelName = null)
+        {
+            if (recipient.RecipientDeviceId.HasValue)
+            {
+                return SendDirectTextMessage(
+                    recipient.RecipientDeviceId.Value,
+                    recipient.NetworkId,
+                    recipient.RecipientKey,
+                    text,
+                    replyToMessageId,
+                    relayGatewayId,
+                    hopLimit);
+            }
+            else if (recipient.RecipientPrivateChannelId.HasValue)
+            {
+                return SendPrivateChannelTextMessage(
+                    GenerateNewMessageId(),
+                    text,
+                    replyToMessageId,
+                    relayGatewayId,
+                    hopLimit,
+                    recipient);
+            }
+            else if (recipient.IsPublicChannel)
+            {
+               return SendPublicTextMessage(text,
+                   relayGatewayId,
+                   hopLimit,
+                   publicChannelName ?? "Channel",
+                   recipient);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown type of recipient");
+            }
+        }
+
+        public QueueResult SendDirectTextMessage(
             long deviceId,
             int networkId,
             byte[] publicKey,
@@ -149,7 +176,7 @@ namespace TBot
             int hopLimit,
             bool isEmoji = false)
         {
-            _logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
+            logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
             var envelope = PackTextMessage(
                 newMessageId,
                 deviceId,
@@ -263,7 +290,7 @@ namespace TBot
             MessagePriority messagePriority,
             long? relayThroughGatewayId)
         {
-            return _localMessageQueueService.EnqueueMessage(new QueuedMessage
+            return localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
                 Message = envelope,
                 NetworkId = networkId,
@@ -712,7 +739,7 @@ namespace TBot
 
         public void StoreNoDup(uint id)
         {
-            _memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
         public bool TryStoreNoDup(ServiceEnvelope env)
@@ -728,11 +755,11 @@ namespace TBot
         public bool TryStoreNoDup(uint id)
         {
             var key = GetNoDupMessageKey(id);
-            if (_memoryCache.TryGetValue(key, out _))
+            if (memoryCache.TryGetValue(key, out _))
             {
                 return false;
             }
-            _memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
             return true;
         }
 
@@ -741,35 +768,35 @@ namespace TBot
         public void StoreGatewayLinkTraceStepZero(long packetId)
         {
             var key = $"meshtastic:linktrace:{packetId:X}";
-            _memoryCache.Set(key, true, TimeSpan.FromMinutes(LinkTraceExpirationMinutes));
+            memoryCache.Set(key, true, TimeSpan.FromMinutes(LinkTraceExpirationMinutes));
         }
 
         public bool IsLinkTrace(ServiceEnvelope env)
         {
             var key = $"meshtastic:linktrace:{env.Packet.Id:X}";
-            return _memoryCache.TryGetValue(key, out _);
+            return memoryCache.TryGetValue(key, out _);
         }
 
         public void MarkUplinkPacket(long packetId)
         {
             var key = $"meshtastic:uplinkpacket:{packetId:X}";
-            _memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
         public bool IsUplinkPacket(ServiceEnvelope env)
         {
             var key = $"meshtastic:uplinkpacket:{env.Packet.Id:X}";
-            return _memoryCache.TryGetValue(key, out _);
+            return memoryCache.TryGetValue(key, out _);
         }
 
         public bool TryStoreLinkTraceGatewayNoDup(long packetId, long gatewayId)
         {
             var key = $"meshtastic:linktracegw:{packetId:X}:{gatewayId:X}";
-            if (_memoryCache.TryGetValue(key, out _))
+            if (memoryCache.TryGetValue(key, out _))
             {
                 return false;
             }
-            _memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
             return true;
         }
 
@@ -1194,12 +1221,12 @@ namespace TBot
 
         public TimeSpan EstimateDelay(int networkId, MessagePriority priority)
         {
-            return _localMessageQueueService.EstimateDelay(networkId, priority);
+            return localMessageQueueService.EstimateDelay(networkId, priority);
         }
 
-        public int GetQueueLength(int networkId) => _localMessageQueueService.GetQueueLength(networkId);
+        public int GetQueueLength(int networkId) => localMessageQueueService.GetQueueLength(networkId);
 
-        public TimeSpan SingleMessageQueueDelay => _localMessageQueueService.SingleMessageQueueDelay;
+        public TimeSpan SingleMessageQueueDelay => localMessageQueueService.SingleMessageQueueDelay;
 
         private static AckMessage DecodeAck(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {

@@ -24,6 +24,6 @@ namespace TBot.Models
         PromotingToGateway_NeedFirmwareConfirm,
         DemotingFromGateway,
         Admin,
-        AwaitingChatApprovalFromMesh   // TG initiated /chat !deviceId, waiting for "yes" from Mesh device
+        RegisteringChat_NeedName
     }
 }

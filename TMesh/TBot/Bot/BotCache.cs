@@ -1,21 +1,21 @@
-﻿using Meshtastic.Discovery;
-using Microsoft.Extensions.Caching.Memory;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.MeshMessages;
-using Telegram.Bot.Types;
+using TBot.Models.ChatSession;
+using Telegram.Bot;
 
 namespace TBot.Bot
 {
     public class BotCache
         (IMemoryCache memoryCache,
         MeshtasticService meshtasticService,
-        IOptions<TBotOptions> options)
+        IOptions<TBotOptions> options,
+        IServiceProvider serviceProvider,
+        ILogger<BotCache> logger)
 
     {
         private readonly TBotOptions _options = options.Value;
@@ -143,111 +143,211 @@ namespace TBot.Bot
             }, DateTime.UtcNow.AddSeconds(_options.DirectGatewayRoutingSeconds));
         }
 
-        // ── Active chat sessions ──────────────────────────────────────────────
+        private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromMinutes(30);
 
-        private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromHours(1);
-
-        public void StoreActiveMeshChat(long chatId, long deviceId)
+        public void StopChatSession(long chatId)
         {
-            memoryCache.Set(ActiveChatKey(chatId, deviceId), true, ChatSessionTtl);
-        }
-
-        public bool HasActiveMeshChat(long chatId, long deviceId)
-        {
-            return memoryCache.TryGetValue(ActiveChatKey(chatId, deviceId), out _);
-        }
-
-        public void RemoveActiveMeshChat(long chatId, long deviceId)
-        {
-            memoryCache.Remove(ActiveChatKey(chatId, deviceId));
-        }
-
-        public void AddActiveChatDevice(long chatId, long deviceId)
-        {
-            StoreActiveMeshChat(chatId, deviceId);
-            var listKey = ActiveChatListKey(chatId);
-            var list = memoryCache.Get<HashSet<long>>(listKey) ?? new HashSet<long>();
-            list.Add(deviceId);
-            memoryCache.Set(listKey, list, ChatSessionTtl);
-        }
-
-        public void RemoveActiveChatDevice(long chatId, long deviceId)
-        {
-            RemoveActiveMeshChat(chatId, deviceId);
-            var listKey = ActiveChatListKey(chatId);
-            if (memoryCache.TryGetValue<HashSet<long>>(listKey, out var list))
+            var key = ChatSessionActive_TgChat_Key(chatId);
+            var session = memoryCache.Get<DeviceOrChannelId>(ChatSessionActive_TgChat_Key(chatId));
+            if (session != null)
             {
-                list.Remove(deviceId);
-                if (list.Count > 0)
-                    memoryCache.Set(listKey, list, ChatSessionTtl);
+                memoryCache.Remove(key);
+                if (session.DeviceId != null)
+                {
+                    memoryCache.Remove(ChatSessionActive_Device_Key(session.DeviceId.Value));
+                }
+                else if (session.ChannelId != null)
+                {
+                    memoryCache.Remove(ChatSessionActive_Channel_Key(session.ChannelId.Value));
+                }
+            }
+        }
+
+        private async Task ChatSessionExpired(long chatId, DeviceOrChannelId id)
+        {
+            try
+            {
+                string key = null;
+                if (id.DeviceId != null)
+                {
+                    key = ChatSessionActive_Device_Key(id.DeviceId.Value);
+                }
+                else if (id.ChannelId != null)
+                {
+                    key = ChatSessionActive_Channel_Key(id.ChannelId.Value);
+                }
+                var storedChatId = memoryCache.Get<long?>(key);
+                if (storedChatId == chatId)
+                {
+                    memoryCache.Remove(key);
+                }
+
+                using var scope = serviceProvider.CreateScope();
+                var botClient = scope.ServiceProvider.GetRequiredService<TelegramBotClient>();
+                var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+
+                if (id.DeviceId != null)
+                {
+                    var device = await regService.GetDeviceAsync(id.DeviceId.Value);
+                    await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with device {device?.NodeName ?? MeshtasticService.GetMeshtasticNodeHexId(id.DeviceId.Value)} has ended.");
+                }
                 else
-                    memoryCache.Remove(listKey);
+                {
+                    var channel = await regService.GetChannelAsync(id.ChannelId.Value);
+                    await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with channel {channel?.Name ?? "ID:" + id.ChannelId.Value.ToString()} has ended.");
+                }
             }
-        }
-
-        public HashSet<long> GetActiveChatDevices(long chatId)
-        {
-            return memoryCache.Get<HashSet<long>>(ActiveChatListKey(chatId)) ?? new HashSet<long>();
-        }
-
-        public void StorePendingChatRequest_MeshToTg(long deviceId, long tgChatId)
-        {
-            memoryCache.Set(PendingMeshToTgKey(deviceId), tgChatId, TimeSpan.FromMinutes(10));
-            memoryCache.Set(PendingMeshToTgReverseKey(tgChatId), deviceId, TimeSpan.FromMinutes(10));
-        }
-
-        public long? GetPendingChatRequest_MeshToTg(long deviceId)
-        {
-            if (memoryCache.TryGetValue<long>(PendingMeshToTgKey(deviceId), out var v)) return v;
-            return null;
-        }
-
-        public long? GetPendingChatRequest_MeshToTg_ByChatId(long chatId)
-        {
-            if (memoryCache.TryGetValue<long>(PendingMeshToTgReverseKey(chatId), out var deviceId)) return deviceId;
-            return null;
-        }
-
-        public void RemovePendingChatRequest_MeshToTg(long deviceId)
-        {
-            if (memoryCache.TryGetValue<long>(PendingMeshToTgKey(deviceId), out var chatId))
+            catch (Exception ex)
             {
-                memoryCache.Remove(PendingMeshToTgReverseKey(chatId));
+                logger.LogError(ex, "Error in TempChatExpired callback");
             }
-            memoryCache.Remove(PendingMeshToTgKey(deviceId));
         }
 
-        public void StorePendingChatRequest_TgToMesh(long chatId, long deviceId)
+        private async void ChatSessionExpiredCallback(object key, object value, EvictionReason reason, object state)
         {
-            memoryCache.Set(PendingTgToMeshKey(chatId, deviceId), true, TimeSpan.FromMinutes(10));
-            memoryCache.Set(PendingTgToMeshReverseKey(chatId), deviceId, TimeSpan.FromMinutes(10));
+            if (reason == EvictionReason.Expired
+                  || reason == EvictionReason.Capacity)
+            {
+                var id = (DeviceOrChannelId)value;
+                var chatId = (long)state;
+                await ChatSessionExpired(chatId, id);
+            }
         }
 
-        public bool HasPendingChatRequest_TgToMesh(long chatId, long deviceId)
+        public void StartChatSession(long chatId, DeviceOrChannelId id)
         {
-            return memoryCache.TryGetValue(PendingTgToMeshKey(chatId, deviceId), out _);
+            var expirationWithCallback = new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = ChatSessionTtl,
+                PostEvictionCallbacks =
+                {
+                    new PostEvictionCallbackRegistration
+                    {
+                        EvictionCallback = ChatSessionExpiredCallback,
+                        State = chatId
+                    }
+                }
+            };
+
+            var expiration = new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = ChatSessionTtl
+            };
+
+            memoryCache.Set(ChatSessionActive_TgChat_Key(chatId), id, expirationWithCallback);
+            if (id.DeviceId != null)
+            {
+                memoryCache.Set(ChatSessionActive_Device_Key(id.DeviceId.Value), chatId, expiration);
+            }
+            else if (id.ChannelId != null)
+            {
+                memoryCache.Set(ChatSessionActive_Channel_Key(id.ChannelId.Value), chatId, expiration);
+            }
         }
 
-        public long? GetPendingChatRequest_TgToMesh(long chatId)
+        public DeviceOrChannelId GetActiveChatSession(long chatId)
         {
-            if (memoryCache.TryGetValue<long>(PendingTgToMeshReverseKey(chatId), out var deviceId)) return deviceId;
+            if (memoryCache.TryGetValue<DeviceOrChannelId>(ChatSessionActive_TgChat_Key(chatId), out var id))
+            {
+                return id;
+            }
             return null;
         }
 
-        public void RemovePendingChatRequest_TgToMesh(long chatId, long deviceId)
+        public long? GetActiveChatSessionForDevice(long deviceId)
         {
-            memoryCache.Remove(PendingTgToMeshKey(chatId, deviceId));
-            memoryCache.Remove(PendingTgToMeshReverseKey(chatId));
+            if (memoryCache.TryGetValue<long?>(ChatSessionActive_Device_Key(deviceId), out var tgChatId))
+            {
+                return tgChatId;
+            }
+            return null;
         }
 
-        // ── end active chat sessions ──────────────────────────────────────────
+        public long? GetActiveChatSessionForChannel(int channelId)
+        {
+            if (memoryCache.TryGetValue<long?>(ChatSessionActive_Channel_Key(channelId), out var tgChatId))
+            {
+                return tgChatId;
+            }
+            return null;
+        }
+        public void StorePendingChatRequest_MeshToTg(long tgChatId, DeviceOrChannelRequestCode requestCode)
+        {
+            memoryCache.Set(PendingMeshToTgKey(tgChatId), requestCode, TimeSpan.FromMinutes(10));
+        }
 
-        private static string ActiveChatKey(long chatId, long deviceId) => $"ActiveChat_{chatId}_{deviceId}";
-        private static string ActiveChatListKey(long chatId) => $"ActiveChatList_{chatId}";
-        private static string PendingMeshToTgKey(long deviceId) => $"PendingChatMeshToTg_{deviceId}";
-        private static string PendingMeshToTgReverseKey(long chatId) => $"PendingChatMeshToTgReverse_{chatId}";
-        private static string PendingTgToMeshKey(long chatId, long deviceId) => $"PendingChatTgToMesh_{chatId}_{deviceId}";
-        private static string PendingTgToMeshReverseKey(long chatId) => $"PendingChatTgToMeshReverse_{chatId}";
+        public DeviceOrChannelRequestCode GetPendingChatRequest_MeshToTg(long tgChatId)
+        {
+            if (memoryCache.TryGetValue<DeviceOrChannelRequestCode>(PendingMeshToTgKey(tgChatId), out var requestCode)) return requestCode;
+            return null;
+        }
+
+        public void RemovePendingChatRequest_MeshToTg(long tgChatId)
+        {
+            memoryCache.Remove(PendingMeshToTgKey(tgChatId));
+        }
+
+        public void StoreDevicePendingChatRequest_TgToMesh(long deviceId, ChatRequestCode requestCode)
+        {
+            memoryCache.Set(PendingDeviceTgToMeshKey(deviceId), requestCode, TimeSpan.FromMinutes(5));
+        }
+
+        public void StoreChannelPendingChatRequest_TgToMesh(int channelId, ChatRequestCode requestCode)
+        {
+            memoryCache.Set(PendingChannelTgToMeshKey(channelId), requestCode, TimeSpan.FromMinutes(5));
+        }
+
+        public bool TryIncreaseRequestsSentCountByTgUser(long tgUserId, int maxRequests, TimeSpan interval)
+        {
+            if (maxRequests <= 0)
+            {
+                throw new ArgumentException("maxRequests must be greater than 0");
+            }
+
+            var cacheKey = $"TgUserRequestCount_{tgUserId}";
+            if (memoryCache.TryGetValue<int>(cacheKey, out var res))
+            {
+                if (res >= maxRequests)
+                {
+                    return false;
+                }
+                res++;
+                memoryCache.Set(cacheKey, res, interval);
+                return true;
+            }
+            else
+            {
+                memoryCache.Set(cacheKey, 1, interval);
+                return true;
+            }
+        }
+
+        public ChatRequestCode GetPendingDeviceChatRequest_TgToMesh(long deviceId)
+        {
+            return memoryCache.TryGetValue<ChatRequestCode>(PendingDeviceTgToMeshKey(deviceId), out var requestCode) ? requestCode : null;
+        }
+
+        public void RemovePendingDeviceChatRequest_TgToMesh(long deviceId)
+        {
+            memoryCache.Remove(PendingDeviceTgToMeshKey(deviceId));
+        }
+
+        public ChatRequestCode GetPendingChannelChatRequest_TgToMesh(int channelId)
+        {
+            return memoryCache.TryGetValue<ChatRequestCode>(PendingChannelTgToMeshKey(channelId), out var requestCode) ? requestCode : null;
+        }
+
+        public void RemovePendingChannelChatRequest_TgToMesh(int channelId)
+        {
+            memoryCache.Remove(PendingChannelTgToMeshKey(channelId));
+        }
+
+        private static string ChatSessionActive_TgChat_Key(long chatId) => $"ChatSession_TgChat_{chatId}";
+        private static string ChatSessionActive_Device_Key(long deviceId) => $"ChatSession_Device_{deviceId}";
+        private static string ChatSessionActive_Channel_Key(long channelId) => $"ChatSession_Channel_{channelId}";
+        private static string PendingMeshToTgKey(long tgChatId) => $"PendingChatMeshToTg_{tgChatId}";
+        private static string PendingDeviceTgToMeshKey(long deviceId) => $"PendingDeviceChatTgToMesh_{deviceId}";
+        private static string PendingChannelTgToMeshKey(int channelId) => $"PendingChannelChatTgToMesh_{channelId}";
 
     }
 }

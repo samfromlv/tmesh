@@ -5,7 +5,7 @@ namespace TBot.Database.Models
     public interface IRecipient
     {
         public long? RecipientDeviceId { get; }
-        public long? RecipientPrivateChannelId { get; }
+        public int? RecipientPrivateChannelId { get; }
         [JsonIgnore]
         public byte[] RecipientKey { get; }
         public byte? RecipientChannelXor { get; }

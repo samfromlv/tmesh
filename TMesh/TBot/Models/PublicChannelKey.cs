@@ -22,7 +22,7 @@ namespace TBot.Models
 
         byte? IRecipient.RecipientChannelXor => ChannelXor;
 
-        long? IRecipient.RecipientPrivateChannelId => null;
+        int? IRecipient.RecipientPrivateChannelId => null;
 
         bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
     }

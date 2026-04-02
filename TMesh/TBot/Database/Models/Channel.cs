@@ -19,7 +19,7 @@ public class Channel: IRecipient
 
     byte? IRecipient.RecipientChannelXor => XorHash;
 
-    long? IRecipient.RecipientPrivateChannelId => Id;
+    int? IRecipient.RecipientPrivateChannelId => Id;
 
     bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
 }

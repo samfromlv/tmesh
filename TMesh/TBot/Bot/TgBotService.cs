@@ -6,6 +6,7 @@ using System.Text.Json;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
+using TBot.Models.ChatSession;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -17,6 +18,7 @@ namespace TBot.Bot
         TelegramBotClient botClient,
         IOptions<TBotOptions> options,
         RegistrationService registrationService,
+        MeshtasticService meshtasticService,
         BotCache botCache,
         ILogger<TgBotService> logger,
         IServiceProvider services)
@@ -48,6 +50,25 @@ namespace TBot.Bot
 
             await botClient.SetMyCommands(
             [
+                new BotCommand
+                {
+                    Command = "start",
+                    Description = "Allows Meshtastic devices to send chat request to this chat with /chat command."
+                },
+                new BotCommand {
+                    Command = "disable",
+                    Description = "Disables chat requests from Meshtastic devices to this chat. Use /start to enable it again."
+                },
+                new BotCommand
+                {
+                    Command = "chat",
+                    Description = "Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat will be active for 30 minutes since last message or until /stopchat command."
+                },
+                new BotCommand
+                {
+                    Command = "stopchat",
+                    Description = "Stop active temporary chat started with /chat command."
+                },
                 new BotCommand
                 {
                     Command = "add_device",
@@ -208,7 +229,8 @@ namespace TBot.Bot
                 && chatStateWithData.State != ChatState.Default
                 && chatStateWithData.State != ChatState.Admin)
             {
-                var res = await services.GetRequiredService<TgCommandBotService>().ProcessCommandChat(msg, chatStateWithData);
+                var res = await services.GetRequiredService<TgCommandBotService>()
+                    .ProcessChatWithState(msg, chatStateWithData);
                 if (res.Handled)
                 {
                     await HandleNestedResult(res);
@@ -236,12 +258,15 @@ namespace TBot.Bot
                 }
             }
 
-            // Handle "yes" approval from Telegram user for Mesh-initiated chat
-            if (msg.Text?.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase) == true)
+            var trimmedText = msg.Text?.Trim();
+            if (trimmedText != null
+                && trimmedText.Length == RegistrationService.CodeLength
+                && trimmedText.All(Char.IsDigit))
             {
-                var handled = await HandleYesApprovalFromTg(chatId);
-                if (handled)
+                var pendingRequest = botCache.GetPendingChatRequest_MeshToTg(chatId);
+                if (pendingRequest != null & pendingRequest.Code == trimmedText)
                 {
+                    await ApproveChatRequestFromMesh(chatId, pendingRequest);
                     return;
                 }
             }
@@ -258,47 +283,72 @@ namespace TBot.Bot
             }
         }
 
-        private async Task<bool> HandleYesApprovalFromTg(long chatId)
+        private async Task ApproveChatRequestFromMesh(long chatId, DeviceOrChannelRequestCode request)
         {
-            var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
-            if (tgChat == null)
+            if (request.DeviceId != null)
             {
-                return false;
-            }
+                var device = await registrationService.GetDeviceAsync(request.DeviceId.Value);
+                if (device == null)
+                {
+                    await botClient.TrySendMessage(
+                        registrationService,
+                        logger,
+                        chatId,
+                        $"Device with ID {request.DeviceId.Value} not found. Cannot approve chat request.");
+                    return;
+                }
 
-            // Check if there's a pending Mesh->Tg chat request (Mesh device initiated, TG user approving)
-            var pendingDeviceId = botCache.GetPendingChatRequest_MeshToTg_ByChatId(chatId);
-            if (pendingDeviceId == null)
+                botCache.StartChatSession(chatId, new DeviceOrChannelId
+                {
+                    DeviceId = request.DeviceId,
+                    ChannelId = null
+                });
+
+                botCache.RemovePendingChatRequest_MeshToTg(chatId);
+
+                await registrationService.ApproveDeviceForChatAsync(chatId, request.DeviceId.Value);
+
+                await botClient.SendMessage(chatId,
+                    $"✅ You started chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)}). Chat is now active.");
+
+                meshtasticService.SendDirectTextMessage(
+                      device.DeviceId,
+                      device.NetworkId,
+                      device.PublicKey,
+                      "✅ Chat request approved.",
+                      replyToMessageId: null,
+                      relayGatewayId: null,
+                      hopLimit: int.MaxValue);
+            }
+            else
             {
-                return false;
+                var channel = await registrationService.GetChannelAsync(request.ChannelId.Value);
+                if (channel == null)
+                {
+                    await botClient.TrySendMessage(
+                        registrationService,
+                        logger,
+                        chatId,
+                        $"Channel with ID {request.ChannelId.Value} not found. Cannot approve chat request.");
+                    return;
+                }
+                botCache.StartChatSession(chatId, new DeviceOrChannelId
+                {
+                    DeviceId = null,
+                    ChannelId = request.ChannelId
+                });
+                botCache.RemovePendingChatRequest_MeshToTg(chatId);
+                await registrationService.ApproveChannelForChatAsync(chatId, request.ChannelId.Value);
+                await botClient.SendMessage(chatId,
+                    $"✅ You started chat with channel {channel.Name} (ID: {channel.Id}). Chat is now active.");
+                meshtasticService.SendPrivateChannelTextMessage(
+                    MeshtasticService.GetNextMeshtasticMessageId(),
+                      "Chat request approved.",
+                      replyToMessageId: null,
+                      relayGatewayId: null,
+                      hopLimit: int.MaxValue,
+                      channel);
             }
-
-            var device = await registrationService.GetDeviceAsync(pendingDeviceId.Value);
-            if (device == null)
-            {
-                botCache.RemovePendingChatRequest_MeshToTg(pendingDeviceId.Value);
-                return false;
-            }
-
-            var meshtasticService = services.GetRequiredService<MeshtasticService>();
-            botCache.RemovePendingChatRequest_MeshToTg(device.DeviceId);
-            await registrationService.ApproveDeviceForChatAsync(tgChat.Id, device.DeviceId);
-            botCache.AddActiveChatDevice(chatId, device.DeviceId);
-            await registrationService.UpdateLastChatDeviceAsync(tgChat.Id, device.DeviceId);
-
-            meshtasticService.SendTextMessage(
-                device.DeviceId,
-                device.NetworkId,
-                device.PublicKey,
-                "✅ Chat request approved.",
-                replyToMessageId: null,
-                relayGatewayId: null,
-                hopLimit: 3);
-
-            await botClient.SendMessage(chatId,
-                $"✅ You approved chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)}). Chat is now active.");
-
-            return true;
         }
 
         private async Task HandleNestedResult(TgResult res)
@@ -361,44 +411,26 @@ namespace TBot.Bot
                     {
                         AllowSendingWithoutReply = false,
                         ChatId = chatId,
-                        MessageId = msgId,
+                        MessageId = msgId
                     });
                 return;
             }
 
-            // Check for active chat sessions first
-            var activeChatDevices = botCache.GetActiveChatDevices(chatId);
-            if (activeChatDevices.Count > 0)
+            var activeSession = botCache.GetActiveChatSession(chatId);
+            if (activeSession != null)
             {
-                // Send to all active chat devices
-                var activeRecipients = new List<IRecipient>();
-                foreach (var deviceId in activeChatDevices)
-                {
-                    var device = await registrationService.GetDeviceAsync(deviceId);
-                    if (device != null)
-                    {
-                        activeRecipients.Add(new DeviceKey
-                        {
-                            DeviceId = deviceId,
-                            NetworkId = device.NetworkId,
-                            PublicKey = device.PublicKey
-                        });
-                        
-                        // Update last activity
-                        botCache.AddActiveChatDevice(chatId, deviceId);
-                    }
-                }
+                IRecipient recipient = activeSession.DeviceId != null
+                    ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
+                    : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
 
-                if (activeRecipients.Count > 0)
-                {
-                    await EnsureMeshSenderCreated().SendAndTrackMeshtasticMessages(
-                        activeRecipients,
-                        chatId,
-                        msgId,
-                        replyToTelegramMessageId,
-                        textToMesh);
-                    return;
-                }
+                await EnsureMeshSenderCreated().SendAndTrackMeshtasticMessages(
+                    [recipient],
+                    chatId,
+                    msgId,
+                    replyToTelegramMessageId,
+                    textToMesh);
+
+                return;
             }
 
             var channelRegs = await registrationService.GetChannelKeysByChatIdCached(chatId);
