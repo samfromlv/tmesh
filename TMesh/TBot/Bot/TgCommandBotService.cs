@@ -190,13 +190,14 @@ namespace TBot.Bot
             {
                 if (registeredChat.IsActive)
                 {
-                    response.AppendLine("This chat is *active* in TMesh and can get chat requests from Meshtastic devices and channels\\.");
+                    response.AppendLine("This chat is *active* in TMesh and can get new chat requests from Meshtastic devices and channels\\.");
                     response.AppendLine($"Meshtastic command: `/chat {StringHelper.EscapeMdV2(registeredChat.ChatName)}` via DM to {StringHelper.EscapeMd(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh\\.");
                 }
                 else
                 {
-                    response.AppendLine($"This chat is registered in TMesh with name {StringHelper.EscapeMdV2(registeredChat.ChatName)} but currently *disabled*\\.");
-                    response.AppendLine($"To allow incomming chat request from Meshtastic devices run command: `/start`");
+                    response.AppendLine($"This chat is registered in TMesh with name {StringHelper.EscapeMdV2(registeredChat.ChatName)} but currently *disabled* for new chat requests\\.");
+                    response.AppendLine($"Approved or registered devices and channels still can start new chat sessions.");
+                    response.AppendLine($"To allow incomming chat request from new Meshtastic devices run command: `/start`");
                 }
             }
             else
@@ -1119,7 +1120,7 @@ namespace TBot.Bot
             var normalized = RegistrationService.NormalizeChatName(name, isPrivate: false);
 
             var tgChat = await registrationService.GetTgChatByNameAsync(normalized);
-            if (tgChat != null)
+            if (tgChat != null && tgChat.ChatId != chatId)
             {
                 await botClient.SendMessage(chatId, $"Chat name '{name}' is already taken. Please choose a different name.");
                 return TgResult.Ok;
@@ -1356,18 +1357,32 @@ namespace TBot.Bot
             if (string.IsNullOrWhiteSpace(channelIdText))
             {
                 var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
-                if (channelRegs.Count == 0)
+                var approvals = await registrationService.GetChannelApprovalsByChatId(chatId);
+                if (channelRegs.Count == 0 
+                    && approvals.Count == 0)
                 {
-                    await botClient.SendMessage(chatId, "No channels are registered in this chat.");
+                    await botClient.SendMessage(chatId, "No channels are registered or approved in this chat.");
                     return TgResult.Ok;
                 }
+                var sb = new StringBuilder();
+                if (channelRegs.Count > 0)
+                {
+                    sb.AppendLine("Registered channels:");
+                    var lines = channelRegs.Select(c => $"• {c.Name} (ID {c.Id})");
+                    lines.ToList().ForEach(l => sb.AppendLine(l));
+                }
+                if (approvals.Count > 0)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.AppendLine();
+                    }
+                    sb.AppendLine("Approved channels:");
+                    var lines = approvals.Select(a => $"• {a.Name} (ID {a.Id})");
+                    lines.ToList().ForEach(l => sb.AppendLine(l));
+                }
 
-                var lines = channelRegs.Select(c => $"• {c.Name} (ID {c.Id})");
-
-                var sb = new StringBuilder("Please send the ID of the channel you want to remove.");
-                sb.AppendLine();
-                sb.AppendLine("Registered channels:");
-                lines.ToList().ForEach(l => sb.AppendLine(l));
+                sb.AppendLine("Please send the ID of the channel you want to remove.");
 
                 // No channel ID provided, ask for it
                 await botClient.SendMessage(chatId, sb.ToString());
@@ -1569,7 +1584,7 @@ namespace TBot.Bot
                 $"  Example: `/chat \\!75bcd15`\n\n" +
                 $"🔹 To end an active chat session:\n" +
                 $"  `/end\\_chat` \\- ends current chat session\n" +
-                $"🔹 To disable your chat from receiving chat request from Meshtastic devices:\n" +
+                $"🔹 To disable your chat from receiving new chat request from Meshtastic \\(already approved devices and channels still will be able to start chat sessions\\):\n" +
                 $"  `/disable`\n\n" +
                 $"You can also use `/add\\_device` and `/add\\_channel` commands to register devices and channels for permanent messaging\\.",
                 parseMode: ParseMode.MarkdownV2);

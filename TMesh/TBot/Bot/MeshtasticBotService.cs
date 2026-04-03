@@ -944,7 +944,10 @@ namespace TBot.Bot
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
-            if (!tgChat.IsActive)
+
+            var isApproved = await registrationService.IsApprovedForChatAsync(tgChat.ChatId, recipient);
+
+            if (!tgChat.IsActive && !isApproved)
             {
                 meshtasticService.SendTextMessage(
                     recipient,
@@ -1019,7 +1022,6 @@ namespace TBot.Bot
                 return;
             }
 
-            var isApproved = await registrationService.IsApprovedForChatAsync(tgChat.ChatId, recipient);
             if (isApproved)
             {
                 botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId

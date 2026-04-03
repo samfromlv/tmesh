@@ -268,7 +268,7 @@ namespace TBot
             {
                 await MessageSent.Invoke(new DataEventArgs<long>(envelope.Packet.Id));
             }
-            _logger.LogInformation("Published MQTT message to {topic}", topic);
+            _logger.LogDebug("Published MQTT message to {topic}", topic);
         }
 
         public async Task PublishStatus(BotStats stats)
@@ -281,7 +281,7 @@ namespace TBot
                 .Build();
             await EnsureMqttConnectedAsync(_connectionCts.Token);
             await _client.PublishAsync(message);
-            _logger.LogInformation("Published MQTT status message to {topic}", _options.MqttStatusTopic);
+            _logger.LogDebug("Published MQTT status message to {topic}", _options.MqttStatusTopic);
         }
 
         private async Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs arg)
@@ -289,7 +289,7 @@ namespace TBot
             try
             {
                 var topic = arg.ApplicationMessage.Topic;
-                _logger.LogInformation("Received MQTT message on {Topic}", topic);
+                _logger.LogDebug("Received MQTT message on {Topic}", topic);
                 if (topic == _options.MqttTelegramTopic)
                 {
                     var payload = arg.ApplicationMessage.ConvertPayloadToString();

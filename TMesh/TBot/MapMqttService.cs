@@ -125,7 +125,7 @@ namespace TBot
                     .Build();
 
                 await client.PublishAsync(message);
-                logger.LogInformation("Published map MQTT message to {topic}", topic);
+                logger.LogDebug("Published map MQTT message to {topic}", topic);
             }
             catch (Exception ex)
             {

@@ -856,7 +856,9 @@ namespace TBot
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
 
-            var approvals = await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync();
+            var approvals = await db.TgChatApprovedDevices
+                .Where(r => r.DeviceId == deviceId)
+                .ToListAsync();
 
             var toRemove = regs.Where(r => r.ChatId == chatId).ToList();
             var chatApprovals = approvals.Where(x => x.TgChatId == chatId).ToList();
@@ -887,14 +889,19 @@ namespace TBot
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
 
-            if (!regs.Any(r => r.ChatId == chatId))
+            var approvals = await db.TgChatApprovedDevices
+                .Where(r => r.DeviceId == deviceId)
+                .ToListAsync();
+
+            if (!regs.Any(r => r.ChatId == chatId)
+                && !approvals.Any(a => a.TgChatId == chatId))
             {
                 return false;
             }
 
             db.DeviceRegistrations.RemoveRange(regs);
 
-            db.TgChatApprovedDevices.RemoveRange(await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync());
+            db.TgChatApprovedDevices.RemoveRange(approvals);
 
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
@@ -906,6 +913,7 @@ namespace TBot
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
             botCache.EndChatSessionByDeviceId(deviceId, null);
+            botCache.RemovePendingDeviceChatRequest_TgToMesh(deviceId);
             return true;
         }
 

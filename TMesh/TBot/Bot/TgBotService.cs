@@ -53,26 +53,26 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "start",
-                    Description = "Allows Meshtastic devices to send chat request to this chat with /chat command."
+                    Description = "Allows Meshtastic devices to send new chat request to this Telegram chat with /chat command."
                 },
                 new BotCommand {
                     Command = "disable",
-                    Description = "Disables chat requests from Meshtastic devices to this chat. Use /start to enable it again."
+                    Description = "Disables new chat requests from Meshtastic. When bot is disabled approved or registered devices still allowed to start chat sessions, only requests from unknown devices are blocked. Use /start to enable it again."
                 },
                 new BotCommand
                 {
                     Command = "chat",
-                    Description = $"Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                    Description = $"Start a chat session with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
                 },
                 new BotCommand
                 {
                     Command = "chat_channel",
-                    Description = $"Start a temporary chat with a Meshtastic channel without registering it. Use channel ChannelName:ChannelID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel MyChannel:123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                    Description = $"Start a chat session with a Meshtastic channel without registering it. Use channel ChannelName:ChannelID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel MyChannel:123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
                 },
                 new BotCommand
                 {
                     Command = "end_chat",
-                    Description = "Stop active temporary chat started with /chat command."
+                    Description = "Stop active chat session started with /chat or /chat_channel command."
                 },
                 new BotCommand
                 {
@@ -87,27 +87,27 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "remove_device",
-                    Description = "Unregister a Meshtastic device (e.g., /remove_device !aabbcc11)"
+                    Description = "Unregister a Meshtastic device or remove it from approved devices (e.g., /remove_device !aabbcc11)"
                 },
                 new BotCommand
                 {
                     Command = "remove_channel",
-                    Description = "Unregister a Meshtastic private channel (e.g., /remove_channel <ChannelID>). Get registered channel ID with /status command or run /remove_channel without params to see registered channel IDs."
+                    Description = "Unregister a Meshtastic private channel or remove it from approved channels (e.g., /remove_channel <ChannelID>). Get registered channel ID with /status command or run /remove_channel without params to see registered channel IDs."
                 },
                 new BotCommand
                 {
                     Command = "remove_device_from_all_chats",
-                    Description = "Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
+                    Description = "Unregister a Meshtastic device from all chats. Also removes device from approved devices in all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
                 },
                 new BotCommand
                 {
                     Command = "remove_channel_from_all_chats",
-                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
+                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Also removes channel from approved channels in all chats. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
                 },
                 new BotCommand
                 {
                     Command = "status",
-                    Description = "Show list of registered Meshtastic devices, supports filter by name (e.g. /status MyDevice)"
+                    Description = "Show status of current chat, list of registered and approved Meshtastic devices and channels, supports filter by name (e.g. /status MyDevice)"
                 },
                 new BotCommand
                 {
