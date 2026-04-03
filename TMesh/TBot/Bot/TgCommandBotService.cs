@@ -1685,8 +1685,8 @@ namespace TBot.Bot
 
             await botClient.SendMessage(chatId,
                 $"✅ Your Telegram chat is now registered with TMesh\\!\n\n" +
-                $"🔹 Meshtastic devices can now initiate a chat with you using:\n" +
-                $"  `/chat @{StringHelper.EscapeMdV2(tgChat.ChatName)}` via {StringHelper.EscapeMdV2(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh\\.\n\n" +
+                $"🔹 Meshtastic devices and channels can now initiate a chat with you using:\n" +
+                $"  `/chat {StringHelper.EscapeMdV2(tgChat.ChatName)}` via {StringHelper.EscapeMdV2(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh\\.\n\n" +
                 $"🔹 You can also start a chat with any Meshtastic device:\n" +
                 $"  `/chat \\!\\<deviceId\\>`\n" +
                 $"  Example: `/chat \\!75bcd15`\n\n" +
