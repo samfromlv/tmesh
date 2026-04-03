@@ -178,8 +178,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
 
         modelBuilder.Entity<TgChat>(e =>
         {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).ValueGeneratedOnAdd();
+            e.HasKey(p => p.ChatId);
             e.Property(p => p.ChatId).IsRequired();
             e.Property(p => p.IsPrivate).IsRequired();
             e.Property(p => p.ChatName)
@@ -187,8 +186,6 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .HasMaxLength(MaxChatNameLength);
             e.Property(p => p.IsActive).IsRequired();
             e.Property(p => p.CreatedUtc).IsRequired();
-
-            e.HasIndex(p => p.ChatId).IsUnique();
             e.HasIndex(p => p.ChatName).IsUnique();
         });
 

@@ -9,6 +9,7 @@ using TBot.Helpers;
 using TBot.Analytics;
 using MQTTnet;
 using TBot.Bot;
+using Serilog;
 
 namespace TBot
 {
@@ -17,6 +18,10 @@ namespace TBot
         static async Task Main(string[] args)
         {
             var hostBuilder = Host.CreateDefaultBuilder(args)
+                .UseSerilog((context, services, configuration) => configuration
+                    .ReadFrom.Configuration(context.Configuration)
+                    .ReadFrom.Services(services)
+                    .Enrich.FromLogContext())
                 .ConfigureAppConfiguration(config =>
                 {
                     // Prefer external config volume /tbot/config or env TBOT_CONFIG_PATH
@@ -60,10 +65,6 @@ namespace TBot
                     services.AddSingleton<SimpleScheduler>();
                     services.AddHostedService<MessageLoopService>();
                     TgBotService.Register(services);
-                })
-                .ConfigureLogging(logging =>
-                {
-                    logging.SetMinimumLevel(LogLevel.Information);
                 });
 
             using var host = hostBuilder.Build();

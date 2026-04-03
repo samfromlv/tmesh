@@ -290,6 +290,19 @@ namespace TBot.Bot
             }
             return null;
         }
+
+        public long? GetActiveChatSessionForDeviceChannel(DeviceOrChannelId id)
+        {
+            if (id.DeviceId != null)
+            {
+                return GetActiveChatSessionForDevice(id.DeviceId.Value);
+            }
+            else if (id.ChannelId != null)
+            {
+                return GetActiveChatSessionForChannel(id.ChannelId.Value);
+            }
+            return null;
+        }
         public void StorePendingChatRequest_MeshToTg(long tgChatId, DeviceOrChannelRequestCode requestCode)
         {
             memoryCache.Set(PendingMeshToTgKey(tgChatId), requestCode, TimeSpan.FromMinutes(10));
@@ -344,6 +357,18 @@ namespace TBot.Bot
         public ChatRequestCode GetPendingDeviceChatRequest_TgToMesh(long deviceId)
         {
             return memoryCache.TryGetValue<ChatRequestCode>(PendingDeviceTgToMeshKey(deviceId), out var requestCode) ? requestCode : null;
+        }
+
+        public void RemovePendingChatRequest_TgToMesh(DeviceOrChannelId id)
+        {
+            if (id.DeviceId != null)
+            {
+                RemovePendingDeviceChatRequest_TgToMesh(id.DeviceId.Value);
+            }
+            else if (id.ChannelId != null)
+            {
+                RemovePendingChannelChatRequest_TgToMesh(id.ChannelId.Value);
+            }
         }
 
         public void RemovePendingDeviceChatRequest_TgToMesh(long deviceId)

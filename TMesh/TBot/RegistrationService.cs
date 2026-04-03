@@ -828,6 +828,17 @@ namespace TBot
             {
                 await RemoveChannelFromChat(chatId, (int)reg.Id);
             }
+
+            var approvals = await db.TgChatApprovedDevices.Where(r => r.TgChatId == chatId).ToListAsync();
+            db.TgChatApprovedDevices.RemoveRange(approvals);
+            var channelApprovals = await db.TgChatApprovedChannels.Where(r => r.TgChatId == chatId).ToListAsync();
+            db.TgChatApprovedChannels.RemoveRange(channelApprovals);
+            var tgChat = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            if (tgChat != null)
+            {
+                db.TgChats.Remove(tgChat);
+            }
+            await db.SaveChangesAsync();
         }
 
 
@@ -944,7 +955,7 @@ namespace TBot
 
             var chatRegs = allRegs.Where(r => r.ChatId == chatId).ToList();
             var chatApprovals = allApprovals.Where(x => x.TgChatId == chatId).ToList();
-            
+
             if (!chatRegs.Any(r => r.ChatId == chatId)
                 && !chatApprovals.Any(x => x.TgChatId == chatId))
             {
@@ -1166,19 +1177,20 @@ namespace TBot
 
         public async Task<TgChat> GetTgChatByNameAsync(string chatName)
         {
-            if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{chatName}", out var cached))
+            var normalized = chatName?.Trim();
+            if (string.IsNullOrEmpty(normalized)) return null;
+
+            if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{normalized}", out var cached))
             {
                 return cached;
             }
 
-            if (string.IsNullOrEmpty(chatName)) return null;
-            var normalized = chatName.ToLowerInvariant();
             var entity = await db.TgChats
-                .FirstOrDefaultAsync(c => c.IsActive && c.ChatName == normalized);
+                .FirstOrDefaultAsync(c => c.ChatName == normalized);
 
             if (entity != null)
             {
-                memoryCache.Set($"TgChatByName#{chatName}", entity, TimeSpan.FromMinutes(10));
+                memoryCache.Set($"TgChatByName#{normalized}", entity, TimeSpan.FromMinutes(10));
             }
             return entity;
         }
@@ -1196,7 +1208,7 @@ namespace TBot
             var byNameEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatName == normalizedName);
             if (byNameEntity != null && byNameEntity.ChatId != chatId)
             {
-                throw new Exception($"Chat name {chatName} is already taken by another chat");
+                throw new Exception($"Chat name {normalizedName} is already taken by another chat");
             }
 
             var byChatEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
@@ -1217,7 +1229,7 @@ namespace TBot
             else
             {
                 oldName = byChatEntity.ChatName;
-                byChatEntity.ChatName = chatName;
+                byChatEntity.ChatName = normalizedName;
                 byChatEntity.IsPrivate = isPrivate;
                 byChatEntity.IsActive = true;
             }
@@ -1256,7 +1268,7 @@ namespace TBot
                 .AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId)
                 || await db.DeviceRegistrations
                 .AnyAsync(r => r.ChatId == tgChatId && r.DeviceId == deviceId);
-            
+
             if (!exists)
             {
                 db.TgChatApprovedDevices.Add(new TgChatApprovedDevice

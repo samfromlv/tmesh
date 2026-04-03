@@ -62,11 +62,16 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat",
-                    Description = $"Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /stop_chat command is used."
+                    Description = $"Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
                 },
                 new BotCommand
                 {
-                    Command = "stopchat",
+                    Command = "chat_channel",
+                    Description = $"Start a temporary chat with a Meshtastic channel without registering it. Use channel ID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel 123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                },
+                new BotCommand
+                {
+                    Command = "end_chat",
                     Description = "Stop active temporary chat started with /chat command."
                 },
                 new BotCommand
@@ -319,7 +324,11 @@ namespace TBot.Bot
 
                 botCache.RemovePendingChatRequest_MeshToTg(chatId);
 
-                await registrationService.ApproveDeviceForChatAsync(chatId, request.DeviceId.Value);
+                var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
+                if (tgChat != null && tgChat.IsActive)
+                {
+                    await registrationService.ApproveDeviceForChatAsync(tgChat.ChatId, request.DeviceId.Value);
+                }
 
                 await botClient.SendMessage(chatId,
                     $"✅ You started chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)}). Chat is now active.");
@@ -356,7 +365,7 @@ namespace TBot.Bot
                     $"✅ You started chat with channel {channel.Name} (ID: {channel.Id}). Chat is now active.");
                 meshtasticService.SendPrivateChannelTextMessage(
                     MeshtasticService.GetNextMeshtasticMessageId(),
-                      "Chat request approved.",
+                      "Chat request approved",
                       replyToMessageId: null,
                       relayGatewayId: null,
                       hopLimit: int.MaxValue,

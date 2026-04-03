@@ -11,8 +11,8 @@ using TBot.Database;
 namespace TBot.Migrations.Primary
 {
     [DbContext(typeof(TBotDbContext))]
-    [Migration("20260403070000_ChatSession")]
-    partial class ChatSession
+    [Migration("20260403173634_ChatSessionDb")]
+    partial class ChatSessionDb
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -271,11 +271,8 @@ namespace TBot.Migrations.Primary
 
             modelBuilder.Entity("TBot.Database.Models.TgChat", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
                     b.Property<long>("ChatId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("ChatName")
@@ -292,10 +289,7 @@ namespace TBot.Migrations.Primary
                     b.Property<bool>("IsPrivate")
                         .HasColumnType("INTEGER");
 
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChatId")
-                        .IsUnique();
+                    b.HasKey("ChatId");
 
                     b.HasIndex("ChatName")
                         .IsUnique();

@@ -41,7 +41,7 @@ namespace TBot.Bot
             {
                 return await HandleDisable(chatId);
             }
-            if (message.Text?.StartsWith("/stop_chat", StringComparison.OrdinalIgnoreCase) == true)
+            if (message.Text?.StartsWith("/end_chat", StringComparison.OrdinalIgnoreCase) == true)
             {
                 return await HandleStopChat(chatId);
             }
@@ -97,11 +97,9 @@ namespace TBot.Bot
                 var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/demote_from_gateway");
                 return await StartDemoteFromGateway(userId, chatId, deviceIdFromCommand);
             }
-            if (message.Text?.StartsWith("/cancel", StringComparison.OrdinalIgnoreCase) == true
-                || message.Text?.StartsWith("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            if (message.Text?.StartsWith("/stop", StringComparison.OrdinalIgnoreCase) == true)
             {
-                await botClient.SendMessage(chatId, "Operation canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                await botClient.SendMessage(chatId, "There is no active operation to stop it.");
                 return TgResult.Ok;
             }
             if (message.Text?.StartsWith("/list_networks", StringComparison.OrdinalIgnoreCase) == true)
@@ -214,9 +212,8 @@ namespace TBot.Bot
                 && deviceApprovals.Count == 0
                 && chatSession == null)
             {
-                
-                response.AppendLine(TgBotService.NoDeviceOrChannelMessage);
-                await botClient.SendMessage(chatId, response.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
+                response.AppendLine("No registered devices or channels\\. You can register a new device with the /add\\_device command, channel with /add\\_channel command, or start a temporary chat with `/chat \\!\\<deviceId\\>`\\. Please remove the bot from the group if you don't need it\\.");
+                await botClient.SendMessage(chatId, response.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
             }
             else
             {
@@ -400,13 +397,6 @@ namespace TBot.Bot
 
         private async Task<TgResult> ProceedPromoteToGateway_NeedFirmwareConfirm(long userId, long chatId, Message message)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Operation canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             var text = message.Text?.Trim();
             if (!string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase))
             {
@@ -551,13 +541,6 @@ namespace TBot.Bot
 
         private async Task<TgResult> ProceedDemoteFromGateway(long userId, long chatId, Message message)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Operation canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             var text = message.Text?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -669,13 +652,6 @@ namespace TBot.Bot
 
         private async Task<TgResult> ProceedPromoteToGateway(long userId, long chatId, Message message)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Operation canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             var text = message.Text?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -1007,13 +983,6 @@ namespace TBot.Bot
            Message message,
            ChatStateWithData chatState)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Registration canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             if (chatState.State == ChatState.AddingDevice_NeedId)
             {
                 return await ProceedNeedDeviceId(userId, chatId, message);
@@ -1031,13 +1000,6 @@ namespace TBot.Bot
 
         private async Task<TgResult> ProceedDeviceRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Removal canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             var text = message.Text?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -1057,13 +1019,6 @@ namespace TBot.Bot
 
         private async Task<TgResult> ProceedChannelRemove(long userId, long chatId, Message message, bool isRemoveFromAll)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Removal canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             var text = message.Text?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -1086,6 +1041,16 @@ namespace TBot.Bot
         {
             var chatId = msg.Chat.Id;
             var userId = msg.From.Id;
+
+            if (msg.Text?.StartsWith("/stop", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                await botClient.SendMessage(chatId, "Operation canceled.");
+                var newChatState = chatStateWithData != null && chatStateWithData.State == ChatState.Admin
+                    ? ChatState.Admin
+                    : ChatState.Default;
+                registrationService.SetChatState(userId, chatId, newChatState);
+                return TgResult.Ok;
+            }
 
             switch (chatStateWithData?.State)
             {
@@ -1162,13 +1127,6 @@ namespace TBot.Bot
            Message message,
            ChatStateWithData chatState)
         {
-            if (message.Text?.Equals("/stop", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await botClient.SendMessage(chatId, "Registration canceled.");
-                registrationService.SetChatState(userId, chatId, ChatState.Default);
-                return TgResult.Ok;
-            }
-
             if (chatState.State == ChatState.AddingChannel_NeedNetwork)
             {
                 return await ProceedNeedChannelNetwork(userId, chatId, message, chatState);
@@ -1570,19 +1528,13 @@ namespace TBot.Bot
                 {
                     if (groupChat.IsActive)
                     {
-                        await botClient.SendMessage(chatId, $"This group chat is already registered and active with name '{groupChat.ChatName}'. Devices can reach it using /chat {groupChat.ChatName} command.");
+                        await botClient.SendMessage(chatId, $"This group chat is already registered and active with name '{groupChat.ChatName}'. Devices can reach it using /chat {groupChat.ChatName} command. If you want to change group name, disable it with /disable command and start again with new name.");
                         return TgResult.Ok;
                     }
-                    else
-                    {
-                        groupChat = await registrationService.RegisterTgChatAsync(
-                            chatId,
-                            groupChat.ChatName,
-                            isPrivate: false);
-
-                        await botClient.SendMessage(chatId, $"Chat is reactivated. Chat name is '{groupChat.ChatName}'. Devices can reach it using /chat {groupChat.ChatName} command.");
-                        return TgResult.Ok;
-                    }
+                    //else
+                    //{
+                    //    //let bot ask for new name
+                    //}
                 }
                 registrationService.SetChatState(userId, chatId, ChatState.RegisteringChat_NeedName);
                 await botClient.SendMessage(chatId, $"This chat is group chat. Please provide a unique name for the chat. Name should be below {TBotDbContext.MaxChatNameLength} characters and without @ character in name. Devices will be able to connect to this chat with /chat <your_chat_name> command via {_options.MeshtasticNodeNameLong} node.");
@@ -1603,13 +1555,13 @@ namespace TBot.Bot
                 $"🔹 Meshtastic devices can now initiate a chat with you using:\n" +
                 $"  `/chat @{StringHelper.EscapeMdV2(username.ToLowerInvariant().TrimStart('@'))}` via {StringHelper.EscapeMdV2(_options.MeshtasticNodeNameLong)}\n\n" +
                 $"🔹 You can also start a chat with any Meshtastic device:\n" +
-                $"  `/chat \\!<deviceId>`\n" +
+                $"  `/chat \\!\\<deviceId\\>`\n" +
                 $"  Example: `/chat \\!75bcd15`\n\n" +
                 $"🔹 To end an active chat session:\n" +
-                $"  `/stop_chat` \\- stops current chat session\n" +
+                $"  `/end\\_chat` \\- ends current chat session\n" +
                 $"🔹 To disable your chat from receiving chat request from Meshtastic devices:\n" +
                 $"  `/disable`\n\n" +
-                $"You can also use `/add_device` and `/add_channel` commands to register devices and channels for permanent messaging\\.",
+                $"You can also use `/add\\_device` and `/add\\_channel` commands to register devices and channels for permanent messaging\\.",
                 parseMode: ParseMode.MarkdownV2);
 
             return TgResult.Ok;
@@ -1686,7 +1638,7 @@ namespace TBot.Bot
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is now active.\n\n" +
-                    $"All messages you send will be forwarded only to this device. Use /stop_chat to end the session.");
+                    $"All messages you send will be forwarded only to this device. Use /end_chat to end the session.");
             }
             else
             {
@@ -1759,7 +1711,7 @@ namespace TBot.Bot
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {channel.Name} is now active.\n\n" +
-                    $"All messages you send will be forwarded only to this channel. Use /stop_chat to end the session.");
+                    $"All messages you send will be forwarded only to this channel. Use /end_chat to end the session.");
             }
             else
             {

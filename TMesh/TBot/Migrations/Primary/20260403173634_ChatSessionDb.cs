@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace TBot.Migrations.Primary
 {
     /// <inheritdoc />
-    public partial class ChatSession : Migration
+    public partial class ChatSessionDb : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -45,9 +45,8 @@ namespace TBot.Migrations.Primary
                 name: "TgChats",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
+                    ChatId = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    ChatId = table.Column<long>(type: "INTEGER", nullable: false),
                     IsPrivate = table.Column<bool>(type: "INTEGER", nullable: false),
                     ChatName = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
                     IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
@@ -55,7 +54,7 @@ namespace TBot.Migrations.Primary
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_TgChats", x => x.Id);
+                    table.PrimaryKey("PK_TgChats", x => x.ChatId);
                 });
 
             migrationBuilder.CreateIndex(
@@ -78,12 +77,6 @@ namespace TBot.Migrations.Primary
                 name: "IX_TgChatApprovedDevices_TgChatId_DeviceId",
                 table: "TgChatApprovedDevices",
                 columns: new[] { "TgChatId", "DeviceId" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TgChats_ChatId",
-                table: "TgChats",
-                column: "ChatId",
                 unique: true);
 
             migrationBuilder.CreateIndex(

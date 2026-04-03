@@ -535,7 +535,7 @@ namespace TBot.Bot
                 var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
                 sb.AppendLine();
                 sb.AppendLine($"*{StringHelper.EscapeMd(network.Name)}* (ID `{network.Id}`)");
-                if (networkGateways.Any())
+                if (networkGateways.Count != 0)
                 {
                     foreach (var gw in networkGateways)
                     {
