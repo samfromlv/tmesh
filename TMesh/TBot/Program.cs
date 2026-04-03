@@ -73,6 +73,7 @@ namespace TBot
             if (args.Any(a => string.Equals(a, "/installwebhook", StringComparison.OrdinalIgnoreCase)))
             {
                 await InstallWebHook(host);
+                await Task.Delay(2000);
                 return;
             }
             else if (args.Any(a => string.Equals(a, "/checkinstallwebhook", StringComparison.OrdinalIgnoreCase)))

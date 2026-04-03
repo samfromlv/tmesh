@@ -14,6 +14,8 @@ namespace TBot.Models
 
         public byte[] ChannelKey { get; set; }
 
+        public bool InsecureKeyConfirmed { get; set; }
+
         public bool? IsSingleDevice { get; set; }
 
         public long? DeviceId { get; set; }

@@ -308,7 +308,7 @@ namespace TBot.Bot
                     if (channelApprovals.Count > 0)
                     {
                         response.AppendLine();
-                        response.AppendLine($"✅ *Channels approved for chat sessions{(hasFilter?" \\(filtered\\)":"")}:*");
+                        response.AppendLine($"✅ *Channels approved for chat sessions{(hasFilter ? " \\(filtered\\)" : "")}:*");
                         foreach (var c in channelApprovals)
                         {
                             var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
@@ -768,14 +768,22 @@ namespace TBot.Bot
                 // Name and key already known (came via command-line), go straight to ProcessChannelForAdd
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
-                    State = ChatState.AddingChannel_NeedKey, // will be overwritten inside
+                    State = ChatState.AddingChannel_NeedKey,
                     NetworkId = networkId,
                     ChannelName = state.ChannelName,
                     ChannelKey = state.ChannelKey,
+                    InsecureKeyConfirmed = state.InsecureKeyConfirmed,
                     IsSingleDevice = state.IsSingleDevice
                 });
-                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey,
-                    MeshtasticService.PskKeyToBase64(state.ChannelKey), state.IsSingleDevice, networkId);
+                return await ProcessChannelForAdd(
+                    userId,
+                    chatId,
+                    state.ChannelName, 
+                    state.ChannelKey,
+                    MeshtasticService.PskKeyToBase64(state.ChannelKey),
+                    state.IsSingleDevice,
+                    networkId,
+                    state.InsecureKeyConfirmed);
             }
 
             return TgResult.Ok;
@@ -799,6 +807,48 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId,
                    $"Invalid channel name format: '{message.Text}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).\n\n" +
                    "Please try again or type /stop to cancel the registration.");
+            }
+            return TgResult.Ok;
+        }
+        private async Task<TgResult> ProceedNeedInsecureKeyConfirm(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            if (state.InsecureKeyConfirmed ||(!string.IsNullOrWhiteSpace(message.Text)
+                                && message.Text.Trim().Equals("my key is not secure", StringComparison.InvariantCultureIgnoreCase)))
+            {
+                if (string.IsNullOrEmpty(state.ChannelName)
+                    || !MeshtasticService.IsValidChannelName(state.ChannelName)
+                    || !state.NetworkId.HasValue
+                    || state.ChannelKey == null)
+                {
+                    await botClient.SendMessage(chatId,
+                        $"Registration data is corrupted, channel name or network is missing in chat state. Registration process aborted. Please try again.");
+                    registrationService.SetChatState(userId, chatId, ChatState.Default);
+                    return TgResult.Ok;
+                }
+
+                if (await registrationService.IsPublicChannel(state.NetworkId.Value, state.ChannelName, state.ChannelKey))
+                {
+                    await botClient.SendMessage(chatId,
+                                 $"Adding public, well known channels is not allowed. Registration process aborted. Please try with private channels.");
+                    registrationService.SetChatState(userId, chatId, ChatState.Default);
+                    return TgResult.Ok;
+                }
+
+                return await ProcessChannelForAdd(
+                    userId,
+                    chatId, 
+                    state.ChannelName, 
+                    state.ChannelKey,
+                    Convert.ToBase64String(state.ChannelKey),
+                    isSingleDevice: null, 
+                    state.NetworkId,
+                    insecureKeyConfirmed: true);
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                                $"To confirm that you understand the risks and want to proceed with registering this channel, please reply with `my key is not secure`.\n\n" +
+                                "Please try again or type /stop to cancel the registration.", ParseMode.Markdown);
             }
             return TgResult.Ok;
         }
@@ -826,7 +876,17 @@ namespace TBot.Bot
                     return TgResult.Ok;
                 }
 
-                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text, isSingleDevice: null, state.NetworkId);
+                if (!state.InsecureKeyConfirmed && MeshtasticService.IsDefaultKey(key))
+                {
+                    await botClient.SendMessage(chatId,
+                                 $"The provided channel key is the default Meshtastic channel key. Anyone will be able to read your messages. This is not secure. Please reply with `my key is not secure` to confirm that you understand the risks and want to proceed with registering this channel, or type /stop to cancel.", ParseMode.Markdown);
+                    state.ChannelKey = key;
+                    state.State = ChatState.AddingChannel_NeedInsecureKeyConfirm;
+                    registrationService.SetChatStateWithData(userId, chatId, state);
+                    return TgResult.Ok;
+                }
+
+                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text, isSingleDevice: null, state.NetworkId, state.InsecureKeyConfirmed);
             }
             else
             {
@@ -857,10 +917,26 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            return await ProcessChannelForAdd(userId, chatId, state.ChannelName, state.ChannelKey, MeshtasticService.PskKeyToBase64(state.ChannelKey), isSingleDevice, state.NetworkId);
+            return await ProcessChannelForAdd(
+                userId, 
+                chatId, 
+                state.ChannelName,
+                state.ChannelKey, 
+                MeshtasticService.PskKeyToBase64(state.ChannelKey),
+                isSingleDevice, 
+                state.NetworkId,
+                state.InsecureKeyConfirmed);
         }
 
-        private async Task<TgResult> ProcessChannelForAdd(long userId, long chatId, string channelName, byte[] channelKey, string channelKeyBase64, bool? isSingleDevice, int? networkId)
+        private async Task<TgResult> ProcessChannelForAdd(
+            long userId,
+            long chatId,
+            string channelName,
+            byte[] channelKey,
+            string channelKeyBase64,
+            bool? isSingleDevice,
+            int? networkId,
+            bool insecureKeyConfirmed)
         {
             if (networkId == null)
             {
@@ -887,7 +963,8 @@ namespace TBot.Bot
                     ChannelName = channelName,
                     ChannelKey = channelKey,
                     IsSingleDevice = null,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    InsecureKeyConfirmed = insecureKeyConfirmed
                 });
 
                 await botClient.SendMessage(chatId,
@@ -896,6 +973,24 @@ namespace TBot.Bot
                     "• Reply *multiple* - Standard broadcast routing will be used\n\n" +
                     "Type /stop to cancel.",
                     parseMode: ParseMode.Markdown);
+                return TgResult.Ok;
+            }
+
+            if (dbChannel == null &&
+                !insecureKeyConfirmed &&
+                 MeshtasticService.IsDefaultKey(channelKey))
+            {
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedInsecureKeyConfirm,
+                    ChannelName = channelName,
+                    ChannelKey = channelKey,
+                    IsSingleDevice = isSingleDevice,
+                    NetworkId = networkId,
+                    InsecureKeyConfirmed = insecureKeyConfirmed
+                });
+                await botClient.SendMessage(chatId,
+                    $"The provided channel key is the default Meshtastic channel key. Anyone will be able to read your messages. This is not secure. Please reply with 'my key is not secure' to confirm that you understand the risks and want to proceed with registering this channel, or type /stop to cancel.");
                 return TgResult.Ok;
             }
 
@@ -1065,6 +1160,7 @@ namespace TBot.Bot
                 case ChatState.AddingChannel_NeedNetwork:
                 case ChatState.AddingChannel_NeedName:
                 case ChatState.AddingChannel_NeedKey:
+                case ChatState.AddingChannel_NeedInsecureKeyConfirm:
                 case ChatState.AddingChannel_NeedSingleDevice:
                 case ChatState.AddingChannel_NeedCode:
                     return await ProceedChannelAdd(userId, chatId, msg, chatStateWithData);
@@ -1150,6 +1246,10 @@ namespace TBot.Bot
             else if (chatState.State == ChatState.AddingChannel_NeedKey)
             {
                 return await ProceedNeedChannelKey(userId, chatId, message, chatState);
+            }
+            else if (chatState.State == ChatState.AddingChannel_NeedInsecureKeyConfirm)
+            {
+                return await ProceedNeedInsecureKeyConfirm(userId, chatId, message, chatState);
             }
             else if (chatState.State == ChatState.AddingChannel_NeedSingleDevice)
             {
@@ -1281,7 +1381,15 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            return await ProcessChannelForAdd(userId, chatId, channelNameText, keyBytesForSingle, channelKey, isSingleDevice, networkId);
+            return await ProcessChannelForAdd(
+                userId,
+                chatId, 
+                channelNameText,
+                keyBytesForSingle,
+                channelKey, 
+                isSingleDevice,
+                networkId,
+                insecureKeyConfirmed: false);
         }
 
 
@@ -1358,7 +1466,7 @@ namespace TBot.Bot
             {
                 var channelRegs = await registrationService.GetChannelNamesByChatId(chatId);
                 var approvals = await registrationService.GetChannelApprovalsByChatId(chatId);
-                if (channelRegs.Count == 0 
+                if (channelRegs.Count == 0
                     && approvals.Count == 0)
                 {
                     await botClient.SendMessage(chatId, "No channels are registered or approved in this chat.");
@@ -1783,7 +1891,7 @@ namespace TBot.Bot
             }
             return TgResult.Ok;
         }
-private async Task<TgResult> TgRespondWithIncorrectChatChannelCommand(long chatId)
+        private async Task<TgResult> TgRespondWithIncorrectChatChannelCommand(long chatId)
         {
             await botClient.SendMessage(chatId,
                 "Please provide a channel name and channel ID to start a chat. You or someone else should register channel first with /add_channel command to get the ID.\n\n" +

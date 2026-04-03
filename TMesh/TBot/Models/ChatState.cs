@@ -14,6 +14,7 @@ namespace TBot.Models
         AddingChannel_NeedNetwork,
         AddingChannel_NeedName,
         AddingChannel_NeedKey,
+        AddingChannel_NeedInsecureKeyConfirm,
         AddingChannel_NeedSingleDevice,
         AddingChannel_NeedCode,
         RemovingDevice,

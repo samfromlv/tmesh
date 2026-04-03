@@ -67,7 +67,7 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat_channel",
-                    Description = $"Start a chat session with a Meshtastic channel without registering it. Use channel ChannelName:ChannelID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel MyChannel:123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                    Description = $"Start a chat session with a Meshtastic channel without registering it. e.g., /chat_channel MyChannel:123, 123 - is TMesh channel ID created on registration. Use /end_chat command to stop the chat session."
                 },
                 new BotCommand
                 {
@@ -97,12 +97,12 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "remove_device_from_all_chats",
-                    Description = "Unregister a Meshtastic device from all chats. Also removes device from approved devices in all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
+                    Description = "Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
                 },
                 new BotCommand
                 {
                     Command = "remove_channel_from_all_chats",
-                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Also removes channel from approved channels in all chats. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
+                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
                 },
                 new BotCommand
                 {
