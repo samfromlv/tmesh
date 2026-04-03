@@ -245,6 +245,24 @@ namespace TBot.Bot
             }
         }
 
+        public void EndChatSessionByDeviceId(long deviceId, long? onlyIfTgchatId = null)
+        {
+            var chatId = GetActiveChatSessionForDevice(deviceId);
+            if (chatId != null && (!onlyIfTgchatId.HasValue || chatId == onlyIfTgchatId.Value))
+            {
+                StopChatSession(chatId.Value);
+            }
+        }
+
+        public void EndChatSessionByChannelId(int channelId, long? onlyIfTgchatId)
+        {
+            var chatId = GetActiveChatSessionForChannel(channelId);
+            if (chatId != null && (!onlyIfTgchatId.HasValue || chatId == onlyIfTgchatId.Value))
+            {
+                StopChatSession(chatId.Value);
+            }
+        }
+
         public DeviceOrChannelId GetActiveChatSession(long chatId)
         {
             if (memoryCache.TryGetValue<DeviceOrChannelId>(ChatSessionActive_TgChat_Key(chatId), out var id))

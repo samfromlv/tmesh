@@ -62,7 +62,7 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat",
-                    Description = "Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat will be active for 30 minutes since last message or until /stopchat command."
+                    Description = "Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat will be active for 30 minutes since last message or until /stop_chat command."
                 },
                 new BotCommand
                 {

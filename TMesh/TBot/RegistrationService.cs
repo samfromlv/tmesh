@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Math.EC.Rfc7748;
+using TBot.Bot;
 using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
@@ -14,6 +14,7 @@ namespace TBot
         TBotDbContext db,
         IMemoryCache memoryCache,
         IOptions<TBotOptions> options,
+        BotCache botCache,
         ILogger<RegistrationService> logger)
     {
         public const int MaxCodeVerificationTries = 5;
@@ -356,11 +357,38 @@ namespace TBot
                           }).ToListAsync();
         }
 
+        public async Task<List<DeviceName>> GetDeviceApprovalsByChatId(long chatId)
+        {
+            return await (from r in db.TgChatApprovedDevices
+                          join d in db.Devices on r.DeviceId equals d.DeviceId
+                          where r.TgChatId == chatId
+                          select new DeviceName
+                          {
+                              DeviceId = r.DeviceId,
+                              NetworkId = d.NetworkId,
+                              NodeName = d.NodeName
+                          }).ToListAsync();
+        }
+
         public async Task<List<ChannelName>> GetChannelNamesByChatId(long chatId)
         {
             return await (from r in db.ChannelRegistrations
                           join c in db.Channels on r.ChannelId equals c.Id
                           where r.ChatId == chatId
+                          select new ChannelName
+                          {
+                              Id = c.Id,
+                              Name = c.Name,
+                              NetworkId = c.NetworkId,
+                              IsSingleDevice = c.IsSingleDevice
+                          }).ToListAsync();
+        }
+
+        public async Task<List<ChannelName>> GetChannelApprovalsByChatId(long chatId)
+        {
+            return await (from r in db.TgChatApprovedChannels
+                          join c in db.Channels on r.ChannelId equals c.Id
+                          where r.TgChatId == chatId
                           select new ChannelName
                           {
                               Id = c.Id,
@@ -810,12 +838,17 @@ namespace TBot
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
 
+            var approvals = await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync();
+
             var toRemove = regs.Where(r => r.ChatId == chatId).ToList();
-            if (toRemove.Count == 0)
+            var chatApprovals = approvals.Where(x => x.TgChatId == chatId).ToList();
+            if (toRemove.Count == 0
+                && chatApprovals.Count == 0)
             {
                 return false;
             }
             db.DeviceRegistrations.RemoveRange(toRemove);
+            db.TgChatApprovedDevices.RemoveRange(chatApprovals);
 
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
@@ -826,6 +859,7 @@ namespace TBot
             InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
+            botCache.EndChatSessionByDeviceId(deviceId, chatId);
             return true;
         }
 
@@ -842,6 +876,8 @@ namespace TBot
 
             db.DeviceRegistrations.RemoveRange(regs);
 
+            db.TgChatApprovedDevices.RemoveRange(await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync());
+
             var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
             if (device != null)
             {
@@ -851,6 +887,7 @@ namespace TBot
             InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
+            botCache.EndChatSessionByDeviceId(deviceId, null);
             return true;
         }
 
@@ -868,6 +905,11 @@ namespace TBot
             }
 
             db.ChannelRegistrations.RemoveRange(userOrChatRegs);
+
+            var approvals = await db.TgChatApprovedChannels.Where(r => r.ChannelId == chatId).ToListAsync();
+            var approvalToRemove = approvals.Where(x => x.TgChatId == chatId).ToList();
+            db.TgChatApprovedChannels.RemoveRange(approvalToRemove);
+
             bool removeChannel = allRegs.Count == userOrChatRegs.Count;
             Channel channel = null;
             if (removeChannel)
@@ -883,6 +925,10 @@ namespace TBot
                 InvalidateChannelCache(channelId);
                 InvalidateChannelKeysByHashCache(channel.NetworkId, channel.XorHash);
             }
+            foreach (var reg in userOrChatRegs)
+            {
+                botCache.EndChatSessionByChannelId(channelId, reg.ChatId);
+            }
             return (true, userOrChatRegs.Count > 1);
         }
 
@@ -892,15 +938,24 @@ namespace TBot
                 .Where(r => r.ChannelId == channelId)
                 .ToListAsync();
 
+            var allApprovals = await db.TgChatApprovedChannels
+                .Where(x => x.ChannelId == channelId)
+                .ToListAsync();
+
             var chatRegs = allRegs.Where(r => r.ChatId == chatId).ToList();
-            if (!chatRegs.Any(r => r.ChatId == chatId))
+            var chatApprovals = allApprovals.Where(x => x.TgChatId == chatId).ToList();
+            
+            if (!chatRegs.Any(r => r.ChatId == chatId)
+                && !chatApprovals.Any(x => x.TgChatId == chatId))
             {
                 return false;
             }
 
             db.ChannelRegistrations.RemoveRange(chatRegs);
+            db.TgChatApprovedChannels.RemoveRange(chatApprovals);
 
-            bool removeChannel = allRegs.Count == chatRegs.Count;
+            bool removeChannel = allRegs.Count == chatRegs.Count
+                && allApprovals.Count == chatApprovals.Count;
             Channel channel = null;
             if (removeChannel)
             {
@@ -915,6 +970,7 @@ namespace TBot
                 InvalidateChannelCache(channelId);
                 InvalidateChannelKeysByHashCache(channel.NetworkId, channel.XorHash);
             }
+            botCache.EndChatSessionByChannelId(channelId, chatId);
             return true;
         }
 
@@ -1184,14 +1240,14 @@ namespace TBot
 
         public async Task<bool> IsDeviceApprovedForChatAsync(long? tgChatId, long deviceId)
         {
-            return ( tgChatId.HasValue && 
+            return (tgChatId.HasValue &&
                     await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId))
                 || await db.DeviceRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.DeviceId == deviceId);
         }
 
         public async Task<bool> IsChannelApprovedForChatAsync(long? tgChatId, int channelId)
         {
-            return (tgChatId.HasValue && 
+            return (tgChatId.HasValue &&
                     await db.TgChatApprovedChannels.AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId))
                 || await db.ChannelRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.ChannelId == channelId);
         }
@@ -1199,7 +1255,10 @@ namespace TBot
         public async Task ApproveDeviceForChatAsync(long tgChatId, long deviceId)
         {
             var exists = await db.TgChatApprovedDevices
-                .AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId);
+                .AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId)
+                || await db.DeviceRegistrations
+                .AnyAsync(r => r.ChatId == tgChatId && r.DeviceId == deviceId);
+            
             if (!exists)
             {
                 db.TgChatApprovedDevices.Add(new TgChatApprovedDevice
@@ -1215,7 +1274,9 @@ namespace TBot
         public async Task ApproveChannelForChatAsync(long tgChatId, int channelId)
         {
             var exists = await db.TgChatApprovedChannels
-                .AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId);
+                .AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId)
+                || await db.ChannelRegistrations
+                .AnyAsync(r => r.ChatId == tgChatId && r.ChannelId == channelId);
             if (!exists)
             {
                 db.TgChatApprovedChannels.Add(new TgChatApprovedChannel
