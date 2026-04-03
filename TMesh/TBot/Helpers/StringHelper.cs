@@ -14,13 +14,54 @@ namespace TBot.Helpers
             return value.Length <= maxLength ? value : value[..maxLength];
         }
 
-        /// <summary>
-        /// Escapes special characters for Telegram Markdown v1 in user-supplied strings.
-        /// Handles: _ * ` [
-        /// </summary>
+        private static readonly char[] EscapeCharsV2 =
+    [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', '#',
+        '+', '-', '=', '|', '{', '}', '.', '!'
+    ];
+
+        private static readonly char[] EscapeCharsV1 =
+   [
+       '_', '*', '[', '`'
+   ];
+
         public static string EscapeMd(string text)
         {
-            return text?.Replace("_", "\\_").Replace("*", "\\*").Replace("`", "\\`").Replace("[", "\\[") ?? string.Empty;
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            var sb = new StringBuilder(text.Length * 2);
+
+            foreach (char c in text)
+            {
+                if (EscapeCharsV1.Contains(c))
+                    sb.Append('\\');
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
         }
+
+
+        public static string EscapeMdV2(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            var sb = new StringBuilder(text.Length * 2);
+
+            foreach (char c in text)
+            {
+                if (EscapeCharsV2.Contains(c))
+                    sb.Append('\\');
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
+        }
+
+
     }
 }

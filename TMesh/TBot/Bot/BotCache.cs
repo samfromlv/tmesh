@@ -18,6 +18,7 @@ namespace TBot.Bot
         ILogger<BotCache> logger)
 
     {
+        private const int ChatSessionSlidingExpirationMinutes = 30;
         private readonly TBotOptions _options = options.Value;
 
         public DeviceAndGatewayId GetSingleDeviceChannelGateway(int channelId)
@@ -143,7 +144,7 @@ namespace TBot.Bot
             }, DateTime.UtcNow.AddSeconds(_options.DirectGatewayRoutingSeconds));
         }
 
-        private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromMinutes(ChatSessionSlidingExpirationMinutes);
 
         public void StopChatSession(long chatId)
         {

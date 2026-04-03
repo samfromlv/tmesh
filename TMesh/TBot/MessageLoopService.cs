@@ -191,7 +191,6 @@ public class MessageLoopService(
         var hours24ago = now.AddHours(-24);
 
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-        var networksLookup = await registrationService.GetNetworksLookupCached();
 
         // Include all networks from database, not just those with stats
         var networks = await registrationService.GetNetworksCached();

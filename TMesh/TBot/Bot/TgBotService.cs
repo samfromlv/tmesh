@@ -25,7 +25,7 @@ namespace TBot.Bot
     {
 
         const int TrimUserNamesToLength = 8;
-        public const string NoDeviceOrChannelMessage = "No registered devices or channels. You can register a new device with the /add_device command, channel with /add_channel command, or start a temporary chat with /chat !<deviceId>. Use /start to enable your chat for receiving Mesh messages. Please remove the bot from the group if you don't need it.";
+        public const string NoDeviceOrChannelMessage = "No registered devices or channels. You can register a new device with the /add_device command, channel with /add_channel command, or start a temporary chat with /chat !<deviceId>. Please remove the bot from the group if you don't need it.";
         public const string NoDeviceMessage = "No registered devices. You can register a new device with the /add_device command.";
         private readonly TBotOptions _options = options.Value;
         public static readonly JsonSerializerOptions IdentedOptions = new()
@@ -62,7 +62,7 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat",
-                    Description = "Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat will be active for 30 minutes since last message or until /stop_chat command."
+                    Description = $"Start a temporary chat with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /stop_chat command is used."
                 },
                 new BotCommand
                 {
@@ -168,6 +168,25 @@ namespace TBot.Bot
             var chatId = msgReaction.Chat.Id;
             var msgId = msgReaction.MessageId;
 
+            var emojis = string.Join(null,
+                    msgReaction.NewReaction.Select(ConvertReactionType)
+                );
+
+            var userName = GetTelegramUserName(msgReaction.User);
+            var trimmedUserName = TrimTelegramUserName(userName);
+
+            var activeSession = botCache.GetActiveChatSession(chatId);
+            if (activeSession != null)
+            {
+                var recipient = await GetChatSessionRecipient(activeSession);
+                EnsureMeshSenderCreated().SendMeshtasticMessageReactions(
+                   [recipient],
+                   chatId,
+                   msgId,
+                   $"{trimmedUserName}{emojis}");
+
+                return true;
+            }
             var channelRegs = await registrationService.GetChannelKeysByChatIdCached(chatId);
             var devRegs = await registrationService.GetDeviceKeysByChatIdCached(chatId);
             if (devRegs.Count == 0
@@ -176,12 +195,6 @@ namespace TBot.Bot
                 return false;
             }
 
-            var emojis = string.Join(null,
-                    msgReaction.NewReaction.Select(ConvertReactionType)
-                );
-
-            var userName = GetTelegramUserName(msgReaction.User);
-            var trimmedUserName = TrimTelegramUserName(userName);
             EnsureMeshSenderCreated().SendMeshtasticMessageReactions(
                 channelRegs.AsEnumerable<IRecipient>().Concat(devRegs),
                 chatId,
@@ -419,9 +432,7 @@ namespace TBot.Bot
             var activeSession = botCache.GetActiveChatSession(chatId);
             if (activeSession != null)
             {
-                IRecipient recipient = activeSession.DeviceId != null
-                    ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
-                    : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
+                var recipient = await GetChatSessionRecipient(activeSession);
 
                 await EnsureMeshSenderCreated().SendAndTrackMeshtasticMessages(
                     [recipient],
@@ -455,6 +466,13 @@ namespace TBot.Bot
                 msgId,
                 replyToTelegramMessageId,
                 textToMesh);
+        }
+
+        private async Task<IRecipient> GetChatSessionRecipient(DeviceOrChannelId activeSession)
+        {
+            return activeSession.DeviceId != null
+                ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
+                : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
         }
 
         private static string TrimTelegramUserName(string userName)

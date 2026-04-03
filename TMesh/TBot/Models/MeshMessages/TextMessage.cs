@@ -13,6 +13,9 @@ namespace TBot.Models.MeshMessages
         [JsonIgnore]
         public string Text { get; set; }
 
+        [JsonIgnore]
+        public bool IsEmoji { get; set; }
+
         public bool IsDirectMessage { get; set; }
         public long ReplyTo { get; set; }
     }

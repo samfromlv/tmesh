@@ -1238,17 +1238,15 @@ namespace TBot
             return true;
         }
 
-        public async Task<bool> IsDeviceApprovedForChatAsync(long? tgChatId, long deviceId)
+        public async Task<bool> IsDeviceApprovedForChatAsync(long tgChatId, long deviceId)
         {
-            return (tgChatId.HasValue &&
-                    await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId))
+            return await db.TgChatApprovedDevices.AnyAsync(a => a.TgChatId == tgChatId && a.DeviceId == deviceId)
                 || await db.DeviceRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.DeviceId == deviceId);
         }
 
-        public async Task<bool> IsChannelApprovedForChatAsync(long? tgChatId, int channelId)
+        public async Task<bool> IsChannelApprovedForChatAsync(long tgChatId, int channelId)
         {
-            return (tgChatId.HasValue &&
-                    await db.TgChatApprovedChannels.AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId))
+            return await db.TgChatApprovedChannels.AnyAsync(a => a.TgChatId == tgChatId && a.ChannelId == channelId)
                 || await db.ChannelRegistrations.AnyAsync(r => r.ChatId == tgChatId && r.ChannelId == channelId);
         }
 

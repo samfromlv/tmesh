@@ -10,7 +10,10 @@ using TBot.Models;
 
 namespace TBot
 {
-    public class MapMqttService : IAsyncDisposable
+    public class MapMqttService(
+        ILogger<MapMqttService> logger,
+        IOptions<TBotOptions> options,
+        MqttClientFactory mqttClientFactory) : IAsyncDisposable
     {
         private const int ReconnectMillisecondsDelay = 10000;
 #if DEBUG
@@ -20,30 +23,12 @@ namespace TBot
 #endif
 
         const string NetworkShortNameToken = "{{NetworkShortName}}";
-
-        public MapMqttService(
-            ILogger<MapMqttService> logger,
-            IOptions<TBotOptions> options,
-            MqttClientFactory mqttClientFactory,
-            IServiceProvider services)
-        {
-            _logger = logger;
-            _options = options.Value;
-            _mqttClientFactory = mqttClientFactory;
-            _services = services;
-        }
-
-        private readonly CancellationTokenSource _connectionCts = new();
-
-        private readonly ILogger<MapMqttService> _logger;
-        private readonly TBotOptions _options;
-        private readonly MqttClientFactory _mqttClientFactory;
-        private readonly IServiceProvider _services;
-
+        private CancellationTokenSource _connectionCts = new();
+        private readonly TBotOptions _options = options.Value;
         private Dictionary<int, (string NetworkShortName, string ChannelName, bool SaveAnalytics)> _networks;
         private ILookup<string, int> _networkByShortName;
 
-        private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = new();
+        private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = [];
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
         public event Func<DataEventArgs<NetworkServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;
@@ -51,7 +36,7 @@ namespace TBot
         {
             if (_options.MapMqttServers == null || _options.MapMqttServers.Length == 0)
             {
-                _logger.LogInformation("MapMqttService: no servers configured, skipping.");
+                logger.LogInformation("MapMqttService: no servers configured, skipping.");
                 return;
             }
 
@@ -75,7 +60,7 @@ namespace TBot
                 {
                     n.Id,
                     NetworkShortName = n.ShortName,
-                    SaveAnalytics = n.SaveAnalytics,
+                    n.SaveAnalytics,
                     ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
                 };
             }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName, x.SaveAnalytics));
@@ -140,18 +125,18 @@ namespace TBot
                     .Build();
 
                 await client.PublishAsync(message);
-                _logger.LogInformation("Published map MQTT message to {topic}", topic);
+                logger.LogInformation("Published map MQTT message to {topic}", topic);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error publishing map MQTT message to {Server}", server.Address);
+                logger.LogError(ex, "Error publishing map MQTT message to {Server}", server.Address);
             }
         }
         private async Task ConnectServerAsync(MapMqttServerOptions server, CancellationToken ct)
         {
             try
             {
-                var client = _mqttClientFactory.CreateMqttClient();
+                var client = mqttClientFactory.CreateMqttClient();
                 lock (_clients) { _clients.Add((client, server)); }
 
                 client.ApplicationMessageReceivedAsync += args =>
@@ -159,37 +144,43 @@ namespace TBot
 
                 client.DisconnectedAsync += async e =>
                 {
-                    if (_connectionCts.IsCancellationRequested)
+                    if (_connectionCts == null
+                        || _connectionCts.IsCancellationRequested)
                     {
                         return;
                     }
-
-                    _logger.LogWarning("MapMqtt [{Server}] disconnected: {Reason}", server.Address, e.Reason);
+                    logger.LogWarning("MapMqtt [{Server}] disconnected: {Reason}", server.Address, e.Reason);
                     await Task.Delay(ReconnectMillisecondsDelay, _connectionCts.Token);
-                    try
-                    {
-                        await ForceConnectClientAsync(client, server, _connectionCts.Token);
-                    }
-                    catch (OperationCanceledException)
-                    { /* shutting down */
-                    }
+                    await ForceConnectClientAsync(client, server, _connectionCts.Token);
                 };
 
-                await ForceConnectClientAsync(client, server, _connectionCts.Token);
+                await ForceConnectClientAsync(client, server, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "MapMqtt [{Server}] connection error", server.Address);
+                logger.LogError(ex, "MapMqtt [{Server}] connection error", server.Address);
             }
         }
 
 
         private async Task ForceConnectClientAsync(IMqttClient client, MapMqttServerOptions server, CancellationToken ct)
         {
-            while (!await ConnectClientAsync(client, server, ct))
+            bool connected = false;
+            while (!connected)
             {
-                _logger.LogInformation("Retrying MapMqtt [{Server}] connection in 5 seconds...", server.Address);
-                await Task.Delay(ReconnectMillisecondsDelay, ct);
+                try
+                {
+                    connected = await ConnectClientAsync(client, server, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return; // shutting down
+                }
+                if (!connected)
+                {
+                    logger.LogInformation("Retrying MapMqtt [{Server}] connection...", server.Address);
+                    await Task.Delay(ReconnectMillisecondsDelay, ct);
+                }
             }
         }
 
@@ -223,10 +214,10 @@ namespace TBot
                 var result = await client.ConnectAsync(builder.Build(), ct);
                 if (result.ResultCode != MqttClientConnectResultCode.Success)
                 {
-                    _logger.LogError("MapMqtt [{Server}] failed to connect: {Code}", server.Address, result.ResultCode);
+                    logger.LogError("MapMqtt [{Server}] failed to connect: {Code}", server.Address, result.ResultCode);
                     return false;
                 }
-                _logger.LogInformation("MapMqtt [{Server}] connected, topic prefix: {Topic}", server.Address, server.EncryptedTopicPrefix);
+                logger.LogInformation("MapMqtt [{Server}] connected, topic prefix: {Topic}", server.Address, server.EncryptedTopicPrefix);
 
                 if (server.AnalyticsDownlinkEnabled)
                 {
@@ -234,7 +225,7 @@ namespace TBot
                     var hasNetworkNameToken = server.EncryptedTopicPrefix.Contains(NetworkShortNameToken);
                     if (hasNetworkNameToken && (_networks == null || _networks.Count == 0))
                     {
-                        _logger.LogWarning("MapMqtt [{Server}] has {Token} in topic prefix but no networks found, skipping subscription.",
+                        logger.LogWarning("MapMqtt [{Server}] has {Token} in topic prefix but no networks found, skipping subscription.",
                             server.Address, NetworkShortNameToken);
                         return true; // not a failure condition, just means we won't receive messages until networks are available
                     }
@@ -272,9 +263,13 @@ namespace TBot
                 }
                 return true;
             }
+            catch (OperationCanceledException)
+            {
+                throw; // shutting down
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "MapMqtt [{Server}] connect/subscribe error", server.Address);
+                logger.LogError(ex, "MapMqtt [{Server}] connect/subscribe error", server.Address);
                 return false;
             }
         }
@@ -309,13 +304,13 @@ namespace TBot
                 }
                 await MeshtasticMessageReceivedAsync?.Invoke(new DataEventArgs<NetworkServiceEnvelope>(new NetworkServiceEnvelope
                 {
-                     NetworkId = networkId,
-                     Envelope = env
+                    NetworkId = networkId,
+                    Envelope = env
                 }));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "MapMqtt: error handling packet");
+                logger.LogError(ex, "MapMqtt: error handling packet");
             }
         }
 
@@ -331,7 +326,7 @@ namespace TBot
                 return server.DefaultNetworkId;
 
 
-            var networkShortName = topic.Substring(networkNameTokenIndex, nextSlashIndex - networkNameTokenIndex);
+            var networkShortName = topic[networkNameTokenIndex..nextSlashIndex];
             if (string.IsNullOrEmpty(networkShortName))
             {
                 return server.DefaultNetworkId;
@@ -350,9 +345,14 @@ namespace TBot
 
         public async ValueTask DisposeAsync()
         {
+            if (_connectionCts == null || _connectionCts.IsCancellationRequested)
+            {
+                return;
+            }
+
             _connectionCts.Cancel();
             List<IMqttClient> snapshot;
-            lock (_clients) { snapshot = _clients.Select(x => x.Item1).ToList(); }
+            lock (_clients) { snapshot = [.. _clients.Select(x => x.mqttClient)]; }
             foreach (var c in snapshot)
             {
                 try
@@ -364,6 +364,7 @@ namespace TBot
                 catch { /* best effort */ }
             }
             _connectionCts.Dispose();
+            _connectionCts = null;
             GC.SuppressFinalize(this);
         }
     }

@@ -40,14 +40,14 @@ namespace TBot
                 throw new InvalidOperationException("Invalid MQTT Meshtastic topic prefix. Network segment is missing /+/");
             }
 
-            _topicPrefixBeforeNetwork = _options.MqttMeshtasticTopicPrefix.Substring(0, _topicPrefixNetworkCharIndex + 1/*Slash*/);
+            _topicPrefixBeforeNetwork = _options.MqttMeshtasticTopicPrefix[..(_topicPrefixNetworkCharIndex + 1)/*Slash*/];
             _topicPrefixAfterNetwork = _options.MqttMeshtasticTopicPrefix
-                .Substring(_topicPrefixNetworkCharIndex + 3 - 1/*Slash*/).TrimEnd('/');
+                [(_topicPrefixNetworkCharIndex + 3 - 1)/*Slash*/..].TrimEnd('/');
 
         }
 
         private readonly ILogger<MqttService> _logger;
-        private readonly CancellationTokenSource _connectionCts = new();
+        private CancellationTokenSource _connectionCts = new();
         private readonly TBotOptions _options;
         private readonly MqttClientFactory _mqttClientFactory;
         private IMqttClient _client;
@@ -87,7 +87,7 @@ namespace TBot
                 _client.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
                 _client.DisconnectedAsync += async e =>
                 {
-                    if (_connectionCts.IsCancellationRequested)
+                    if (_connectionCts == null || _connectionCts.IsCancellationRequested)
                     {
                         return; // don't attempt reconnect if we intentionally disconnected
                     }
@@ -346,6 +346,10 @@ namespace TBot
 
         public async ValueTask DisposeAsync()
         {
+            if (_connectionCts == null || _connectionCts.IsCancellationRequested)
+            {
+                return;
+            }
             _connectionCts.Cancel();
             if (_client != null)
             {
@@ -354,6 +358,7 @@ namespace TBot
                 _client = null;
             }
             _connectionCts.Dispose();
+            _connectionCts = null;
             GC.SuppressFinalize(this);
         }
     }

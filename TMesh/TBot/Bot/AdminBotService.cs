@@ -145,7 +145,7 @@ namespace TBot.Bot
             foreach (var network in networks)
             {
                 sb.AppendLine();
-                var urlPart = network.Url != null ? $" — {network.Url}" : string.Empty;
+                var urlPart = network.Url != null ? $" - {network.Url}" : string.Empty;
                 sb.AppendLine($"*\\[{network.Id}] {StringHelper.EscapeMd(network.Name)}* (`{StringHelper.EscapeMd(network.ShortName)}`){StringHelper.EscapeMd(urlPart)}");
                 sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}`");
 
@@ -172,7 +172,7 @@ namespace TBot.Bot
                         var device = await registrationService.GetDeviceAsync(gw.DeviceId);
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
                         var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm") : "never";
-                        sb.AppendLine($"  • {StringHelper.EscapeMd(device?.NodeName ?? hexId)} `{hexId}` — seen: {lastSeen}");
+                        sb.AppendLine($"  • {StringHelper.EscapeMd(device?.NodeName ?? hexId)} `{hexId}` - seen: {lastSeen}");
                     }
                 }
                 else
@@ -254,7 +254,7 @@ namespace TBot.Bot
                 DisablePongs = disablePongs
             });
 
-            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}, url: {network.Url ?? "—"})");
+            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}, url: {network.Url ?? "-"})");
             return new TgResult
             {
                 Handled = true,
@@ -334,7 +334,7 @@ namespace TBot.Bot
 
             var updated = await registrationService.GetNetwork(networkId);
             await botClient.SendMessage(chatId,
-                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics}, disablepongs: {updated.DisablePongs}, url: {updated.Url ?? "—"})");
+                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics}, disablepongs: {updated.DisablePongs}, url: {updated.Url ?? "-"})");
 
             return new TgResult
             {
@@ -542,7 +542,7 @@ namespace TBot.Bot
                         var device = await registrationService.GetDeviceAsync(gw.DeviceId);
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
                         var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm:ss") : "never";
-                        sb.AppendLine($"  • *{StringHelper.EscapeMd(device?.NodeName ?? hexId)}* `{hexId}` — seen: {lastSeen}");
+                        sb.AppendLine($"  • *{StringHelper.EscapeMd(device?.NodeName ?? hexId)}* `{hexId}` - seen: {lastSeen}");
                     }
                 }
                 else
