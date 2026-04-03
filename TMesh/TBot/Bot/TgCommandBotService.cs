@@ -48,18 +48,18 @@ namespace TBot.Bot
             if (message.Text?.StartsWith("/chat", StringComparison.OrdinalIgnoreCase) == true
                 && (message.Text.Length == 5 || message.Text[5] == ' ' || message.Text[5] == '@'))
             {
-                var chatArg = ExtractFirstArgFromCommand(message.Text, "/chat");
+                var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat");
                 return await HandleChatDeviceCommand(userId, chatId, chatArg, message.From?.Username);
             }
             if (message.Text?.StartsWith("/chat_channel", StringComparison.OrdinalIgnoreCase) == true
                && (message.Text.Length == 13 || message.Text[13] == ' ' || message.Text[13] == '@'))
             {
-                var chatArg = ExtractFirstArgFromCommand(message.Text, "/chat_channel");
+                var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat_channel");
                 return await HandleChatChannelCommand(userId, chatId, chatArg, message.From?.Username);
             }
             if (message.Text?.StartsWith("/add_device", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/add_device");
+                var deviceIdFromCommand = ExtractSingleArgFromCommand(message.Text, "/add_device");
                 return await StartAddDevice(userId, chatId, deviceIdFromCommand);
             }
             if (message.Text?.StartsWith("/add_channel", StringComparison.OrdinalIgnoreCase) == true)
@@ -70,13 +70,13 @@ namespace TBot.Bot
             if (message.Text?.StartsWith("/remove_device", StringComparison.OrdinalIgnoreCase) == true)
             {
                 bool isRemoveFromAll = message.Text.StartsWith("/remove_device_from_all_chats", StringComparison.OrdinalIgnoreCase);
-                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, isRemoveFromAll ? "/remove_device_from_all_chats" : "/remove_device");
+                var deviceIdFromCommand = ExtractSingleArgFromCommand(message.Text, isRemoveFromAll ? "/remove_device_from_all_chats" : "/remove_device");
                 return await StartRemoveDevice(userId, chatId, deviceIdFromCommand, isRemoveFromAll);
             }
             if (message.Text?.StartsWith("/remove_channel", StringComparison.OrdinalIgnoreCase) == true)
             {
                 bool isRemoveFromAll = message.Text.StartsWith("/remove_channel_from_all_chats", StringComparison.OrdinalIgnoreCase);
-                var channelIdFromCommand = ExtractFirstArgFromCommand(message.Text, isRemoveFromAll ? "/remove_channel_from_all_chats" : "/remove_channel");
+                var channelIdFromCommand = ExtractSingleArgFromCommand(message.Text, isRemoveFromAll ? "/remove_channel_from_all_chats" : "/remove_channel");
                 return await StartRemoveChannel(userId, chatId, userId, channelIdFromCommand, isRemoveFromAll);
             }
             if (message.Text?.StartsWith("/status", StringComparison.OrdinalIgnoreCase) == true)
@@ -89,12 +89,12 @@ namespace TBot.Bot
             }
             if (message.Text?.StartsWith("/promote_to_gateway", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/promote_to_gateway");
+                var deviceIdFromCommand = ExtractSingleArgFromCommand(message.Text, "/promote_to_gateway");
                 return await StartPromoteToGateway(userId, chatId, deviceIdFromCommand);
             }
             if (message.Text?.StartsWith("/demote_from_gateway", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var deviceIdFromCommand = ExtractFirstArgFromCommand(message.Text, "/demote_from_gateway");
+                var deviceIdFromCommand = ExtractSingleArgFromCommand(message.Text, "/demote_from_gateway");
                 return await StartDemoteFromGateway(userId, chatId, deviceIdFromCommand);
             }
             if (message.Text?.StartsWith("/stop", StringComparison.OrdinalIgnoreCase) == true)
@@ -190,12 +190,12 @@ namespace TBot.Bot
             {
                 if (registeredChat.IsActive)
                 {
-                    response.AppendLine("This chat is active in TMesh and can get chat requests from Meshtastic devices and channels\\.");
-                    response.AppendLine($"Meshtastic command: `/chat {StringHelper.EscapeMdV2(registeredChat.ChatName)}` via DM to {StringHelper.EscapeMd(_options.MeshtasticNodeNameLong)}");
+                    response.AppendLine("This chat is *active* in TMesh and can get chat requests from Meshtastic devices and channels\\.");
+                    response.AppendLine($"Meshtastic command: `/chat {StringHelper.EscapeMdV2(registeredChat.ChatName)}` via DM to {StringHelper.EscapeMd(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh\\.");
                 }
                 else
                 {
-                    response.AppendLine($"This chat is registered in TMesh with name {StringHelper.EscapeMdV2(registeredChat.ChatName)} but currently disabled\\.");
+                    response.AppendLine($"This chat is registered in TMesh with name {StringHelper.EscapeMdV2(registeredChat.ChatName)} but currently *disabled*\\.");
                     response.AppendLine($"To allow incomming chat request from Meshtastic devices run command: `/start`");
                 }
             }
@@ -268,25 +268,46 @@ namespace TBot.Bot
                     || channelApprovals.Count > 0
                     || hasFilter)
                 {
-                    var gatewayIdSet = await registrationService.GetGatewaysCached();
-                    response.AppendLine($"*{StringHelper.EscapeMdV2(hasFilter ? "Filtered" : "Registered")} channels and devices:*");
-
-                    if (channelRegs.Count > 0)
+                    if (hasFilter || channelRegs.Count > 0 || devices.Count > 0)
                     {
-                        response.AppendLine();
-                        response.AppendLine("*Registered channels:*");
-                        foreach (var c in channelRegs)
+                        var gatewayIdSet = await registrationService.GetGatewaysCached();
+                        response.AppendLine($"*{StringHelper.EscapeMdV2(hasFilter ? "Filtered" : "Registered")} channels and devices:*");
+
+                        if (channelRegs.Count > 0)
                         {
-                            var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
-                            var singleTag = c.IsSingleDevice ? " \\[Single Device\\]" : "";
-                            response.AppendLine($"• *{StringHelper.EscapeMdV2(c.Name)}*{singleTag} \\- ID `{c.Id}`, network: {StringHelper.EscapeMdV2(networkName)}");
+                            response.AppendLine();
+                            response.AppendLine("*Registered channels:*");
+                            foreach (var c in channelRegs)
+                            {
+                                var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
+                                var singleTag = c.IsSingleDevice ? " \\[Single Device\\]" : "";
+                                response.AppendLine($"• *{StringHelper.EscapeMdV2(c.Name)}*{singleTag} \\- ID `{c.Id}`, network: {StringHelper.EscapeMdV2(networkName)}");
+                            }
                         }
+
+                        if (devices.Count > 0)
+                        {
+                            response.AppendLine();
+                            response.AppendLine("📟 *Registered devices:*");
+                            foreach (var d in devices)
+                            {
+                                var isGateway = gatewayIdSet.ContainsKey(d.DeviceId);
+                                var gatewayTag = isGateway ? " 📡 \\[Gateway\\]" : "";
+                                var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
+                                var hexId = MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId);
+                                var positionStr = d.LastPositionUpdate != null
+                                    ? StringHelper.EscapeMdV2(FormatTimeSpan(now - d.LastPositionUpdate.Value)) + " ago"
+                                    : "N/A";
+                                response.AppendLine($"• *{StringHelper.EscapeMdV2(d.NodeName)}*{gatewayTag}  `{StringHelper.EscapeMdV2(hexId)}` · {StringHelper.EscapeMdV2(networkName)} · node info: {StringHelper.EscapeMdV2(FormatTimeSpan(now - d.LastNodeInfo))} ago · position: {positionStr}");
+                            }
+                        }
+
                     }
 
                     if (channelApprovals.Count > 0)
                     {
                         response.AppendLine();
-                        response.AppendLine("✅ *Channels approved for chat sessions:*");
+                        response.AppendLine($"✅ *Channels approved for chat sessions{(hasFilter?" \\(filtered\\)":"")}:*");
                         foreach (var c in channelApprovals)
                         {
                             var networkName = networks.GetValueOrDefault(c.NetworkId)?.Name ?? "Unknown";
@@ -295,27 +316,10 @@ namespace TBot.Bot
                         }
                     }
 
-                    if (devices.Count > 0)
-                    {
-                        response.AppendLine();
-                        response.AppendLine("📟 *Registered devices:*");
-                        foreach (var d in devices)
-                        {
-                            var isGateway = gatewayIdSet.ContainsKey(d.DeviceId);
-                            var gatewayTag = isGateway ? " 📡 \\[Gateway\\]" : "";
-                            var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
-                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId);
-                            var positionStr = d.LastPositionUpdate != null
-                                ? StringHelper.EscapeMdV2(FormatTimeSpan(now - d.LastPositionUpdate.Value)) + " ago"
-                                : "N/A";
-                            response.AppendLine($"• *{StringHelper.EscapeMdV2(d.NodeName)}*{gatewayTag}  `{StringHelper.EscapeMdV2(hexId)}` · {StringHelper.EscapeMdV2(networkName)} · node info: {StringHelper.EscapeMdV2(FormatTimeSpan(now - d.LastNodeInfo))} ago · position: {positionStr}");
-                        }
-                    }
-
                     if (deviceApprovals.Count > 0)
                     {
                         response.AppendLine();
-                        response.AppendLine("✅ *Devices approved for chat sessions:*");
+                        response.AppendLine($"✅ *Devices approved for chat sessions{(hasFilter ? " \\(filtered\\)" : "")}:*");
                         foreach (var d in deviceApprovals)
                         {
                             var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
@@ -1093,15 +1097,22 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            if (name.Length > TBotDbContext.MaxChatNameLength)
-            {
-                await botClient.SendMessage(chatId, $"Chat name is too long. Maximum length is {TBotDbContext.MaxChatNameLength} characters. Please try again with a shorter name.");
-                return TgResult.Ok;
-            }
+            bool containsSpaces = name.Contains(' ');
+            bool tooLong = name.Length > TBotDbContext.MaxChatNameLength;
+            bool startsWithAt = name.StartsWith('@');
 
-            if (name.Contains('@'))
+            if (containsSpaces || tooLong || startsWithAt)
             {
-                await botClient.SendMessage(chatId, $"Chat name can't contain '@' character. Please choose a different name.");
+                var error = new StringBuilder("Invalid chat name. ");
+                if (containsSpaces)
+                    error.Append("Chat name can't contain spaces. ");
+                if (tooLong)
+                    error.Append($"Chat name is too long. Maximum length is {TBotDbContext.MaxChatNameLength} characters. ");
+                if (startsWithAt)
+                    error.Append("Chat name can't start with '@' character. ");
+
+                error.Append("Please choose a different name.");
+                await botClient.SendMessage(chatId, error.ToString());
                 return TgResult.Ok;
             }
 
@@ -1115,9 +1126,9 @@ namespace TBot.Bot
             }
 
             // Proceed with the registration using the provided name
-            await registrationService.RegisterTgChatAsync(chatId, name, isPrivate: false);
+            tgChat = await registrationService.RegisterTgChatAsync(chatId, name, isPrivate: false);
             registrationService.SetChatState(userId, chatId, ChatState.Default);
-            await botClient.SendMessage(chatId, $"✅ Chat is registered successfully with name {tgChat.ChatName}. Devices can now send requests to start chat with this group using /chat {tgChat.ChatName} command via {_options.MeshtasticNodeNameLong} node.");
+            await botClient.SendMessage(chatId, $"✅ Chat is registered successfully with name {tgChat.ChatName}. Devices can now send requests to start chat with this group using /chat {tgChat.ChatName} command via {_options.MeshtasticNodeNameLong} node or private channel registered with TMesh.");
             return TgResult.Ok;
         }
 
@@ -1447,7 +1458,7 @@ namespace TBot.Bot
 
 
 
-        private string ExtractFirstArgFromCommand(string commandText, string command)
+        private string ExtractSingleArgFromCommand(string commandText, string command)
         {
             if (string.IsNullOrWhiteSpace(commandText))
             {
@@ -1455,21 +1466,20 @@ namespace TBot.Bot
             }
 
             // Remove the command part and trim
-            var text = commandText[command.Length..].Trim();
-            if (text == $"@{_options.TelegramBotUserName}")
+            var text = commandText.AsSpan()[command.Length..].Trim();
+            var botName = $"@{_options.TelegramBotUserName}";
+
+            if (text.StartsWith(botName))
+            {
+                text = text[botName.Length..].Trim();
+            }
+
+            if (text.Length == 0)
             {
                 return null;
             }
 
-            // Return null if empty (no argument provided)
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return null;
-            }
-
-            // Extract first word (argument should not have spaces)
-            var parts = text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length > 0 ? parts[0] : null;
+            return text.ToString();
         }
 
         private (string networkId, string name, string key, string mode) ExtractChannelFromCommand(string commandText, string command)
@@ -1528,7 +1538,7 @@ namespace TBot.Bot
                 {
                     if (groupChat.IsActive)
                     {
-                        await botClient.SendMessage(chatId, $"This group chat is already registered and active with name '{groupChat.ChatName}'. Devices can reach it using /chat {groupChat.ChatName} command. If you want to change group name, disable it with /disable command and start again with new name.");
+                        await botClient.SendMessage(chatId, $"This group chat is already registered and active with name *{StringHelper.EscapeMd(groupChat.ChatName)}*. Meshtastic devices can reach it using `/chat {StringHelper.EscapeMd(groupChat.ChatName)}` command via {StringHelper.EscapeMd(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh. If you want to change group name, disable it with /disable command and start again with new name.", ParseMode.Markdown);
                         return TgResult.Ok;
                     }
                     //else
@@ -1537,7 +1547,7 @@ namespace TBot.Bot
                     //}
                 }
                 registrationService.SetChatState(userId, chatId, ChatState.RegisteringChat_NeedName);
-                await botClient.SendMessage(chatId, $"This chat is group chat. Please provide a unique name for the chat. Name should be below {TBotDbContext.MaxChatNameLength} characters and without @ character in name. Devices will be able to connect to this chat with /chat <your_chat_name> command via {_options.MeshtasticNodeNameLong} node.");
+                await botClient.SendMessage(chatId, $"This chat is group chat. Please provide a unique name for the chat. Name should have no spaces and contain less than {TBotDbContext.MaxChatNameLength} characters. Name can't start with '@'. Meshtastic devices will be able to connect to this chat with /chat <your_chat_name> command via {_options.MeshtasticNodeNameLong} node or private channel registered with TMesh.");
                 return TgResult.Ok;
             }
 
@@ -1548,12 +1558,12 @@ namespace TBot.Bot
             }
 
             var username = message.From.Username;
-            await registrationService.RegisterTgChatAsync(chatId, message.From.Username, isPrivate: true);
+            var tgChat = await registrationService.RegisterTgChatAsync(chatId, message.From.Username, isPrivate: true);
 
             await botClient.SendMessage(chatId,
                 $"✅ Your Telegram chat is now registered with TMesh\\!\n\n" +
                 $"🔹 Meshtastic devices can now initiate a chat with you using:\n" +
-                $"  `/chat @{StringHelper.EscapeMdV2(username.ToLowerInvariant().TrimStart('@'))}` via {StringHelper.EscapeMdV2(_options.MeshtasticNodeNameLong)}\n\n" +
+                $"  `/chat @{StringHelper.EscapeMdV2(tgChat.ChatName)}` via {StringHelper.EscapeMdV2(_options.MeshtasticNodeNameLong)} or private channel registered with TMesh\\.\n\n" +
                 $"🔹 You can also start a chat with any Meshtastic device:\n" +
                 $"  `/chat \\!\\<deviceId\\>`\n" +
                 $"  Example: `/chat \\!75bcd15`\n\n" +
@@ -1620,6 +1630,13 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            if (deviceId == _options.MeshtasticNodeId)
+            {
+                await botClient.SendMessage(chatId,
+                    $"You can't start a chat with {_options.MeshtasticNodeNameLong} node. This node is used only for relaying messages between devices and Telegram and doesn't have a user interface to reply to messages. Please use /chat command with the ID of your device or a private channel registered with TMesh to start a chat.");
+                return TgResult.Ok;
+            }
+
             var device = await registrationService.GetDeviceAsync(deviceId);
             if (device == null)
             {
@@ -1678,25 +1695,32 @@ namespace TBot.Bot
         {
             if (string.IsNullOrWhiteSpace(arg))
             {
-                await botClient.SendMessage(chatId,
-                    "Please provide a channel ID to start a chat. You or someone else should register channel first with /add_channel command to get the ID.\n\n" +
-                    "Examples:\n" +
-                    "• /chat_channel 1");
-                return TgResult.Ok;
+                return await TgRespondWithIncorrectChatChannelCommand(chatId);
             }
 
-            if (!int.TryParse(arg, out var channelId))
+            var lastIndexOfColon = arg.LastIndexOf(':');
+            if (lastIndexOfColon == -1)
             {
-                await botClient.SendMessage(chatId,
-                    $"Invalid channel ID '{arg}'. The channel ID is number. You or someone else should register channel first with /add_channel command to get the ID.");
-                return TgResult.Ok;
+                return await TgRespondWithIncorrectChatChannelCommand(chatId);
+            }
+
+            var channelNamePart = arg[..lastIndexOfColon].Trim();
+            var channelIdPart = arg[(lastIndexOfColon + 1)..].Trim();
+            if (string.IsNullOrEmpty(channelNamePart) || string.IsNullOrEmpty(channelIdPart))
+            {
+                return await TgRespondWithIncorrectChatChannelCommand(chatId);
+            }
+
+            if (!int.TryParse(channelIdPart, out var channelId))
+            {
+                return await TgRespondWithIncorrectChatChannelCommand(chatId);
             }
 
             var channel = await registrationService.GetChannelAsync(channelId);
-            if (channel == null)
+            if (channel == null || !string.Equals(channel.Name, channelNamePart, StringComparison.InvariantCulture/*Case sensitive*/))
             {
                 await botClient.SendMessage(chatId,
-                    $"There is no channel with ID {channelId}. The channel needs to be registered first with /add_channel command to get ID.");
+                    $"There are no channels with ID {channelId} and name {channelNamePart}. The channel needs to be registered first with /add_channel command to get ID.");
                 return TgResult.Ok;
             }
 
@@ -1742,6 +1766,15 @@ namespace TBot.Bot
                     Text = $"Chat request from @{username} (Telegram). Reply with code {request.Code} to accept."
                 });
             }
+            return TgResult.Ok;
+        }
+private async Task<TgResult> TgRespondWithIncorrectChatChannelCommand(long chatId)
+        {
+            await botClient.SendMessage(chatId,
+                "Please provide a channel name and channel ID to start a chat. You or someone else should register channel first with /add_channel command to get the ID.\n\n" +
+                "Examples:\n" +
+                "• /chat_channel MyChannel:1\n" +
+                "Where 'MyChannel' name is Meshtastic channel name and '1' is the channel ID you get from TMesh when registering the channel with /add_channel command.");
             return TgResult.Ok;
         }
 

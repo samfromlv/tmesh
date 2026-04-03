@@ -162,7 +162,7 @@ namespace TBot.Bot
 
             if (chatIds.Count == 0)
             {
-                SendNotRegisteredResponse(message, deviceOrNull);
+                MaybeSendNotRegisteredResponse(message, deviceOrNull);
                 return;
             }
 
@@ -300,7 +300,7 @@ namespace TBot.Bot
                 if (parts.Length >= 2)
                 {
                     var targetHandle = parts[1];
-                    await HandleChatRequestFromMesh(message, $"{channel.Name} (ID: {channel.Id})", channel, targetHandle);
+                    await HandleChatRequestFromMesh(message, deviceOrNull, channel, targetHandle);
                     return;
                 }
             }
@@ -328,7 +328,7 @@ namespace TBot.Bot
                     {
                         meshtasticService.SendTextMessage(
                             channel,
-                            $"Invalid code. To approve reply with code {pendingRequest.Code}, 'no' to reject.",
+                            $"Invalid code. To approve reply with code {pendingRequest.Code}.",
                             replyToMessageId: message.Id,
                             relayGatewayId: message.GatewayId,
                             hopLimit: message.GetSuggestedReplyHopLimit());
@@ -529,7 +529,7 @@ namespace TBot.Bot
                 if (firstSpaceIndex > 0)
                 {
                     var targetHandle = cmdText[(firstSpaceIndex + 1)..].Trim();
-                    await HandleChatRequestFromMesh(message, await GetRecipientName(deviceOrNull), deviceOrNull, targetHandle);
+                    await HandleChatRequestFromMesh(message, deviceOrNull, deviceOrNull, targetHandle);
                     return;
                 }
                 else
@@ -616,7 +616,10 @@ namespace TBot.Bot
                 chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
                 if (chatIds.Count == 0)
                 {
-                    SendNotRegisteredResponse(message, deviceOrNull);
+                    if (message.ReplyTo == 0)
+                    {
+                        MaybeSendNotRegisteredResponse(message, deviceOrNull);
+                    }
                     return;
                 }
             }
@@ -782,8 +785,13 @@ namespace TBot.Bot
             }
         }
 
-        private void SendNotRegisteredResponse(MeshMessage message, Device device)
+        private void MaybeSendNotRegisteredResponse(MeshMessage message, Device device)
         {
+            if (!botCache.TryRegisterUnknownDeviceResponse(device.DeviceId))
+            {
+                return;
+            }
+
             var template = _options.Texts.NotRegisteredDeviceReply ??
                 "{nodeName} is not registered with {botName} (Telegram). Use /help for more info.";
 
@@ -798,13 +806,12 @@ namespace TBot.Bot
                 throw new InvalidOperationException("Not registered response text is too long to send to Meshtastic device.");
             }
 
-
             meshtasticService.SendDirectTextMessage(
                 message.DeviceId,
                 device.NetworkId,
                 device.PublicKey,
                 text,
-                replyToMessageId: null,
+                replyToMessageId: message.Id,
                 relayGatewayId: message.GatewayId,
                 hopLimit: message.GetSuggestedReplyHopLimit());
         }
@@ -904,24 +911,24 @@ namespace TBot.Bot
                     hopLimit: message.GetSuggestedReplyHopLimit());
 
                 var recipientName = await GetRecipientName(recipient);
-                string tgMsg;
+                string tgMsgText;
                 if (recipient.RecipientPrivateChannelId.HasValue)
                 {
                     var deviceName = device != null
                       ? await GetRecipientName(device)
                       : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
 
-                    tgMsg = $"❌ Chat with {recipientName} is ended by device {deviceName}";
+                    tgMsgText = $"❌ Chat with {recipientName} is ended by device {deviceName}";
                 }
                 else
                 {
-                    tgMsg = $"❌ Chat with {recipientName} is ended by device";
+                    tgMsgText = $"❌ Chat with {recipientName} is ended by device";
                 }
-                await TrySendMessage(activeSessionTgChatId.Value, tgMsg);
+                await TrySendMessage(activeSessionTgChatId.Value, tgMsgText);
             }
         }
 
-        private async Task HandleChatRequestFromMesh(TextMessage message, string recipientName, IRecipient recipient, string targetHandle)
+        private async Task HandleChatRequestFromMesh(TextMessage message, Device fromDevice, IRecipient recipient, string targetHandle)
         {
             var tgChat = await registrationService.GetTgChatByNameAsync(targetHandle);
             bool isPrivateChat = targetHandle.StartsWith('@');
@@ -941,11 +948,23 @@ namespace TBot.Bot
             {
                 meshtasticService.SendTextMessage(
                     recipient,
-                    $"Chat is disabled. Please ask user to reactivate the chat with /start command in Telegram.",
+                    $"Chat is disabled. Please reactivate the chat with /start command in Telegram.",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
+            }
+
+            var network = await registrationService.GetNetwork(recipient.NetworkId);
+            var recipientName = await GetRecipientName(recipient);
+            string sentByPart = null;
+            if (recipient.RecipientPrivateChannelId != null)
+            {
+                var deviceName = fromDevice != null
+                  ? await GetRecipientName(fromDevice)
+                  : MeshtasticService.GetMeshtasticNodeHexId(fromDevice.DeviceId);
+
+                sentByPart = $" by {deviceName}";
             }
 
             var activeSession = botCache.GetActiveChatSession(tgChat.ChatId);
@@ -977,9 +996,8 @@ namespace TBot.Bot
                     activeName = "Unknown";
                 }
 
-                var network = await registrationService.GetNetwork(recipient.NetworkId);
-                await TrySendMessage(tgChat.ChatId,
-                    $"📥 Chat request from {StringHelper.EscapeMd(recipientName)} from {StringHelper.EscapeMd(network?.Name ?? "Unknown Network")}.\n\n" +
+                var tgMsg = await TrySendMessage(tgChat.ChatId,
+                    $"📥 Chat request from *{StringHelper.EscapeMd(recipientName)}{StringHelper.EscapeMd(sentByPart)}* from {StringHelper.EscapeMd(network?.Name ?? "Unknown Network")}.\n\n" +
                     $"You have active chat session with {StringHelper.EscapeMd(activeName)}\n\n" +
                     $"If you want to end current session and accept new chat request, please reply with the code below.\n\n" +
                     $"Reply with code `{pendingRequest.Code}` to accept the chat request.\n\n" +
@@ -987,17 +1005,21 @@ namespace TBot.Bot
                     $"Accepting this request will allow device to start chats without further approval.",
                     parseMode: ParseMode.Markdown);
 
+                string meshMsgText = tgMsg != null
+                    ? $"{targetHandle} already has active chat with someone else. Waiting for approval..."
+                    : $"Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+
                 meshtasticService.SendTextMessage(
-                    recipient,
-                    $"{targetHandle} already has active chat with someone else. Waiting for approval...",
-                    replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
-                    hopLimit: message.GetSuggestedReplyHopLimit());
+                       recipient,
+                       meshMsgText,
+                       replyToMessageId: message.Id,
+                       relayGatewayId: message.GatewayId,
+                       hopLimit: message.GetSuggestedReplyHopLimit());
 
                 return;
             }
 
-            var isApproved = await registrationService.IsDeviceApprovedForChatAsync(tgChat.ChatId, message.DeviceId);
+            var isApproved = await registrationService.IsApprovedForChatAsync(tgChat.ChatId, recipient);
             if (isApproved)
             {
                 botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId
@@ -1006,37 +1028,44 @@ namespace TBot.Bot
                     ChannelId = recipient.RecipientPrivateChannelId,
                 });
 
-                meshtasticService.SendTextMessage(
-                    recipient,
-                    $"Chat is started. Please send your first message.",
-                    replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
-                    hopLimit: message.GetSuggestedReplyHopLimit());
+                var tgMsg = await TrySendMessage(tgChat.ChatId,
+                   $"✅ Chat with {recipientName}{sentByPart} is now active.");
 
-                await TrySendMessage(tgChat.ChatId,
-                    $"✅ Chat with {recipientName} is now active.");
+                string meshMsgText = tgMsg != null
+                    ? $"Chat is started. Please send your first message."
+                    : $"Failed to start chat. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+                
+                meshtasticService.SendTextMessage(
+                       recipient,
+                       meshMsgText,
+                       replyToMessageId: message.Id,
+                       relayGatewayId: message.GatewayId,
+                       hopLimit: message.GetSuggestedReplyHopLimit());
             }
             else
             {
                 var pendingRequest = new DeviceOrChannelRequestCode
                 {
                     Code = RegistrationService.GenerateRandomCode(),
-                    DeviceId = message.DeviceId,
+                    DeviceId = recipient.RecipientDeviceId,
+                    ChannelId = recipient.RecipientPrivateChannelId
                 };
                 botCache.StorePendingChatRequest_MeshToTg(tgChat.ChatId, pendingRequest);
 
-                var network = await registrationService.GetNetwork(recipient.NetworkId);
-
-                await TrySendMessage(tgChat.ChatId,
-                    $"📥 Chat request from {StringHelper.EscapeMd(recipientName)} from {StringHelper.EscapeMd(network?.Name ?? "Unknown Network")}.\n\n" +
+                var tgMsg = await TrySendMessage(tgChat.ChatId,
+                    $"📥 Chat request from *{StringHelper.EscapeMd(recipientName)}{StringHelper.EscapeMd(sentByPart)}* from {StringHelper.EscapeMd(network?.Name ?? "Unknown Network")}.\n\n" +
                     $"Reply with code `{pendingRequest.Code}` to accept the chat request.\n\n" +
                     $"Please ignore request if you don't recognize the device name.\n\n" +
                     $"Accepting this request will allow device to start chats without further approval.",
                     parseMode: ParseMode.Markdown);
 
+                var meshMsgText = tgMsg != null
+                    ? $"Chat request is sent. Waiting for approval..."
+                    : $"Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+
                 meshtasticService.SendTextMessage(
                     recipient,
-                    $"Chat request is sent. Waiting for approval...",
+                    meshMsgText,
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());
@@ -1064,28 +1093,34 @@ namespace TBot.Bot
 
             var recipientName = await GetRecipientName(recipient);
 
+            string tgMsgText;
+            if (recipient.RecipientPrivateChannelId.HasValue)
+            {
+                var deviceName = device != null
+                      ? await GetRecipientName(device)
+                      : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
+
+                tgMsgText = $"✅ Chat with {recipientName} was approved by device {deviceName} and is now active.";
+            }
+            else
+            {
+                tgMsgText = $"✅ Chat with {recipientName} was approved and is now active.";
+            }
+
+            var tgMsg = await TrySendMessage(tgChatId, tgMsgText);
+
+            var meshMsgText = tgMsg != null
+                    ? $"Chat approved. You can now send messages."
+                    : $"Failed to start chat. Please check if the bot is active and has permissions to send messages to this chat.";
+
             meshtasticService.SendTextMessage(
                 recipient,
-                "Chat approved. You can now send messages.",
+                meshMsgText,
                 replyToMessageId: message.Id,
                 relayGatewayId: message.GatewayId,
                 hopLimit: message.GetSuggestedReplyHopLimit());
 
-            string tgMsg;
-            if (recipient.RecipientPrivateChannelId.HasValue)
-            {
-                var deviceName = device!= null
-                      ? await GetRecipientName(device)
-                      : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
-
-                tgMsg = $"✅ Chat with {recipientName} was approved by device {deviceName} and is now active.";
-            }
-            else
-            {
-                tgMsg = $"✅ Chat with {recipientName} was approved and is now active.";
-            }
-
-            await TrySendMessage(tgChatId, tgMsg);
+           
         }
 
     }

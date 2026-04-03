@@ -215,6 +215,20 @@ namespace TBot.Bot
             }
         }
 
+        public bool TryRegisterUnknownDeviceResponse(long deviceId)
+        {
+            var key = $"NotRegisteredSentRecently#{deviceId}";
+            if (memoryCache.TryGetValue<bool>(key, out _))
+            {
+                return false;
+            }
+            else
+            {
+                memoryCache.Set(key, true, TimeSpan.FromMinutes(1));
+                return true;
+            }
+        }
+
         public void StartChatSession(long chatId, DeviceOrChannelId id)
         {
             var expirationWithCallback = new MemoryCacheEntryOptions

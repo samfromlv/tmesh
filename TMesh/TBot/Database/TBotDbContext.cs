@@ -184,9 +184,12 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.ChatName)
                 .IsRequired()
                 .HasMaxLength(MaxChatNameLength);
+            e.Property(p => p.ChatKey)
+                .IsRequired()
+                .HasMaxLength(MaxChatNameLength);
             e.Property(p => p.IsActive).IsRequired();
             e.Property(p => p.CreatedUtc).IsRequired();
-            e.HasIndex(p => p.ChatName).IsUnique();
+            e.HasIndex(p => p.ChatKey).IsUnique();
         });
 
         modelBuilder.Entity<TgChatApprovedDevice>(e =>

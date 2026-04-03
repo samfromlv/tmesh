@@ -67,7 +67,7 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat_channel",
-                    Description = $"Start a temporary chat with a Meshtastic channel without registering it. Use channel ID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel 123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                    Description = $"Start a temporary chat with a Meshtastic channel without registering it. Use channel ChannelName:ChannelID as parameter (channel ID is created when channel is registered) (e.g., /chat_channel MyChannel:123). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
                 },
                 new BotCommand
                 {

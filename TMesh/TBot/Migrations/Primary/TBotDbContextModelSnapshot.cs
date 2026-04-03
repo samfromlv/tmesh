@@ -272,6 +272,11 @@ namespace TBot.Migrations.Primary
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ChatKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ChatName")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -288,7 +293,7 @@ namespace TBot.Migrations.Primary
 
                     b.HasKey("ChatId");
 
-                    b.HasIndex("ChatName")
+                    b.HasIndex("ChatKey")
                         .IsUnique();
 
                     b.ToTable("TgChats");

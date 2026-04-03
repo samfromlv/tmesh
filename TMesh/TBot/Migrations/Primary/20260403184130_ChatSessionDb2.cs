@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace TBot.Migrations.Primary
 {
     /// <inheritdoc />
-    public partial class ChatSessionDb : Migration
+    public partial class ChatSessionDb2 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -49,6 +49,7 @@ namespace TBot.Migrations.Primary
                         .Annotation("Sqlite:Autoincrement", true),
                     IsPrivate = table.Column<bool>(type: "INTEGER", nullable: false),
                     ChatName = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
+                    ChatKey = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
                     IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
                     CreatedUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
@@ -80,9 +81,9 @@ namespace TBot.Migrations.Primary
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_TgChats_ChatName",
+                name: "IX_TgChats_ChatKey",
                 table: "TgChats",
-                column: "ChatName",
+                column: "ChatKey",
                 unique: true);
         }
 

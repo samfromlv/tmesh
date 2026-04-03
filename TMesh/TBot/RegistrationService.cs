@@ -800,10 +800,16 @@ namespace TBot
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
             db.DeviceRegistrations.RemoveRange(regs);
+            
+            var approvals = await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync();
+            db.TgChatApprovedDevices.RemoveRange(approvals);
+
             db.Devices.Remove(device);
             await db.SaveChangesAsync();
             InvalidateDeviceCache(deviceId);
             InvalidateChatsByDeviceIdCache(deviceId);
+            botCache.EndChatSessionByDeviceId(deviceId, null);
+            botCache.RemovePendingDeviceChatRequest_TgToMesh(deviceId);
             foreach (var reg in regs)
             {
                 InvalidateDeviceKeysByChatIdCache(reg.ChatId);
@@ -838,6 +844,7 @@ namespace TBot
             {
                 db.TgChats.Remove(tgChat);
             }
+            botCache.StopChatSession(chatId);
             await db.SaveChangesAsync();
         }
 
@@ -1177,49 +1184,45 @@ namespace TBot
 
         public async Task<TgChat> GetTgChatByNameAsync(string chatName)
         {
-            var normalized = chatName?.Trim();
-            if (string.IsNullOrEmpty(normalized)) return null;
+             var normalizedKey = chatName?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(normalizedKey)) return null;
 
-            if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{normalized}", out var cached))
+            if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{normalizedKey}", out var cached))
             {
                 return cached;
             }
 
             var entity = await db.TgChats
-                .FirstOrDefaultAsync(c => c.ChatName == normalized);
+                .FirstOrDefaultAsync(c => c.ChatKey == normalizedKey);
 
             if (entity != null)
             {
-                memoryCache.Set($"TgChatByName#{normalized}", entity, TimeSpan.FromMinutes(10));
+                memoryCache.Set($"TgChatByName#{normalizedKey}", entity, TimeSpan.FromMinutes(10));
             }
             return entity;
-        }
-
-        public async Task<bool> TgChatNameTaken(string chatName, bool isPrivate)
-        {
-            var normalized = NormalizeChatName(chatName, isPrivate);
-            return await db.TgChats.AnyAsync(c => c.ChatName == normalized);
         }
 
         public async Task<TgChat> RegisterTgChatAsync(long chatId, string chatName, bool isPrivate)
         {
             var normalizedName = NormalizeChatName(chatName, isPrivate);
+            var normalizedKey = NormalizeChatKey(chatName, isPrivate);
 
-            var byNameEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatName == normalizedName);
-            if (byNameEntity != null && byNameEntity.ChatId != chatId)
+            var byKeyEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatKey == normalizedKey);
+            if (byKeyEntity != null && byKeyEntity.ChatId != chatId)
             {
-                throw new Exception($"Chat name {normalizedName} is already taken by another chat");
+                throw new Exception($"Chat key {normalizedKey} is already taken by another chat");
             }
 
             var byChatEntity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
             var now = DateTime.UtcNow;
-            string oldName = null;
+            string oldKey = null;
             if (byChatEntity == null)
             {
                 byChatEntity = new TgChat
                 {
                     ChatId = chatId,
                     ChatName = normalizedName,
+                    ChatKey = normalizedKey,
                     IsPrivate = isPrivate,
                     IsActive = true,
                     CreatedUtc = now
@@ -1228,14 +1231,18 @@ namespace TBot
             }
             else
             {
-                oldName = byChatEntity.ChatName;
+                oldKey = byChatEntity.ChatKey;
                 byChatEntity.ChatName = normalizedName;
+                byChatEntity.ChatKey = normalizedKey;
                 byChatEntity.IsPrivate = isPrivate;
                 byChatEntity.IsActive = true;
             }
             await db.SaveChangesAsync();
-            memoryCache.Remove($"TgChatByName#{oldName}");
-            memoryCache.Set($"TgChatByName#{normalizedName}", byChatEntity, TimeSpan.FromMinutes(10));
+            if (oldKey != null && oldKey != normalizedKey)
+            {
+                memoryCache.Remove($"TgChatByName#{oldKey}");
+            }
+            memoryCache.Set($"TgChatByName#{normalizedKey}", byChatEntity, TimeSpan.FromMinutes(10));
             return byChatEntity;
         }
 
@@ -1245,9 +1252,22 @@ namespace TBot
             if (entity == null) return false;
             entity.IsActive = false;
             await db.SaveChangesAsync();
-            if (entity.ChatName != null)
-                memoryCache.Remove($"TgChatByName#{entity.ChatName}");
+            if (entity.ChatKey != null)
+                memoryCache.Remove($"TgChatByName#{entity.ChatKey}");
             return true;
+        }
+
+        public Task<bool> IsApprovedForChatAsync(long tgChatId, IRecipient recipient)
+        {
+            if (recipient == null) return Task.FromResult(false);
+
+            if (recipient.RecipientDeviceId.HasValue)
+                return IsDeviceApprovedForChatAsync(tgChatId, recipient.RecipientDeviceId.Value);
+
+            if (recipient.RecipientPrivateChannelId.HasValue)
+                return IsChannelApprovedForChatAsync(tgChatId, recipient.RecipientPrivateChannelId.Value);
+            
+            return Task.FromResult(false);
         }
 
         public async Task<bool> IsDeviceApprovedForChatAsync(long tgChatId, long deviceId)
@@ -1309,6 +1329,11 @@ namespace TBot
             var trimmed = chatName?.Trim();
             if (string.IsNullOrEmpty(trimmed)) return null;
             return isPrivate ? $"@{trimmed.TrimStart('@')}" : trimmed;
+        }
+
+        public static string NormalizeChatKey(string chatName, bool isPrivate)
+        {
+            return NormalizeChatName(chatName, isPrivate)?.ToLowerInvariant();
         }
 
         // ── end TgChat ──────────────────────────────────────────────────────────
