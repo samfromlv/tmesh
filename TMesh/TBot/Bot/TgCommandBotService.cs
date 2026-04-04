@@ -1731,8 +1731,8 @@ namespace TBot.Bot
         {
             var existingSession = botCache.GetActiveChatSession(chatId);
             if (existingSession != null
-                && existingSession.DeviceId != id.DeviceId
-                && existingSession.ChannelId != id.ChannelId)
+                && (existingSession.DeviceId != id.DeviceId
+                || existingSession.ChannelId != id.ChannelId))
             {
                 botCache.StopChatSession(chatId);
 

@@ -303,8 +303,8 @@ namespace TBot.Bot
         {
             var otherMeshSession = botCache.GetActiveChatSession(chatId);
             if (otherMeshSession != null
-                && otherMeshSession.DeviceId != request.DeviceId
-                && otherMeshSession.ChannelId != request.ChannelId)
+                && (otherMeshSession.DeviceId != request.DeviceId
+                || otherMeshSession.ChannelId != request.ChannelId))
             {
                 var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
                 var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";

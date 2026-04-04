@@ -945,8 +945,8 @@ namespace TBot.Bot
 
             var activeSession = botCache.GetActiveChatSession(tgChat.ChatId);
             if (activeSession != null
-                && activeSession.DeviceId != recipient.RecipientDeviceId
-                && activeSession.ChannelId != recipient.RecipientPrivateChannelId)
+                && (activeSession.DeviceId != recipient.RecipientDeviceId
+                || activeSession.ChannelId != recipient.RecipientPrivateChannelId))
             {
                 var pendingRequest = new DeviceOrChannelRequestCode
                 {
@@ -1053,8 +1053,8 @@ namespace TBot.Bot
 
             var otherMeshSession = botCache.GetActiveChatSession(tgChatId);
             if (otherMeshSession != null
-                && otherMeshSession.DeviceId != recipient.RecipientDeviceId
-                && otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId)
+                && (otherMeshSession.DeviceId != recipient.RecipientDeviceId
+                || otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId))
             {
                 var chatName = tgChat != null ? tgChat.ChatName : "Telegram";
                 botCache.StopChatSession(tgChatId);
