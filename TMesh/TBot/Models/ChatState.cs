@@ -9,8 +9,12 @@ namespace TBot.Models
     public enum ChatState
     {
         Default,
+        Starting_NeedPrivacyConfim,
+        KillingChat_NeedConfirm,
         AddingDevice_NeedId,
+        AddingDevice_NeedPrivacyConfim,
         AddingDevice_NeedCode,
+        AddingChannel_NeedPrivacyConfim,
         AddingChannel_NeedNetwork,
         AddingChannel_NeedName,
         AddingChannel_NeedKey,

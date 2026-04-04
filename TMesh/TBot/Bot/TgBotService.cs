@@ -57,6 +57,10 @@ namespace TBot.Bot
                     Command = "disable",
                     Description = "Disables new chat requests from Meshtastic. When bot is disabled approved or registered devices still allowed to start chat sessions, only requests from unknown devices are blocked. Use /start to enable it again."
                 },
+                new BotCommand {
+                    Command = "kill",
+                    Description = "Remove all registration and approvals and disable new chat requests from Meshtastic devices and channels."
+                },
                 new BotCommand
                 {
                     Command = "chat",
@@ -320,7 +324,7 @@ namespace TBot.Bot
 
                     meshtasticService.SendTextMessage(
                         recipient,
-                        $"Chat with {chatName} is ended",
+                        $"❌ Chat with {chatName} is ended",
                         replyToMessageId: null,
                         relayGatewayId: gatewayId,
                         hopLimit: int.MaxValue);
@@ -376,7 +380,7 @@ namespace TBot.Bot
                       device.DeviceId,
                       device.NetworkId,
                       device.PublicKey,
-                      "✅ Chat request approved.",
+                      "✅ Chat request approved. You can send messages.",
                       replyToMessageId: null,
                       relayGatewayId: null,
                       hopLimit: int.MaxValue);
@@ -408,7 +412,7 @@ namespace TBot.Bot
                     $"✅ You started chat with channel {channel.Name} (ID: {channel.Id}). Chat is now active.");
                 meshtasticService.SendPrivateChannelTextMessage(
                     MeshtasticService.GetNextMeshtasticMessageId(),
-                      "Chat request approved",
+                      "✅ Chat request approved. You can send messages.",
                       replyToMessageId: null,
                       relayGatewayId: null,
                       hopLimit: int.MaxValue,

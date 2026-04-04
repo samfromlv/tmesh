@@ -16,6 +16,8 @@ namespace TBot.Models
 
         public bool InsecureKeyConfirmed { get; set; }
 
+        public bool PrivacyConfirmed { get; set; }
+
         public bool? IsSingleDevice { get; set; }
 
         public long? DeviceId { get; set; }

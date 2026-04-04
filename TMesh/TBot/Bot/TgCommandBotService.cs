@@ -1,9 +1,7 @@
 ﻿using Linux.Bluetooth;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Cms;
 using System.Text;
 using TBot.Database;
 using TBot.Database.Models;
@@ -37,6 +35,10 @@ namespace TBot.Bot
                 && (message.Text.Length == 6 || message.Text[6] == ' ' || message.Text[6] == '@'))
             {
                 return await HandleStart(userId, chatId, message);
+            }
+            if (message.Text?.StartsWith("/kill", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return await HandleKill(userId, chatId, message);
             }
             if (message.Text?.StartsWith("/disable", StringComparison.OrdinalIgnoreCase) == true
                 && (message.Text.Length == 8 || message.Text[8] == ' ' || message.Text[8] == '@'))
@@ -752,7 +754,8 @@ namespace TBot.Bot
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
                     State = ChatState.AddingChannel_NeedName,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    PrivacyConfirmed = state.PrivacyConfirmed,
                 });
             }
             else if (state.ChannelKey == null)
@@ -762,7 +765,8 @@ namespace TBot.Bot
                 {
                     State = ChatState.AddingChannel_NeedKey,
                     ChannelName = state.ChannelName,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    PrivacyConfirmed = state.PrivacyConfirmed,
                 });
             }
             else
@@ -775,7 +779,8 @@ namespace TBot.Bot
                     ChannelName = state.ChannelName,
                     ChannelKey = state.ChannelKey,
                     InsecureKeyConfirmed = state.InsecureKeyConfirmed,
-                    IsSingleDevice = state.IsSingleDevice
+                    IsSingleDevice = state.IsSingleDevice,
+                    PrivacyConfirmed = state.PrivacyConfirmed,
                 });
                 return await ProcessChannelForAdd(
                     userId,
@@ -785,7 +790,8 @@ namespace TBot.Bot
                     MeshtasticService.PskKeyToBase64(state.ChannelKey),
                     state.IsSingleDevice,
                     networkId,
-                    state.InsecureKeyConfirmed);
+                    state.InsecureKeyConfirmed,
+                    state.PrivacyConfirmed);
             }
 
             return TgResult.Ok;
@@ -801,7 +807,8 @@ namespace TBot.Bot
                 {
                     State = ChatState.AddingChannel_NeedKey,
                     ChannelName = message.Text,
-                    NetworkId = state.NetworkId
+                    NetworkId = state.NetworkId,
+                    PrivacyConfirmed = state.PrivacyConfirmed,
                 });
             }
             else
@@ -844,7 +851,8 @@ namespace TBot.Bot
                     Convert.ToBase64String(state.ChannelKey),
                     isSingleDevice: null,
                     state.NetworkId,
-                    insecureKeyConfirmed: true);
+                    insecureKeyConfirmed: true,
+                    state.PrivacyConfirmed);
             }
             else
             {
@@ -888,7 +896,15 @@ namespace TBot.Bot
                     return TgResult.Ok;
                 }
 
-                return await ProcessChannelForAdd(userId, chatId, state.ChannelName, key, message.Text, isSingleDevice: null, state.NetworkId, state.InsecureKeyConfirmed);
+                return await ProcessChannelForAdd(userId,
+                    chatId,
+                    state.ChannelName,
+                    key,
+                    message.Text,
+                    isSingleDevice: null,
+                    state.NetworkId,
+                    state.InsecureKeyConfirmed,
+                    state.PrivacyConfirmed);
             }
             else
             {
@@ -897,6 +913,47 @@ namespace TBot.Bot
                                 "Please try again or type /stop to cancel the registration.");
             }
             return TgResult.Ok;
+        }
+
+        private async Task<TgResult> ProceedAddingChannelNeedPrivacyConfirm(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            var text = message.Text?.Trim();
+            if (string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase))
+            {
+                if (state.NetworkId == null
+                    || string.IsNullOrEmpty(state.ChannelName)
+                    || state.ChannelKey == null)
+                {
+                    return await StartAddChannel(
+                        userId,
+                        chatId,
+                        state.NetworkId?.ToString(),
+                        state.ChannelName,
+                        state.ChannelKey != null ? Convert.ToBase64String(state.ChannelKey) : null,
+                        state.IsSingleDevice.HasValue ? (state.IsSingleDevice.Value ? "single" : "multiple") : null,
+                        privacyConfirmed: true);
+                }
+                else
+                {
+                    return await ProcessChannelForAdd(
+                        userId,
+                        chatId,
+                        state.ChannelName,
+                        state.ChannelKey,
+                        Convert.ToBase64String(state.ChannelKey),
+                        state.IsSingleDevice,
+                        state.NetworkId,
+                        state.InsecureKeyConfirmed,
+                        privacyConfirmed: true);
+                }
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                                $"To confirm that you understand the privacy risks and want to proceed with registering this channel, please reply with `yes`.\n\n" +
+                                "Please try again or type /stop to cancel the registration.", ParseMode.Markdown);
+                return TgResult.Ok;
+            }
         }
 
         private async Task<TgResult> ProceedNeedChannelSingleDevice(long userId, long chatId, Message message, ChatStateWithData state)
@@ -927,7 +984,8 @@ namespace TBot.Bot
                 MeshtasticService.PskKeyToBase64(state.ChannelKey),
                 isSingleDevice,
                 state.NetworkId,
-                state.InsecureKeyConfirmed);
+                state.InsecureKeyConfirmed,
+                state.PrivacyConfirmed);
         }
 
         private async Task<TgResult> ProcessChannelForAdd(
@@ -938,7 +996,8 @@ namespace TBot.Bot
             string channelKeyBase64,
             bool? isSingleDevice,
             int? networkId,
-            bool insecureKeyConfirmed)
+            bool insecureKeyConfirmed,
+            bool privacyConfirmed)
         {
             if (networkId == null)
             {
@@ -956,6 +1015,25 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            if (!privacyConfirmed)
+            {
+                var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
+                var privacyRes = await AddingChannelMaybeShowPrivacyDisclaimer(
+                      userId,
+                      chatId,
+                      tgChat,
+                  networkId: networkId,
+                  channelName: channelName,
+                  isSingleDevice: isSingleDevice,
+                  channelKey: channelKey,
+                  insecureKeyConfirmed: insecureKeyConfirmed);
+
+                if (privacyRes != null)
+                {
+                    return privacyRes;
+                }
+            }
+
             // If channel doesn't exist yet and isSingleDevice not yet decided, ask
             if (dbChannel == null && !isSingleDevice.HasValue)
             {
@@ -966,7 +1044,8 @@ namespace TBot.Bot
                     ChannelKey = channelKey,
                     IsSingleDevice = null,
                     NetworkId = networkId,
-                    InsecureKeyConfirmed = insecureKeyConfirmed
+                    InsecureKeyConfirmed = insecureKeyConfirmed,
+                    PrivacyConfirmed = privacyConfirmed
                 });
 
                 await botClient.SendMessage(chatId,
@@ -989,7 +1068,8 @@ namespace TBot.Bot
                     ChannelKey = channelKey,
                     IsSingleDevice = isSingleDevice,
                     NetworkId = networkId,
-                    InsecureKeyConfirmed = insecureKeyConfirmed
+                    InsecureKeyConfirmed = insecureKeyConfirmed,
+                    PrivacyConfirmed = privacyConfirmed
                 });
                 await botClient.SendMessage(chatId,
                     $"The provided channel key is the default Meshtastic channel key. Anyone will be able to read your messages. This is not secure. Please reply with 'my key is not secure' to confirm that you understand the risks and want to proceed with registering this channel, or type /stop to cancel.");
@@ -1079,6 +1159,62 @@ namespace TBot.Bot
             });
         }
 
+        private async Task<TgResult> ProceedKillingChatNeedConfirm(long userId, long chatId, Message message)
+        {
+            if (!string.IsNullOrWhiteSpace(message.Text)
+                                && message.Text.Trim().Equals("yes", StringComparison.InvariantCultureIgnoreCase))
+            {
+                await registrationService.RemoveAllForTgChat(chatId);
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                await botClient.SendMessage(chatId, "Chat has been removed. All registrations and approvals have been removed and the chat will no longer receive any messages from the bot. To start using the bot again use /start command.");
+                return TgResult.Ok;
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                    $"To confirm that you want to remove this chat, please reply with `yes`.\n\n" +
+                    "Please try again or type /stop to cancel.", ParseMode.Markdown);
+                return TgResult.Ok;
+            }
+        }
+
+        private async Task<TgResult> ProceedStarting_NeedPrivacyConfirm(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            if (state.PrivacyConfirmed || (!string.IsNullOrWhiteSpace(message.Text)
+                                && message.Text.Trim().Equals("yes", StringComparison.InvariantCultureIgnoreCase)))
+            {
+                return await ProceedStart(userId, chatId, message);
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                    $"To confirm that you have read and understood the privacy notice, please reply with `yes`.\n\n" +
+                    "Please try again or type /stop to cancel.", ParseMode.Markdown);
+                return TgResult.Ok;
+            }
+        }
+
+        private async Task<TgResult> ProceedAddingDeviceNeedPrivacyConfirm(long userId, long chatId, Message message, ChatStateWithData state)
+        {
+            if (state.PrivacyConfirmed || (!string.IsNullOrWhiteSpace(message.Text)
+                                && message.Text.Trim().Equals("yes", StringComparison.InvariantCultureIgnoreCase)))
+            {
+                if (state.DeviceId == null)
+                {
+                    return await SendAddingDeviceNeedId(userId, chatId);
+                }
+                state.PrivacyConfirmed = true;
+                return await ProcessDeviceIdForAdd(userId, chatId, state.DeviceId.Value);
+            }
+            else
+            {
+                await botClient.SendMessage(chatId,
+                    $"To confirm that you have read and understood the privacy notice, please reply with `yes`.\n\n" +
+                    "Please try again or type /stop to cancel.", ParseMode.Markdown);
+                return TgResult.Ok;
+            }
+        }
+
         private async Task<TgResult> ProceedDeviceAdd(
            long userId,
            long chatId,
@@ -1092,6 +1228,10 @@ namespace TBot.Bot
             else if (chatState.State == ChatState.AddingDevice_NeedCode)
             {
                 return await ProceedNeedCode(userId, chatId, message);
+            }
+            else if (chatState.State == ChatState.AddingDevice_NeedPrivacyConfim)
+            {
+                return await ProceedAddingDeviceNeedPrivacyConfirm(userId, chatId, message, chatState);
             }
             else
             {
@@ -1156,9 +1296,15 @@ namespace TBot.Bot
 
             switch (chatStateWithData?.State)
             {
+                case ChatState.Starting_NeedPrivacyConfim:
+                    return await ProceedStarting_NeedPrivacyConfirm(userId, chatId, msg, chatStateWithData);
+                case ChatState.KillingChat_NeedConfirm:
+                    return await ProceedKillingChatNeedConfirm(userId, chatId, msg);
+                case ChatState.AddingDevice_NeedPrivacyConfim:
                 case ChatState.AddingDevice_NeedId:
                 case ChatState.AddingDevice_NeedCode:
                     return await ProceedDeviceAdd(userId, chatId, msg, chatStateWithData);
+                case ChatState.AddingChannel_NeedPrivacyConfim:
                 case ChatState.AddingChannel_NeedNetwork:
                 case ChatState.AddingChannel_NeedName:
                 case ChatState.AddingChannel_NeedKey:
@@ -1261,6 +1407,10 @@ namespace TBot.Bot
             {
                 return await ProceedNeedCode(userId, chatId, message);
             }
+            else if (chatState.State == ChatState.AddingChannel_NeedPrivacyConfim)
+            {
+                return await ProceedAddingChannelNeedPrivacyConfirm(userId, chatId, message, chatState);
+            }
             else
             {
                 logger.LogWarning("Unexpected chat state {ChatState} in HandleDeviceAdd", chatState);
@@ -1270,8 +1420,16 @@ namespace TBot.Bot
 
 
 
-        private async Task<TgResult> StartAddChannel(long userId, long chatId, string networkIdText, string channelNameText, string channelKey, string mode = null)
+        private async Task<TgResult> StartAddChannel(
+            long userId,
+            long chatId,
+            string networkIdText,
+            string channelNameText,
+            string channelKey,
+            string mode = null,
+            bool privacyConfirmed = false)
         {
+            var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
             // Parse optional mode argument early so we can store it in state if network selection is needed
             bool? isSingleDevice = null;
             if (!string.IsNullOrWhiteSpace(mode))
@@ -1293,6 +1451,22 @@ namespace TBot.Bot
             int networkId;
             if (string.IsNullOrEmpty(networkIdText))
             {
+                if (!privacyConfirmed)
+                {
+                    var privacyRes = await AddingChannelMaybeShowPrivacyDisclaimer(
+                        userId,
+                        chatId,
+                        tgChat,
+                        networkId: null,
+                        channelName: null,
+                        isSingleDevice: isSingleDevice);
+
+                    if (privacyRes != null)
+                    {
+                        return privacyRes;
+                    }
+                }
+
                 var sb = new StringBuilder("Please select a network by replying with its ID:\n");
                 foreach (var n in networks)
                 {
@@ -1303,7 +1477,11 @@ namespace TBot.Bot
                 sb.AppendLine("\nType /stop to cancel.");
 
                 await botClient.SendMessage(chatId, sb.ToString(), parseMode: ParseMode.Markdown);
-                registrationService.SetChatState(userId, chatId, ChatState.AddingChannel_NeedNetwork);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedNetwork,
+                    PrivacyConfirmed = true,
+                });
                 return TgResult.Ok;
             }
             else
@@ -1332,12 +1510,29 @@ namespace TBot.Bot
 
             if (string.IsNullOrWhiteSpace(channelNameText))
             {
+                if (!privacyConfirmed)
+                {
+                    var privacyRes = await AddingChannelMaybeShowPrivacyDisclaimer(
+                        userId,
+                        chatId,
+                        tgChat,
+                        networkId: networkId,
+                        channelName: null,
+                        isSingleDevice: isSingleDevice);
+
+                    if (privacyRes != null)
+                    {
+                        return privacyRes;
+                    }
+                }
+
                 // No channel name provided, ask for it
                 await botClient.SendMessage(chatId, "Please send your Meshtastic channel name.");
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
                     State = ChatState.AddingChannel_NeedName,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    PrivacyConfirmed = true,
                 });
                 return TgResult.Ok;
             }
@@ -1356,12 +1551,29 @@ namespace TBot.Bot
 
             if (string.IsNullOrEmpty(channelKey))
             {
+                if (!privacyConfirmed)
+                {
+                    var privacyRes = await AddingChannelMaybeShowPrivacyDisclaimer(
+                        userId,
+                        chatId,
+                        tgChat,
+                        networkId: networkId,
+                        channelName: channelNameText,
+                        isSingleDevice: isSingleDevice);
+
+                    if (privacyRes != null)
+                    {
+                        return privacyRes;
+                    }
+                }
+
                 await SendNeedChannelKeyTgMsg(chatId);
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
                     State = ChatState.AddingChannel_NeedKey,
                     ChannelName = channelNameText,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    PrivacyConfirmed = true
                 });
                 return TgResult.Ok;
             }
@@ -1391,14 +1603,39 @@ namespace TBot.Bot
                 channelKey,
                 isSingleDevice,
                 networkId,
-                insecureKeyConfirmed: false);
+                insecureKeyConfirmed: false,
+                privacyConfirmed: privacyConfirmed);
         }
 
+        private async Task<TgResult> AddingChannelMaybeShowPrivacyDisclaimer(
+            long userId,
+            long chatId,
+            TgChat tgChat,
+            int? networkId,
+            string channelName,
+            bool? isSingleDevice,
+            byte[] channelKey = null,
+            bool insecureKeyConfirmed = false)
+        {
+            if (tgChat == null && !string.IsNullOrEmpty(_options.Texts?.PrivacyDisclaimer))
+            {
+                var msgMd = GetPrivacyDisclaimerMdMessage(_options.Texts.PrivacyDisclaimer);
+                await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingChannel_NeedPrivacyConfim,
+                    PrivacyConfirmed = false,
+                    NetworkId = networkId,
+                    ChannelName = channelName,
+                    IsSingleDevice = isSingleDevice,
+                    ChannelKey = channelKey,
+                    InsecureKeyConfirmed = insecureKeyConfirmed
+                });
+                return TgResult.Ok;
+            }
 
-
-
-
-
+            return TgResult.Ok;
+        }
 
         private async Task SendNeedChannelKeyTgMsg(long chatId)
         {
@@ -1408,12 +1645,22 @@ namespace TBot.Bot
 
         private async Task<TgResult> StartAddDevice(long userId, long chatId, string deviceIdText)
         {
+            var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
             if (string.IsNullOrWhiteSpace(deviceIdText))
             {
-                // No device ID provided, ask for it
-                await botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
-                registrationService.SetChatState(userId, chatId, ChatState.AddingDevice_NeedId);
-                return TgResult.Ok;
+                if (tgChat == null && !string.IsNullOrEmpty(_options.Texts?.PrivacyDisclaimer))
+                {
+                    var msgMd = GetPrivacyDisclaimerMdMessage(_options.Texts.PrivacyDisclaimer);
+                    await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
+                    registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                    {
+                        State = ChatState.AddingDevice_NeedPrivacyConfim,
+                        PrivacyConfirmed = false
+                    });
+                    return TgResult.Ok;
+                }
+
+                return await SendAddingDeviceNeedId(userId, chatId);
             }
 
             // Device ID provided in command, process immediately
@@ -1429,8 +1676,32 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            if (tgChat == null && !string.IsNullOrEmpty(_options.Texts?.PrivacyDisclaimer))
+            {
+                var msgMd = GetPrivacyDisclaimerMdMessage(_options.Texts.PrivacyDisclaimer);
+                await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    State = ChatState.AddingDevice_NeedPrivacyConfim,
+                    DeviceId = deviceId,
+                    PrivacyConfirmed = false
+                });
+                return TgResult.Ok;
+            }
+
             // Process the device ID (same logic as ProcessNeedDeviceId)
             return await ProcessDeviceIdForAdd(userId, chatId, deviceId);
+        }
+
+        private async Task<TgResult> SendAddingDeviceNeedId(long userId, long chatId)
+        {
+            await botClient.SendMessage(chatId, "Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).");
+            registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+            {
+                State = ChatState.AddingDevice_NeedId,
+                PrivacyConfirmed = true
+            });
+            return TgResult.Ok;
         }
 
         private async Task<TgResult> StartRemoveDevice(long userId, long chatId, string deviceIdText, bool isRemoveFromAll)
@@ -1653,7 +1924,50 @@ namespace TBot.Bot
             }
         }
 
+        private async Task<TgResult> HandleKill(long userId, long chatId, Message message)
+        {
+            await botClient.SendMessage(chatId, "Please confirm that you want to delete this chat from TMesh.\n" +
+                "This will delete chat, delete all registered devices and channels, delete approved devices and channels.\n" +
+                "If you want to disable new chat requests from unknown devices and channels toy can use /disable command instead of /kill.\n\n" +
+                "To confirm please reply with `yes` or /stop to canel the operation.");
+
+            registrationService.SetChatState(userId, chatId, ChatState.KillingChat_NeedConfirm);
+
+            return TgResult.Ok;
+        }
+
         private async Task<TgResult> HandleStart(long userId, long chatId, Message message)
+        {
+            var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
+            var privacyDisclaimerMsg = _options.Texts?.PrivacyDisclaimer;
+            if (tgChat == null && !string.IsNullOrEmpty(privacyDisclaimerMsg))
+            {
+                string msgMd = GetPrivacyDisclaimerMdMessage(privacyDisclaimerMsg);
+                await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
+                registrationService.SetChatState(userId, chatId, ChatState.Starting_NeedPrivacyConfim);
+                return TgResult.Ok;
+            }
+            else
+            {
+                return await ProceedStart(userId, chatId, message);
+            }
+        }
+
+        private static string GetPrivacyDisclaimerMdMessage(string privacyDisclaimerMsg)
+        {
+            var msg = new StringBuilder();
+            msg.AppendLine("Welcome to the TMesh Telegram bot! This bot allows you to connect your Telegram account with Meshtastic devices and channels, enabling seamless communication between them.");
+            msg.AppendLine("Please read carefully the privacy disclaimer:");
+            msg.AppendLine();
+            msg.Append("*");
+            msg.Append(StringHelper.EscapeMd(privacyDisclaimerMsg));
+            msg.AppendLine("*");
+            msg.AppendLine();
+            msg.AppendLine("Please reply with *yes* to start using the bot or /stop to cancel.");
+            return msg.ToString();
+        }
+
+        private async Task<TgResult> ProceedStart(long userId, long chatId, Message message)
         {
             bool isPrivateChat = message.Chat.Type == ChatType.Private || message.Chat.Type == ChatType.Sender;
             if (!isPrivateChat)
@@ -1671,7 +1985,11 @@ namespace TBot.Bot
                     //    //let bot ask for new name
                     //}
                 }
-                registrationService.SetChatState(userId, chatId, ChatState.RegisteringChat_NeedName);
+                registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
+                {
+                    PrivacyConfirmed = true,
+                    State = ChatState.RegisteringChat_NeedName
+                });
                 await botClient.SendMessage(chatId, $"This chat is group chat. Please provide a unique name for the chat. Name should have no spaces and contain less than {TBotDbContext.MaxChatNameLength} characters. Name can't start with '@'. Meshtastic devices will be able to connect to this chat with /chat <your_chat_name> command via {_options.MeshtasticNodeNameLong} node or private channel registered with TMesh.");
                 return TgResult.Ok;
             }
@@ -1684,6 +2002,8 @@ namespace TBot.Bot
 
             var username = message.From.Username;
             var tgChat = await registrationService.RegisterTgChatAsync(chatId, message.From.Username, isPrivate: true);
+
+            registrationService.SetChatState(userId, chatId, ChatState.Default);
 
             await botClient.SendMessage(chatId,
                 $"✅ Your Telegram chat is now registered with TMesh\\!\n\n" +
@@ -1802,7 +2122,7 @@ namespace TBot.Bot
                 botCache.StartChatSession(chatId, id);
 
                 await botClient.SendMessage(chatId,
-                    $"✅ Chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is now active.\n\n" +
+                    $"✅ Chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is now active. You can start sending messages.\n\n" +
                     $"All messages you send will be forwarded only to this device. Use /end_chat to end the session.");
             }
             else
@@ -1890,7 +2210,7 @@ namespace TBot.Bot
                 botCache.StartChatSession(chatId, id);
 
                 await botClient.SendMessage(chatId,
-                    $"✅ Chat with {channel.Name} is now active.\n\n" +
+                    $"✅ Chat with {channel.Name} is now active. You can start sending messages.\n\n" +
                     $"All messages you send will be forwarded only to this channel. Use /end_chat to end the session.");
             }
             else

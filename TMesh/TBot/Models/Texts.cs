@@ -9,6 +9,7 @@ namespace TBot.Models
     public class Texts
     {
         public string PingReply { get; set; }
+        public string PrivacyDisclaimer { get; set; }
         public string PingReplyWithNetworkUrl { get; set; }
         public string NotRegisteredDeviceReply { get; set; }
     }

@@ -847,6 +847,10 @@ namespace TBot
             await db.SaveChangesAsync();
             botCache.StopChatSession(chatId);
             memoryCache.Remove($"TgChatById#{chatId}");
+            if (tgChat != null)
+            {
+                memoryCache.Remove($"TgChatByName#{tgChat.ChatKey}");
+            }
         }
 
 

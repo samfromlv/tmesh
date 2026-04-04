@@ -910,8 +910,8 @@ namespace TBot.Bot
                 meshtasticService.SendTextMessage(
                     recipient,
                     isPrivateChat
-                      ? "Telegram user not found or not registered with TMesh."
-                      : $"Telegram group not found or not registered with TMesh.",
+                      ? "❌ Telegram user not found or not registered with TMesh."
+                      : $"❌ Telegram group not found or not registered with TMesh.",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());
@@ -924,7 +924,7 @@ namespace TBot.Bot
             {
                 meshtasticService.SendTextMessage(
                     recipient,
-                    $"Chat is disabled. Please reactivate the chat with /start command in Telegram.",
+                    $"❌ Chat is disabled. Please reactivate the chat with /start command in Telegram.",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());
@@ -973,7 +973,7 @@ namespace TBot.Bot
 
                 string meshMsgText = tgMsg != null
                     ? $"{targetHandle} already has active chat with someone else. Waiting for approval..."
-                    : $"Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+                    : $"❌ Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
                 meshtasticService.SendTextMessage(
                        recipient,
@@ -1007,8 +1007,8 @@ namespace TBot.Bot
                    $"✅ Chat with {recipientName}{sentByPart} is now active.");
 
                 string meshMsgText = tgMsg != null
-                    ? $"Chat is started. Please send your first message."
-                    : $"Failed to start chat. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+                    ? $"✅ Chat is started. You can send messages."
+                    : $"❌ Failed to start chat. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
                 meshtasticService.SendTextMessage(
                        recipient,
@@ -1036,7 +1036,7 @@ namespace TBot.Bot
 
                 var meshMsgText = tgMsg != null
                     ? $"Chat request is sent. Waiting for approval..."
-                    : $"Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
+                    : $"❌ Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
                 meshtasticService.SendTextMessage(
                     recipient,
@@ -1068,7 +1068,7 @@ namespace TBot.Bot
                     var gatewayId = botCache.GetRecipientGateway(recipient);
                     meshtasticService.SendTextMessage(
                         other,
-                        $"Chat with {chatName} is ended",
+                        $"❌ Chat with {chatName} is ended",
                         replyToMessageId: null,
                         relayGatewayId: gatewayId,
                         hopLimit: int.MaxValue);
@@ -1122,8 +1122,8 @@ namespace TBot.Bot
             var tgMsg = await TrySendMessage(tgChatId, tgMsgText);
 
             var meshMsgText = tgMsg != null
-                    ? $"Chat approved. You can now send messages."
-                    : $"Failed to start chat. Please check if the bot is active and has permissions to send messages to this chat.";
+                    ? $"✅ Chat approved. You can now send messages."
+                    : $"❌ Failed to start chat. Please check if the bot is active and has permissions to send messages to this chat.";
 
             meshtasticService.SendTextMessage(
                 recipient,
