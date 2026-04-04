@@ -11,8 +11,8 @@ namespace TBot.Helpers
 
         public static bool IsChatGoneError(this ApiRequestException ex)
         {
-            return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest 
-                    && !string.IsNullOrEmpty(ex.Message) 
+            return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest
+                    && !string.IsNullOrEmpty(ex.Message)
                     && (ex.Message.Contains("chat not found", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("group is deactivated", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("group migrated to supergroup", StringComparison.OrdinalIgnoreCase)
@@ -58,5 +58,17 @@ namespace TBot.Helpers
             }
         }
 
+        public static string GetUserNameOrName(this User user)
+        {
+            if (user == null) return string.Empty;
+
+            if (!string.IsNullOrEmpty(user.Username))
+                return $"@{user.Username.TrimStart('@')}";
+
+            if (!string.IsNullOrEmpty(user.FirstName) && !string.IsNullOrEmpty(user.LastName))
+                return $"{user.FirstName} {user.LastName}".Trim();
+            return user.FirstName ?? user.LastName ?? $"ID:{user.Id}";
+
+        }
     }
 }

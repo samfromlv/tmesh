@@ -1,7 +1,9 @@
-﻿using Microsoft.Extensions.Caching.Memory;
+﻿using Linux.Bluetooth;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Org.BouncyCastle.Cms;
 using System.Text;
 using TBot.Database;
 using TBot.Database.Models;
@@ -49,7 +51,7 @@ namespace TBot.Bot
                 && (message.Text.Length == 5 || message.Text[5] == ' ' || message.Text[5] == '@'))
             {
                 var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat");
-                return await HandleChatDeviceCommand(userId, chatId, chatArg, message.From?.Username);
+                return await HandleChatDeviceCommand(userId, chatId, chatArg, message.From.GetUserNameOrName());
             }
             if (message.Text?.StartsWith("/chat_channel", StringComparison.OrdinalIgnoreCase) == true
                && (message.Text.Length == 13 || message.Text[13] == ' ' || message.Text[13] == '@'))
@@ -778,7 +780,7 @@ namespace TBot.Bot
                 return await ProcessChannelForAdd(
                     userId,
                     chatId,
-                    state.ChannelName, 
+                    state.ChannelName,
                     state.ChannelKey,
                     MeshtasticService.PskKeyToBase64(state.ChannelKey),
                     state.IsSingleDevice,
@@ -812,7 +814,7 @@ namespace TBot.Bot
         }
         private async Task<TgResult> ProceedNeedInsecureKeyConfirm(long userId, long chatId, Message message, ChatStateWithData state)
         {
-            if (state.InsecureKeyConfirmed ||(!string.IsNullOrWhiteSpace(message.Text)
+            if (state.InsecureKeyConfirmed || (!string.IsNullOrWhiteSpace(message.Text)
                                 && message.Text.Trim().Equals("my key is not secure", StringComparison.InvariantCultureIgnoreCase)))
             {
                 if (string.IsNullOrEmpty(state.ChannelName)
@@ -836,11 +838,11 @@ namespace TBot.Bot
 
                 return await ProcessChannelForAdd(
                     userId,
-                    chatId, 
-                    state.ChannelName, 
+                    chatId,
+                    state.ChannelName,
                     state.ChannelKey,
                     Convert.ToBase64String(state.ChannelKey),
-                    isSingleDevice: null, 
+                    isSingleDevice: null,
                     state.NetworkId,
                     insecureKeyConfirmed: true);
             }
@@ -918,12 +920,12 @@ namespace TBot.Bot
             }
 
             return await ProcessChannelForAdd(
-                userId, 
-                chatId, 
+                userId,
+                chatId,
                 state.ChannelName,
-                state.ChannelKey, 
+                state.ChannelKey,
                 MeshtasticService.PskKeyToBase64(state.ChannelKey),
-                isSingleDevice, 
+                isSingleDevice,
                 state.NetworkId,
                 state.InsecureKeyConfirmed);
         }
@@ -1383,10 +1385,10 @@ namespace TBot.Bot
 
             return await ProcessChannelForAdd(
                 userId,
-                chatId, 
+                chatId,
                 channelNameText,
                 keyBytesForSingle,
-                channelKey, 
+                channelKey,
                 isSingleDevice,
                 networkId,
                 insecureKeyConfirmed: false);
@@ -1768,8 +1770,12 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            var activeSessionTgChatId = botCache.GetActiveChatSessionForDevice(deviceId);
+            bool chatingWithSomeoneElse = activeSessionTgChatId != null
+                && activeSessionTgChatId != chatId;
+
             var isApproved = await registrationService.IsDeviceApprovedForChatAsync(chatId, deviceId);
-            if (isApproved)
+            if (isApproved && !chatingWithSomeoneElse)
             {
                 botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
@@ -1797,16 +1803,23 @@ namespace TBot.Bot
 
                 botCache.StoreDevicePendingChatRequest_TgToMesh(deviceId, request);
 
-                var msg = await botClient.SendMessage(chatId,
-                    $"📤 Chat request sent to {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}).\n\n" +
-                    $"Waiting for the device to reply with 6 digit numeric code to approve the chat...");
+                var tgMsgText = new StringBuilder();
+                if (chatingWithSomeoneElse)
+                {
+                    tgMsgText.AppendLine($"{device.NodeName} is chatting with someone else");
+                    tgMsgText.AppendLine();
+                }
+                tgMsgText.AppendLine($"📤 Chat request sent to {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}).");
+                tgMsgText.Append($"Waiting for the device to reply with 6 digit numeric code to approve the chat...");
+
+                var msg = await botClient.SendMessage(chatId, tgMsgText.ToString());
 
                 return new TgResult(new OutgoingTextMessage
                 {
                     Recipient = device,
                     TelegramChatId = chatId,
                     TelegramMessageId = msg.MessageId,
-                    Text = $"Chat request from @{username} (Telegram). Reply with code {request.Code} to accept."
+                    Text = $"Chat request from @{username?.TrimStart('@')} (Telegram). Reply with code {request.Code} to accept."
                 });
             }
 
@@ -1847,9 +1860,13 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            var activeSessionTgChatId = botCache.GetActiveChatSessionForChannel(channelId);
+            bool chatingWithSomeoneElse = activeSessionTgChatId != null
+                && activeSessionTgChatId != chatId;
+
             var isApproved = await registrationService.IsChannelApprovedForChatAsync(chatId, channelId);
 
-            if (isApproved)
+            if (isApproved && !chatingWithSomeoneElse)
             {
                 botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
@@ -1877,9 +1894,16 @@ namespace TBot.Bot
 
                 botCache.StoreChannelPendingChatRequest_TgToMesh(channelId, request);
 
-                var msg = await botClient.SendMessage(chatId,
-                    $"📤 Chat request sent to {channel.Name}.\n\n" +
-                    $"Waiting for the channel to reply with 6 digit numeric code to approve the chat...");
+                var tgMsgText = new StringBuilder();
+                if (chatingWithSomeoneElse)
+                {
+                    tgMsgText.AppendLine($"{channel.Name} is chatting with someone else");
+                    tgMsgText.AppendLine();
+                }
+                tgMsgText.AppendLine($"📤 Chat request sent to {channel.Name}.");
+                tgMsgText.Append($"Waiting for the channel to reply with 6 digit numeric code to approve the chat...");
+
+                var msg = await botClient.SendMessage(chatId, tgMsgText.ToString());
 
                 return new TgResult(new OutgoingTextMessage
                 {

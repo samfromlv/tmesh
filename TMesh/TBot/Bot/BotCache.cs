@@ -7,6 +7,7 @@ using TBot.Models;
 using TBot.Models.MeshMessages;
 using TBot.Models.ChatSession;
 using Telegram.Bot;
+using TBot.Database.Models;
 
 namespace TBot.Bot
 {
@@ -164,6 +165,35 @@ namespace TBot.Bot
             }
         }
 
+        public long? GetRecipientGateway(IRecipient recipient)
+        {
+            if (recipient.RecipientDeviceId.HasValue)
+            {
+                var deviceGateway = GetDeviceGateway(recipient.RecipientDeviceId.Value);
+                return deviceGateway?.GatewayId;
+            }
+            else if (recipient.IsSingleDeviceChannel == true
+                && recipient.RecipientPrivateChannelId.HasValue)
+            {
+                var channelGateway = GetSingleDeviceChannelGateway(recipient.RecipientPrivateChannelId.Value);
+                return channelGateway?.GatewayId;
+            }
+            return null;
+        }
+
+        public long? GetActiveChatSessionForRecipient(IRecipient recipient)
+        {
+            if (recipient.RecipientDeviceId.HasValue)
+            {
+                return GetActiveChatSessionForDevice(recipient.RecipientDeviceId.Value);
+            }
+            else if (recipient.RecipientPrivateChannelId.HasValue)
+            {
+                return GetActiveChatSessionForChannel(recipient.RecipientPrivateChannelId.Value);
+            }
+            return null;
+        }
+
         private async Task ChatSessionExpired(long chatId, DeviceOrChannelId id)
         {
             try
@@ -301,6 +331,19 @@ namespace TBot.Bot
             if (memoryCache.TryGetValue<long?>(ChatSessionActive_Channel_Key(channelId), out var tgChatId))
             {
                 return tgChatId;
+            }
+            return null;
+        }
+
+        public long? GetActiveChatSessionForRequest(DeviceOrChannelRequestCode requestCode)
+        {
+            if (requestCode.DeviceId != null)
+            {
+                return GetActiveChatSessionForDevice(requestCode.DeviceId.Value);
+            }
+            else if (requestCode.ChannelId != null)
+            {
+                return GetActiveChatSessionForChannel(requestCode.ChannelId.Value);
             }
             return null;
         }

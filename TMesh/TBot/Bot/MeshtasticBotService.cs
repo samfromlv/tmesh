@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NodaTime;
@@ -9,10 +8,9 @@ using TBot.Analytics.Models;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
-using TBot.Models.MeshMessages;
 using TBot.Models.ChatSession;
+using TBot.Models.MeshMessages;
 using Telegram.Bot;
-using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -852,39 +850,14 @@ namespace TBot.Bot
             return sb.ToString();
         }
 
-        private async ValueTask<string> GetRecipientName(IRecipient recipient)
+        private ValueTask<string> GetRecipientName(IRecipient recipient)
         {
-            if (recipient.RecipientDeviceId.HasValue && recipient is DeviceName dn)
-            {
-                return $"{dn.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(dn.DeviceId)})";
-            }
-            else if (recipient.RecipientDeviceId.HasValue)
-            {
-                var device = recipient as Device ?? await registrationService.GetDeviceAsync(recipient.RecipientDeviceId.Value);
-                return device != null ? $"{device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)})" : MeshtasticService.GetMeshtasticNodeHexId(recipient.RecipientDeviceId.Value);
-            }
-            else if (recipient.RecipientPrivateChannelId.HasValue && recipient is ChannelName cn)
-            {
-                return $"{cn.Name} (ID: {cn.Id})";
-            }
-            else if (recipient.RecipientPrivateChannelId.HasValue)
-            {
-                var channel = recipient as Channel ?? await registrationService.GetChannelAsync(recipient.RecipientPrivateChannelId.Value);
-                return channel != null ? $"{channel.Name} (ID: {channel.Id})" : $"Channel ID {recipient.RecipientPrivateChannelId.Value}";
-            }
-            else
-            {
-                return "Unknown";
-            }
+            return registrationService.GetRecipientName(recipient);
         }
 
         private async Task HandleEndChatRequstFromMesh(TextMessage message, Device device, IRecipient recipient)
         {
-            var activeSessionTgChatId = botCache.GetActiveChatSessionForDeviceChannel(new DeviceOrChannelId
-            {
-                DeviceId = recipient.RecipientDeviceId,
-                ChannelId = recipient.RecipientPrivateChannelId,
-            });
+            var activeSessionTgChatId = botCache.GetActiveChatSessionForRecipient(recipient);
 
             if (activeSessionTgChatId == null)
             {
@@ -1036,7 +1009,7 @@ namespace TBot.Bot
                 string meshMsgText = tgMsg != null
                     ? $"Chat is started. Please send your first message."
                     : $"Failed to start chat. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
-                
+
                 meshtasticService.SendTextMessage(
                        recipient,
                        meshMsgText,
@@ -1076,13 +1049,52 @@ namespace TBot.Bot
 
         private async Task HandleChatApprovalFromMesh(TextMessage message, Device device, IRecipient recipient, long tgChatId)
         {
+            var tgChat = await registrationService.GetTgChatByChatIdAsync(tgChatId);
+
+            var otherMeshSession = botCache.GetActiveChatSession(tgChatId);
+            if (otherMeshSession != null
+                && otherMeshSession.DeviceId != recipient.RecipientDeviceId
+                && otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId)
+            {
+                var chatName = tgChat != null ? tgChat.ChatName : "Telegram";
+                botCache.StopChatSession(tgChatId);
+
+                IRecipient other = otherMeshSession.DeviceId != null
+                   ? await registrationService.GetDeviceAsync(otherMeshSession.DeviceId.Value)
+                   : await registrationService.GetChannelAsync(otherMeshSession.ChannelId.Value);
+
+                if (other != null)
+                {
+                    var gatewayId = botCache.GetRecipientGateway(recipient);
+                    meshtasticService.SendTextMessage(
+                        other,
+                        $"Chat with {chatName} is ended",
+                        replyToMessageId: null,
+                        relayGatewayId: gatewayId,
+                        hopLimit: int.MaxValue);
+                }
+            }
+
+            var recipientName = await GetRecipientName(recipient);
+
+            var otherSessionTgSessionChatId = botCache.GetActiveChatSessionForRecipient(recipient);
+            if (otherSessionTgSessionChatId != null
+                && otherSessionTgSessionChatId != tgChatId)
+            {
+                botCache.StopChatSession(otherSessionTgSessionChatId.Value);
+                await botClient.TrySendMessage(
+                    registrationService,
+                    logger,
+                    otherSessionTgSessionChatId.Value,
+                    $"❌ Chat with {recipientName} is ended by device");
+            }
+
             botCache.RemovePendingChatRequest_TgToMesh(new DeviceOrChannelId
             {
                 DeviceId = recipient.RecipientDeviceId,
                 ChannelId = recipient.RecipientPrivateChannelId,
             });
 
-            var tgChat = await registrationService.GetTgChatByChatIdAsync(tgChatId);
             if (tgChat != null && tgChat.IsActive)
             {
                 await registrationService.ApproveDeviceForChatAsync(tgChat.ChatId, message.DeviceId);
@@ -1092,8 +1104,6 @@ namespace TBot.Bot
             {
                 DeviceId = message.DeviceId,
             });
-
-            var recipientName = await GetRecipientName(recipient);
 
             string tgMsgText;
             if (recipient.RecipientPrivateChannelId.HasValue)
@@ -1121,8 +1131,6 @@ namespace TBot.Bot
                 replyToMessageId: message.Id,
                 relayGatewayId: message.GatewayId,
                 hopLimit: message.GetSuggestedReplyHopLimit());
-
-           
         }
 
     }

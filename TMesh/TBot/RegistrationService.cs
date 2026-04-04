@@ -800,7 +800,7 @@ namespace TBot
                 .Where(r => r.DeviceId == deviceId)
                 .ToListAsync();
             db.DeviceRegistrations.RemoveRange(regs);
-            
+
             var approvals = await db.TgChatApprovedDevices.Where(r => r.DeviceId == deviceId).ToListAsync();
             db.TgChatApprovedDevices.RemoveRange(approvals);
 
@@ -844,8 +844,9 @@ namespace TBot
             {
                 db.TgChats.Remove(tgChat);
             }
-            botCache.StopChatSession(chatId);
             await db.SaveChangesAsync();
+            botCache.StopChatSession(chatId);
+            memoryCache.Remove($"TgChatById#{chatId}");
         }
 
 
@@ -1185,14 +1186,23 @@ namespace TBot
 
         // ── TgChat / Chat feature ───────────────────────────────────────────────
 
-        public async Task<TBot.Database.Models.TgChat> GetTgChatByChatIdAsync(long chatId)
+        public async Task<TgChat> GetTgChatByChatIdAsync(long chatId)
         {
-            return await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            if (memoryCache.TryGetValue<TgChat>($"TgChatById#{chatId}", out var cached))
+            {
+                return cached;
+            }
+            var entity = await db.TgChats.FirstOrDefaultAsync(c => c.ChatId == chatId);
+            if (entity != null)
+            {
+                memoryCache.Set($"TgChatById#{chatId}", entity, TimeSpan.FromMinutes(10));
+            }
+            return entity;
         }
 
         public async Task<TgChat> GetTgChatByNameAsync(string chatName)
         {
-             var normalizedKey = chatName?.Trim().ToLowerInvariant();
+            var normalizedKey = chatName?.Trim().ToLowerInvariant();
             if (string.IsNullOrEmpty(normalizedKey)) return null;
 
             if (memoryCache.TryGetValue<TgChat>($"TgChatByName#{normalizedKey}", out var cached))
@@ -1208,6 +1218,32 @@ namespace TBot
                 memoryCache.Set($"TgChatByName#{normalizedKey}", entity, TimeSpan.FromMinutes(10));
             }
             return entity;
+        }
+
+        public async ValueTask<string> GetRecipientName(IRecipient recipient)
+        {
+            if (recipient.RecipientDeviceId.HasValue && recipient is DeviceName dn)
+            {
+                return $"{dn.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(dn.DeviceId)})";
+            }
+            else if (recipient.RecipientDeviceId.HasValue)
+            {
+                var device = recipient as Device ?? await GetDeviceAsync(recipient.RecipientDeviceId.Value);
+                return device != null ? $"{device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)})" : MeshtasticService.GetMeshtasticNodeHexId(recipient.RecipientDeviceId.Value);
+            }
+            else if (recipient.RecipientPrivateChannelId.HasValue && recipient is ChannelName cn)
+            {
+                return $"{cn.Name} (ID: {cn.Id})";
+            }
+            else if (recipient.RecipientPrivateChannelId.HasValue)
+            {
+                var channel = recipient as Channel ?? await GetChannelAsync(recipient.RecipientPrivateChannelId.Value);
+                return channel != null ? $"{channel.Name} (ID: {channel.Id})" : $"Channel ID {recipient.RecipientPrivateChannelId.Value}";
+            }
+            else
+            {
+                return "Unknown";
+            }
         }
 
         public async Task<TgChat> RegisterTgChatAsync(long chatId, string chatName, bool isPrivate)
@@ -1251,6 +1287,7 @@ namespace TBot
                 memoryCache.Remove($"TgChatByName#{oldKey}");
             }
             memoryCache.Set($"TgChatByName#{normalizedKey}", byChatEntity, TimeSpan.FromMinutes(10));
+            memoryCache.Set($"TgChatById#{chatId}", byChatEntity, TimeSpan.FromMinutes(10));
             return byChatEntity;
         }
 
@@ -1262,6 +1299,7 @@ namespace TBot
             await db.SaveChangesAsync();
             if (entity.ChatKey != null)
                 memoryCache.Remove($"TgChatByName#{entity.ChatKey}");
+            memoryCache.Remove($"TgChatById#{chatId}");
             return true;
         }
 
@@ -1274,7 +1312,7 @@ namespace TBot
 
             if (recipient.RecipientPrivateChannelId.HasValue)
                 return IsChannelApprovedForChatAsync(tgChatId, recipient.RecipientPrivateChannelId.Value);
-            
+
             return Task.FromResult(false);
         }
 
