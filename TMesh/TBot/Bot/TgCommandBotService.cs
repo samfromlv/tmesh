@@ -1727,16 +1727,36 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
+        private async Task MaybeEndOtherChatSession(long chatId, DeviceOrChannelId id, string username)
+        {
+            var existingSession = botCache.GetActiveChatSession(chatId);
+            if (existingSession != null
+                && existingSession.DeviceId != id.DeviceId
+                && existingSession.ChannelId != id.ChannelId)
+            {
+                botCache.StopChatSession(chatId);
+
+                IRecipient recipient = existingSession.DeviceId != null
+                    ? await registrationService.GetDeviceAsync(existingSession.DeviceId.Value)
+                    : await registrationService.GetChannelAsync(existingSession.ChannelId.Value);
+
+                if (recipient != null)
+                {
+                    var gatewayId = botCache.GetRecipientGateway(recipient);
+                    var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
+                    var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";
+                    meshtasticService.SendTextMessage(
+                         recipient,
+                         $"Chat with {chatName} is ended",
+                         replyToMessageId: null,
+                         relayGatewayId: gatewayId,
+                         hopLimit: int.MaxValue);
+                }
+            }
+        }
+
         private async Task<TgResult> HandleChatDeviceCommand(long userId, long chatId, string arg, string username)
         {
-            var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
-            if (tgChat == null || !tgChat.IsActive)
-            {
-                await botClient.SendMessage(chatId,
-                    "Your chat is not active. Please use /start first to enable chat features.");
-                return TgResult.Ok;
-            }
-
             if (string.IsNullOrWhiteSpace(arg))
             {
                 await botClient.SendMessage(chatId,
@@ -1774,13 +1794,12 @@ namespace TBot.Bot
             bool chatingWithSomeoneElse = activeSessionTgChatId != null
                 && activeSessionTgChatId != chatId;
 
-            var isApproved = await registrationService.IsDeviceApprovedForChatAsync(chatId, deviceId);
-            if (isApproved && !chatingWithSomeoneElse)
+            if (!chatingWithSomeoneElse
+                && await registrationService.IsDeviceApprovedForChatAsync(chatId, deviceId))
             {
-                botCache.StartChatSession(chatId, new DeviceOrChannelId
-                {
-                    DeviceId = deviceId,
-                });
+                var id = new DeviceOrChannelId { DeviceId = deviceId };
+                await MaybeEndOtherChatSession(chatId, id, username);
+                botCache.StartChatSession(chatId, id);
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is now active.\n\n" +
@@ -1864,14 +1883,11 @@ namespace TBot.Bot
             bool chatingWithSomeoneElse = activeSessionTgChatId != null
                 && activeSessionTgChatId != chatId;
 
-            var isApproved = await registrationService.IsChannelApprovedForChatAsync(chatId, channelId);
-
-            if (isApproved && !chatingWithSomeoneElse)
+            if (!chatingWithSomeoneElse && await registrationService.IsChannelApprovedForChatAsync(chatId, channelId))
             {
-                botCache.StartChatSession(chatId, new DeviceOrChannelId
-                {
-                    ChannelId = channelId,
-                });
+                var id = new DeviceOrChannelId { ChannelId = channelId };
+                await MaybeEndOtherChatSession(chatId, id, username);
+                botCache.StartChatSession(chatId, id);
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {channel.Name} is now active.\n\n" +

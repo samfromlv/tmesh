@@ -944,9 +944,9 @@ namespace TBot.Bot
             }
 
             var activeSession = botCache.GetActiveChatSession(tgChat.ChatId);
-            if (activeSession != null && (
-                (activeSession.DeviceId.HasValue && activeSession.DeviceId != recipient.RecipientDeviceId)
-                || (activeSession.ChannelId.HasValue && activeSession.ChannelId != recipient.RecipientPrivateChannelId)))
+            if (activeSession != null
+                && activeSession.DeviceId != recipient.RecipientDeviceId
+                && activeSession.ChannelId != recipient.RecipientPrivateChannelId)
             {
                 var pendingRequest = new DeviceOrChannelRequestCode
                 {
@@ -956,25 +956,15 @@ namespace TBot.Bot
                 };
                 botCache.StorePendingChatRequest_MeshToTg(tgChat.ChatId, pendingRequest);
 
-                string activeName;
-                if (activeSession.DeviceId.HasValue)
-                {
-                    var activeDevice = await registrationService.GetDeviceAsync(activeSession.DeviceId.Value);
-                    activeName = activeDevice != null ? activeDevice.NodeName : MeshtasticService.GetMeshtasticNodeHexId(activeSession.DeviceId.Value);
-                }
-                else if (activeSession.ChannelId.HasValue)
-                {
-                    var activeChannel = await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
-                    activeName = activeChannel != null ? $"#{activeChannel.Name}" : "Channel " + activeSession.ChannelId.Value;
-                }
-                else
-                {
-                    activeName = "Unknown";
-                }
+                IRecipient otherRecipient = activeSession.DeviceId != null
+                   ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
+                   : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
+
+                var otherName = await GetRecipientName(otherRecipient);
 
                 var tgMsg = await TrySendMessage(tgChat.ChatId,
                     $"📥 Chat request from *{StringHelper.EscapeMd(recipientName)}{StringHelper.EscapeMd(sentByPart)}* from {StringHelper.EscapeMd(network?.Name ?? "Unknown Network")}.\n\n" +
-                    $"You have active chat session with {StringHelper.EscapeMd(activeName)}\n\n" +
+                    $"You have active chat session with {StringHelper.EscapeMd(otherName)}\n\n" +
                     $"If you want to end current session and accept new chat request, please reply with the code below.\n\n" +
                     $"Reply with code `{pendingRequest.Code}` to accept the chat request.\n\n" +
                     $"Please ignore request if you don't recognize the device name.\n\n" +
@@ -997,6 +987,16 @@ namespace TBot.Bot
 
             if (isApproved)
             {
+                var otherSessionTgSessionChatId = botCache.GetActiveChatSessionForRecipient(recipient);
+                if (otherSessionTgSessionChatId != null
+                    && otherSessionTgSessionChatId != tgChat.ChatId)
+                {
+                    botCache.StopChatSession(otherSessionTgSessionChatId.Value);
+                    await TrySendMessage(
+                        otherSessionTgSessionChatId.Value,
+                        $"❌ Chat with {recipientName} is ended by device");
+                }
+
                 botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId
                 {
                     DeviceId = recipient.RecipientDeviceId,

@@ -1222,6 +1222,8 @@ namespace TBot
 
         public async ValueTask<string> GetRecipientName(IRecipient recipient)
         {
+            if (recipient == null) return "Unknown";
+
             if (recipient.RecipientDeviceId.HasValue && recipient is DeviceName dn)
             {
                 return $"{dn.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(dn.DeviceId)})";
