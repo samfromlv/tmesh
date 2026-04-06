@@ -21,7 +21,8 @@ namespace TBot.Bot
         MeshtasticService meshtasticService,
         BotCache botCache,
         ILogger<TgCommandBotService> logger,
-        IServiceProvider services)
+        IServiceProvider services,
+        TBotDbContext db)
     {
         private readonly TBotOptions _options = options.Value;
         public const string NetworkIdToken = "{{NetworkId}}";
@@ -2029,7 +2030,7 @@ namespace TBot.Bot
             {
                 await botClient.SendMessage(chatId,
                     "Active chat session was ended");
-                botCache.StopChatSession(chatId);
+                await botCache.StopChatSession(chatId, db);
             }
             var disabled = await registrationService.DisableTgChatAsync(chatId);
             if (disabled)
@@ -2054,7 +2055,7 @@ namespace TBot.Bot
                 && (existingSession.DeviceId != id.DeviceId
                 || existingSession.ChannelId != id.ChannelId))
             {
-                botCache.StopChatSession(chatId);
+                await botCache.StopChatSession(chatId, db);
 
                 IRecipient recipient = existingSession.DeviceId != null
                     ? await registrationService.GetDeviceAsync(existingSession.DeviceId.Value)
@@ -2119,7 +2120,7 @@ namespace TBot.Bot
             {
                 var id = new DeviceOrChannelId { DeviceId = deviceId };
                 await MaybeEndOtherChatSession(chatId, id, username);
-                botCache.StartChatSession(chatId, id);
+                await botCache.StartChatSession(chatId, id, db);
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}) is now active. You can start sending messages.\n\n" +
@@ -2207,7 +2208,7 @@ namespace TBot.Bot
             {
                 var id = new DeviceOrChannelId { ChannelId = channelId };
                 await MaybeEndOtherChatSession(chatId, id, username);
-                botCache.StartChatSession(chatId, id);
+                await botCache.StartChatSession(chatId, id, db);
 
                 await botClient.SendMessage(chatId,
                     $"✅ Chat with {channel.Name} is now active. You can start sending messages.\n\n" +
@@ -2289,7 +2290,7 @@ namespace TBot.Bot
                 recipientName = "Unknown";
             }
 
-            botCache.StopChatSession(chatId);
+            await botCache.StopChatSession(chatId, db);
             await botClient.SendMessage(chatId,
                 $"✅ Chat session with {recipientName} has been stopped");
 

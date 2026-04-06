@@ -13,5 +13,11 @@ namespace Shared.Models
         public DateTime LastUpdate { get; set; }
 
         public DateTime Started { get; set; }
+
+        public int TgChats { get; set; }
+        public int ApprovedDevices { get; set; }
+        public int ApprovedChannels { get; set; }
+        public int ActiveChatSessions { get; set; }
+        public ServerStatus[] MapMqtt { get; set; }
     }
 }

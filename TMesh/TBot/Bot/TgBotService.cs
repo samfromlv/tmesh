@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
@@ -19,7 +20,8 @@ namespace TBot.Bot
         MeshtasticService meshtasticService,
         BotCache botCache,
         ILogger<TgBotService> logger,
-        IServiceProvider services)
+        IServiceProvider services,
+        TBotDbContext db)
     {
 
         const int TrimUserNamesToLength = 8;
@@ -313,7 +315,7 @@ namespace TBot.Bot
                 var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
                 var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";
 
-                botCache.StopChatSession(chatId);
+                await botCache.StopChatSession(chatId, db);
                 IRecipient recipient = otherMeshSession.DeviceId != null
                     ? await registrationService.GetDeviceAsync(otherMeshSession.DeviceId.Value)
                     : await registrationService.GetChannelAsync(otherMeshSession.ChannelId.Value);
@@ -337,7 +339,7 @@ namespace TBot.Bot
                 IRecipient recipient = request.DeviceId != null
                     ? await registrationService.GetDeviceAsync(request.DeviceId.Value)
                     : await registrationService.GetChannelAsync(request.ChannelId.Value);
-                botCache.StopChatSession(otherTgChatId.Value);
+                await botCache.StopChatSession(otherTgChatId.Value, db);
                 var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
                 await botClient.TrySendMessage(
                     registrationService,
@@ -359,11 +361,11 @@ namespace TBot.Bot
                     return;
                 }
 
-                botCache.StartChatSession(chatId, new DeviceOrChannelId
+                await botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
                     DeviceId = request.DeviceId,
                     ChannelId = null
-                });
+                }, db);
 
                 botCache.RemovePendingChatRequest_MeshToTg(chatId);
 
@@ -397,11 +399,11 @@ namespace TBot.Bot
                         $"Channel with ID {request.ChannelId.Value} not found. Cannot approve chat request.");
                     return;
                 }
-                botCache.StartChatSession(chatId, new DeviceOrChannelId
+                await botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
                     DeviceId = null,
                     ChannelId = request.ChannelId
-                });
+                }, db);
                 botCache.RemovePendingChatRequest_MeshToTg(chatId);
                 var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
                 if (tgChat != null && tgChat.IsActive)

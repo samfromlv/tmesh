@@ -6,7 +6,9 @@ using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Packets;
 using Shared.Models;
+using System.Text;
 using TBot.Models;
+using TBot.Models.MapMqtt;
 
 namespace TBot
 {
@@ -29,6 +31,38 @@ namespace TBot
         private ILookup<string, int> _networkByShortName;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = [];
+
+        public ServerStatus[] GetStatus()
+        {
+            List<ServerStatus> status = [];
+
+            (IMqttClient mqttClient, MapMqttServerOptions server)[] snapshot;
+            lock (_clients)
+            {
+                snapshot =_clients.ToArray();
+            }
+
+            return snapshot.Select(x =>
+            {
+                var s = x.mqttClient.IsConnected ? "Connected" : "Disconnected";
+                var serverId = new StringBuilder();
+                if (x.server.AnalyticsDownlinkEnabled)
+                {
+                    serverId.Append('d');
+                }
+                if (x.server.UplinkEnabled)
+                {
+                    serverId.Append('u');
+                }
+                serverId.Append('-');
+                serverId.Append(x.server.Address);
+                return new ServerStatus
+                {
+                    ServerID = serverId.ToString(),
+                    Status = s
+                };
+            }).ToArray();
+        }
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
         public event Func<DataEventArgs<NetworkServiceEnvelope>, Task> MeshtasticMessageReceivedAsync;

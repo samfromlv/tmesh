@@ -1,13 +1,16 @@
-﻿using Microsoft.Extensions.Caching.Memory;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TBot.Database;
+using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
-using TBot.Models.MeshMessages;
 using TBot.Models.ChatSession;
+using TBot.Models.MeshMessages;
 using Telegram.Bot;
-using TBot.Database.Models;
+using Telegram.Bot.Types;
 
 namespace TBot.Bot
 {
@@ -34,6 +37,33 @@ namespace TBot.Bot
                 return deviceAndGatewayId;
             }
             return null;
+        }
+
+        public async Task Start(IServiceScope scope)
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TBotDbContext>();
+
+            var now = DateTime.UtcNow;
+            var activeChatSessions = await db.ChatSessions
+                .Where(cs => cs.ExpirationDate > now)
+                .ToListAsync();
+
+            logger.LogInformation("Restoring {Count} active chat sessions into cache", activeChatSessions.Count);
+
+            foreach (var session in activeChatSessions)
+            {
+                var id = new DeviceOrChannelId
+                {
+                    DeviceId = session.DeviceId,
+                    ChannelId = session.ChannelId
+                };
+                StoreChatSessionInCache(session.ChatId, id);
+                session.ExpirationDate = now.Add(ChatSessionTtl);
+            }
+            await db.SaveChangesAsync();
+
+            await db.ChatSessions.Where(cs => cs.ExpirationDate <= now)
+                .ExecuteDeleteAsync();
         }
 
         public DeviceAndGatewayId GetDeviceGateway(long deviceId)
@@ -147,7 +177,7 @@ namespace TBot.Bot
 
         private static readonly TimeSpan ChatSessionTtl = TimeSpan.FromMinutes(ChatSessionSlidingExpirationMinutes);
 
-        public void StopChatSession(long chatId)
+        public async Task StopChatSession(long chatId, TBotDbContext db)
         {
             var key = ChatSessionActive_TgChat_Key(chatId);
             var session = memoryCache.Get<DeviceOrChannelId>(ChatSessionActive_TgChat_Key(chatId));
@@ -162,6 +192,8 @@ namespace TBot.Bot
                 {
                     memoryCache.Remove(ChatSessionActive_Channel_Key(session.ChannelId.Value));
                 }
+                await db.ChatSessions.Where(x => x.ChatId == chatId)
+                    .ExecuteDeleteAsync();
             }
         }
 
@@ -227,6 +259,10 @@ namespace TBot.Bot
                     var channel = await regService.GetChannelAsync(id.ChannelId.Value);
                     await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with channel {channel?.Name ?? "ID:" + id.ChannelId.Value.ToString()} has ended.");
                 }
+
+                using var db = scope.ServiceProvider.GetRequiredService<TBotDbContext>();
+                await db.ChatSessions.Where(x => x.ChatId == chatId)
+                    .ExecuteDeleteAsync();
             }
             catch (Exception ex)
             {
@@ -259,7 +295,27 @@ namespace TBot.Bot
             }
         }
 
-        public void StartChatSession(long chatId, DeviceOrChannelId id)
+        public async Task StartChatSession(long chatId, DeviceOrChannelId id, TBotDbContext db)
+        {
+            StoreChatSessionInCache(chatId, id);
+
+            var chatSession = db.ChatSessions.FirstOrDefault(cs => cs.ChatId == chatId);
+            if (chatSession == null)
+            {
+                chatSession = db.ChatSessions.Add(new ChatSession
+                {
+                    ChatId = chatId,
+                }).Entity;
+            }
+            chatSession.ExpirationDate = DateTime.UtcNow.Add(ChatSessionTtl);
+            chatSession.DeviceId = id.DeviceId;
+            chatSession.ChannelId = id.ChannelId;
+            await db.SaveChangesAsync();
+        }
+
+        private void StoreChatSessionInCache(
+            long chatId,
+            DeviceOrChannelId id)
         {
             var expirationWithCallback = new MemoryCacheEntryOptions
             {
@@ -290,21 +346,21 @@ namespace TBot.Bot
             }
         }
 
-        public void EndChatSessionByDeviceId(long deviceId, long? onlyIfTgchatId = null)
+        public async Task EndChatSessionByDeviceId(long deviceId, TBotDbContext db, long? onlyIfTgchatId = null)
         {
             var chatId = GetActiveChatSessionForDevice(deviceId);
             if (chatId != null && (!onlyIfTgchatId.HasValue || chatId == onlyIfTgchatId.Value))
             {
-                StopChatSession(chatId.Value);
+                await StopChatSession(chatId.Value, db);
             }
         }
 
-        public void EndChatSessionByChannelId(int channelId, long? onlyIfTgchatId)
+        public async Task EndChatSessionByChannelId(int channelId, long? onlyIfTgchatId, TBotDbContext db)
         {
             var chatId = GetActiveChatSessionForChannel(channelId);
             if (chatId != null && (!onlyIfTgchatId.HasValue || chatId == onlyIfTgchatId.Value))
             {
-                StopChatSession(chatId.Value);
+                await StopChatSession(chatId.Value, db);
             }
         }
 

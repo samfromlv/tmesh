@@ -16,6 +16,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
     public DbSet<TgChat> TgChats => Set<TgChat>();
     public DbSet<TgChatApprovedDevice> TgChatApprovedDevices => Set<TgChatApprovedDevice>();
     public DbSet<TgChatApprovedChannel> TgChatApprovedChannels => Set<TgChatApprovedChannel>();
+    public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceRegistration>(e =>
@@ -214,6 +215,16 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.HasIndex(p => new { p.TgChatId, p.ChannelId }).IsUnique();
             e.HasIndex(p => p.ChannelId);
 
+        });
+
+        modelBuilder.Entity<ChatSession>(e =>
+        {
+            e.HasKey(p => p.ChatId);
+            e.Property(p => p.ChatId).IsRequired();
+            e.Property(p => p.DeviceId);
+            e.Property(p => p.ChannelId);
+            e.Property(p => p.ExpirationDate).IsRequired();
+            e.HasIndex(p => p.ExpirationDate);
         });
     }
 }

@@ -808,7 +808,7 @@ namespace TBot
             await db.SaveChangesAsync();
             InvalidateDeviceCache(deviceId);
             InvalidateChatsByDeviceIdCache(deviceId);
-            botCache.EndChatSessionByDeviceId(deviceId, null);
+            await botCache.EndChatSessionByDeviceId(deviceId, db, null);
             botCache.RemovePendingDeviceChatRequest_TgToMesh(deviceId);
             foreach (var reg in regs)
             {
@@ -845,7 +845,7 @@ namespace TBot
                 db.TgChats.Remove(tgChat);
             }
             await db.SaveChangesAsync();
-            botCache.StopChatSession(chatId);
+            await botCache.StopChatSession(chatId, db);
             memoryCache.Remove($"TgChatById#{chatId}");
             if (tgChat != null)
             {
@@ -884,7 +884,7 @@ namespace TBot
             InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
-            botCache.EndChatSessionByDeviceId(deviceId, chatId);
+            await botCache.EndChatSessionByDeviceId(deviceId, db, chatId);
             return true;
         }
 
@@ -917,7 +917,7 @@ namespace TBot
             InvalidateDeviceCache(deviceId);
             InvalidateDeviceKeysByChatIdCache(chatId);
             InvalidateChatsByDeviceIdCache(deviceId);
-            botCache.EndChatSessionByDeviceId(deviceId, null);
+            await botCache.EndChatSessionByDeviceId(deviceId, db, null);
             botCache.RemovePendingDeviceChatRequest_TgToMesh(deviceId);
             return true;
         }
@@ -958,7 +958,7 @@ namespace TBot
             }
             foreach (var reg in userOrChatRegs)
             {
-                botCache.EndChatSessionByChannelId(channelId, reg.ChatId);
+                await botCache.EndChatSessionByChannelId(channelId, reg.ChatId, db);
             }
             return (true, userOrChatRegs.Count > 1);
         }
@@ -1001,7 +1001,7 @@ namespace TBot
                 InvalidateChannelCache(channelId);
                 InvalidateChannelKeysByHashCache(channel.NetworkId, channel.XorHash);
             }
-            botCache.EndChatSessionByChannelId(channelId, chatId);
+            await botCache.EndChatSessionByChannelId(channelId, chatId, db);
             return true;
         }
 
@@ -1031,6 +1031,27 @@ namespace TBot
         {
             return await db.Devices.CountAsync(d => d.NetworkId == networkId);
         }
+
+        public async Task<int> GetTelegramChatsCount()
+        {
+            return await db.TgChats.CountAsync();
+        }
+
+        public async Task<int> GetApprovedChannelsCount()
+        {
+            return await db.TgChatApprovedChannels.CountAsync();
+        }
+
+        public async Task<int> GetApprovedDevicesCount()
+        {
+            return await db.TgChatApprovedDevices.CountAsync();
+        }
+
+        public async Task<int> GetActiveChatSessionsCount()
+        {
+            return await db.ChatSessions.CountAsync();
+        }
+
 
         public async Task<int> GetActiveDevicesCountByNetwork(int networkId, DateTime fromUtc)
         {

@@ -23,7 +23,8 @@ public class MessageLoopService(
     MeshtasticService meshtasticService,
     IOptions<TBotOptions> options,
     IServiceProvider services,
-    SimpleScheduler scheduler) : IHostedService
+    SimpleScheduler scheduler,
+    BotCache botCache) : IHostedService
 {
     private const int GatewayActivityRefreshEveryHours = 1;
     private const int CheckGatewayNodeInfoLastSeenAfterMinutes = 60;
@@ -48,6 +49,7 @@ public class MessageLoopService(
         using var scope = services.CreateScope();
         await FillGatewayIds(scope);
         await FillPrimaryChannels(scope);
+        await botCache.Start(scope);
         mqttService.TelegramUpdateReceivedAsync += HandleTelegramUpdate;
         mqttService.MeshtasticMessageReceivedAsync += HandleMeshtasticMessage;
         mqttService.MessageSent += HandleMessageSent;
@@ -88,7 +90,7 @@ public class MessageLoopService(
 
     private void StartServiceInfoInfoTimer()
     {
-        _serviceInfoTimer = new System.Timers.Timer(60 * 1000);
+        _serviceInfoTimer = new System.Timers.Timer(120 * 1000);
         _serviceInfoTimer.Elapsed += ServiceInfoTimer_Elapsed;
         _serviceInfoTimer.AutoReset = true;
         _serviceInfoTimer.Enabled = true;
@@ -226,7 +228,12 @@ public class MessageLoopService(
         {
             Networks = allStats,
             LastUpdate = now,
-            Started = _started
+            Started = _started,
+            TgChats = await registrationService.GetTelegramChatsCount(),
+            ApprovedChannels = await registrationService.GetApprovedChannelsCount(),
+            ApprovedDevices = await registrationService.GetApprovedDevicesCount(),
+            ActiveChatSessions = await registrationService.GetActiveChatSessionsCount(),
+            MapMqtt = mapMqttService.GetStatus(),
         };
 
         await mqttService.PublishStatus(botStats);

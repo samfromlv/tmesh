@@ -5,6 +5,7 @@ using NodaTime;
 using System.Text;
 using TBot.Analytics;
 using TBot.Analytics.Models;
+using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
@@ -24,7 +25,8 @@ namespace TBot.Bot
         MeshtasticService meshtasticService,
         BotCache botCache,
         ILogger<MeshtasticBotService> logger,
-        IServiceProvider services)
+        IServiceProvider services,
+        TBotDbContext db)
     {
         private readonly TBotOptions _options = options.Value;
 
@@ -871,7 +873,7 @@ namespace TBot.Bot
             }
             else
             {
-                botCache.StopChatSession(activeSessionTgChatId.Value);
+                await botCache.StopChatSession(activeSessionTgChatId.Value, db);
 
                 var tgChat = await registrationService.GetTgChatByChatIdAsync(activeSessionTgChatId.Value);
                 string chatName = tgChat != null ? tgChat.ChatName : "Unknown";
@@ -991,17 +993,17 @@ namespace TBot.Bot
                 if (otherSessionTgSessionChatId != null
                     && otherSessionTgSessionChatId != tgChat.ChatId)
                 {
-                    botCache.StopChatSession(otherSessionTgSessionChatId.Value);
+                    await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
                     await TrySendMessage(
                         otherSessionTgSessionChatId.Value,
                         $"❌ Chat with {recipientName} is ended by device");
                 }
 
-                botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId
+                await botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId
                 {
                     DeviceId = recipient.RecipientDeviceId,
                     ChannelId = recipient.RecipientPrivateChannelId,
-                });
+                }, db);
 
                 var tgMsg = await TrySendMessage(tgChat.ChatId,
                    $"✅ Chat with {recipientName}{sentByPart} is now active.");
@@ -1057,7 +1059,7 @@ namespace TBot.Bot
                 || otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId))
             {
                 var chatName = tgChat != null ? tgChat.ChatName : "Telegram";
-                botCache.StopChatSession(tgChatId);
+                await botCache.StopChatSession(tgChatId, db);
 
                 IRecipient other = otherMeshSession.DeviceId != null
                    ? await registrationService.GetDeviceAsync(otherMeshSession.DeviceId.Value)
@@ -1081,7 +1083,7 @@ namespace TBot.Bot
             if (otherSessionTgSessionChatId != null
                 && otherSessionTgSessionChatId != tgChatId)
             {
-                botCache.StopChatSession(otherSessionTgSessionChatId.Value);
+                await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
                 await botClient.TrySendMessage(
                     registrationService,
                     logger,
@@ -1100,10 +1102,10 @@ namespace TBot.Bot
                 await registrationService.ApproveDeviceForChatAsync(tgChat.ChatId, message.DeviceId);
             }
 
-            botCache.StartChatSession(tgChatId, new DeviceOrChannelId
+            await botCache.StartChatSession(tgChatId, new DeviceOrChannelId
             {
                 DeviceId = message.DeviceId,
-            });
+            }, db);
 
             string tgMsgText;
             if (recipient.RecipientPrivateChannelId.HasValue)
