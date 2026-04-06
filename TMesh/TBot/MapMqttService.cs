@@ -8,7 +8,6 @@ using MQTTnet.Packets;
 using Shared.Models;
 using System.Text;
 using TBot.Models;
-using TBot.Models.MapMqtt;
 
 namespace TBot
 {
