@@ -66,12 +66,12 @@ namespace TBot.Bot
                 new BotCommand
                 {
                     Command = "chat",
-                    Description = $"Start a chat session with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automaticly expires when no new messages are sent or when /end_chat command is used."
+                    Description = $"Start a chat session with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automatically expires when no new messages are sent or when /end_chat command is used."
                 },
                 new BotCommand
                 {
                     Command = "chat_channel",
-                    Description = $"Start a chat session with a Meshtastic channel without registering it. e.g., /chat_channel MyChannel:123, 123 - is TMesh channel ID created on registration. Use /end_chat command to stop the chat session."
+                    Description = $"Start a chat session with a Meshtastic channel. e.g., /chat_channel MyChannel:123, 123 - is TMesh channel ID created on registration. Use /end_chat command to stop the chat session."
                 },
                 new BotCommand
                 {

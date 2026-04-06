@@ -2078,22 +2078,50 @@ namespace TBot.Bot
 
         private async Task<TgResult> HandleChatDeviceCommand(long userId, long chatId, string arg, string username)
         {
+
             if (string.IsNullOrWhiteSpace(arg))
             {
                 await botClient.SendMessage(chatId,
-                    "Please provide a device ID to start a chat.\n\n" +
+                    "Please provide a device ID or part of the approved/registered device name to start a chat.\n\n" +
                     "Examples:\n" +
                     "• /chat !75bcd15\n" +
-                    "• /chat #75bcd15\n" +
-                    "• /chat 123456789");
+                    "• /chat MyApprovedNode");
                 return TgResult.Ok;
             }
 
             if (!MeshtasticService.TryParseDeviceId(arg, out var deviceId))
             {
-                await botClient.SendMessage(chatId,
-                    $"Invalid device ID format: '{arg}'. The device ID can be decimal or hex (hex starts with ! or #).");
-                return TgResult.Ok;
+                var approvedDevices = await registrationService.GetDeviceApprovalsByChatId(chatId);
+                var registeredDevices = await registrationService.GetDeviceNamesByChatId(chatId);
+
+                var matchingDevices = approvedDevices.Where(d => d.NodeName.Contains(arg, StringComparison.InvariantCultureIgnoreCase))
+                    .Select(d => d.DeviceId)
+                    .Concat(registeredDevices.Where(d => d.NodeName.Contains(arg, StringComparison.InvariantCultureIgnoreCase))
+                    .Select(d => d.DeviceId))
+                    .ToList();
+
+                if (matchingDevices.Count == 1)
+                {
+                    deviceId = matchingDevices[0];
+                }
+                else if (matchingDevices.Count > 1)
+                {
+                    await botClient.SendMessage(chatId,
+                        $"Multiple devices match the provided filter '{arg}'. Please be more specific.");
+                    return TgResult.Ok;
+                }
+                else if (approvedDevices.Count == 0 && registeredDevices.Count == 0)
+                {
+                    await botClient.SendMessage(chatId,
+                    $"'{arg}' is not a valid device ID and there no registered or approved devices in this chat to find device by name. The device ID can be decimal or hex (hex starts with ! or #).");
+                    return TgResult.Ok;
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId,
+                    $"'{arg}' is not a valid device ID and does not match any registered or approved device names.");
+                    return TgResult.Ok;
+                }
             }
 
             if (deviceId == _options.MeshtasticNodeId)
@@ -2174,22 +2202,48 @@ namespace TBot.Bot
                 return await TgRespondWithIncorrectChatChannelCommand(chatId);
             }
 
+            int channelId;
+            string channelNamePart;
             var lastIndexOfColon = arg.LastIndexOf(':');
             if (lastIndexOfColon == -1)
             {
-                return await TgRespondWithIncorrectChatChannelCommand(chatId);
-            }
+                var registeredChannels = await registrationService.GetChannelNamesByChatId(chatId);
+                var approvedChannels = await registrationService.GetChannelApprovalsByChatId(chatId);
+                var matchingChannels = approvedChannels.Where(c => c.Name.Contains(arg, StringComparison.InvariantCultureIgnoreCase))
+                    .Select(c => new { c.Id, c.Name })
+                    .Concat(registeredChannels.Where(c => c.Name.Contains(arg, StringComparison.InvariantCultureIgnoreCase))
+                    .Select(c => new { c.Id, c.Name }))
+                    .ToList();
 
-            var channelNamePart = arg[..lastIndexOfColon].Trim();
-            var channelIdPart = arg[(lastIndexOfColon + 1)..].Trim();
-            if (string.IsNullOrEmpty(channelNamePart) || string.IsNullOrEmpty(channelIdPart))
-            {
-                return await TgRespondWithIncorrectChatChannelCommand(chatId);
+                if (matchingChannels.Count == 1)
+                {
+                    channelId = matchingChannels[0].Id;
+                    channelNamePart = matchingChannels[0].Name;
+                }
+                else if (matchingChannels.Count > 1)
+                {
+                    await botClient.SendMessage(chatId,
+                        $"Multiple channels match the provided filter '{arg}'. Please be more specific or provide channel ID to start chat.");
+                    return TgResult.Ok;
+                }
+                else 
+                {
+                    return await TgRespondWithIncorrectChatChannelCommand(chatId);
+                }
             }
-
-            if (!int.TryParse(channelIdPart, out var channelId))
+            else
             {
-                return await TgRespondWithIncorrectChatChannelCommand(chatId);
+                channelNamePart = arg[..lastIndexOfColon].Trim();
+                var channelIdPart = arg[(lastIndexOfColon + 1)..].Trim();
+                if (string.IsNullOrEmpty(channelNamePart) || string.IsNullOrEmpty(channelIdPart))
+                {
+                    return await TgRespondWithIncorrectChatChannelCommand(chatId);
+                }
+
+                if (!int.TryParse(channelIdPart, out channelId))
+                {
+                    return await TgRespondWithIncorrectChatChannelCommand(chatId);
+                }
             }
 
             var channel = await registrationService.GetChannelAsync(channelId);
@@ -2258,7 +2312,8 @@ namespace TBot.Bot
                 "Please provide a channel name and channel ID to start a chat. You or someone else should register channel first with /add_channel command to get the ID.\n\n" +
                 "Examples:\n" +
                 "• /chat_channel MyChannel:1\n" +
-                "Where 'MyChannel' name is Meshtastic channel name and '1' is the channel ID you get from TMesh when registering the channel with /add_channel command.");
+                "Where 'MyChannel' name is Meshtastic channel name and '1' is the channel ID you get from TMesh when registering the channel with /add_channel command.\n" +
+                "If channel is registered or approved in this chat you can start chat with /chat_channel MyChannel, where Name is just filter by name (will match MyChannelX, amychannel)");
             return TgResult.Ok;
         }
 
