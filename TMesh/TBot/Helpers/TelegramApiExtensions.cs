@@ -35,7 +35,7 @@ namespace TBot.Helpers
         public static bool IsMessageCantBeReactedError(this ApiRequestException ex)
         {
             return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest
-                    && !string.IsNullOrEmpty(ex.Message)
+                    && (!string.IsNullOrEmpty(ex.Message)
                     || ex.Message.Contains("message to react not found", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains(MessageIdInvalid, StringComparison.OrdinalIgnoreCase));
         }
