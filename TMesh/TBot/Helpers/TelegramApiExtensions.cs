@@ -8,6 +8,7 @@ namespace TBot.Helpers
 {
     public static class TelegramApiExtensions
     {
+        private const string MessageIdInvalid = "MESSAGE_ID_INVALID";
 
         public static bool IsChatGoneError(this ApiRequestException ex)
         {
@@ -26,7 +27,17 @@ namespace TBot.Helpers
                     && (ex.Message.Contains("message can't be deleted", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("message can't be edited", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("message to edit not found", StringComparison.OrdinalIgnoreCase)
-                    || ex.Message.Contains("message to delete not found", StringComparison.OrdinalIgnoreCase));
+                    || ex.Message.Contains("message to delete not found", StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains(MessageIdInvalid, StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static bool IsMessageCantBeReactedError(this ApiRequestException ex)
+        {
+            return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest
+                    && !string.IsNullOrEmpty(ex.Message)
+                    || ex.Message.Contains("message to react not found", StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains(MessageIdInvalid, StringComparison.OrdinalIgnoreCase));
         }
 
         public static async Task<Message> TrySendMessage(

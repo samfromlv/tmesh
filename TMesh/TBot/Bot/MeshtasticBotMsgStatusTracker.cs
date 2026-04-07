@@ -224,21 +224,28 @@ namespace TBot.Bot
                     await regService.RemoveAllForTgChat(status.TelegramChatId);
                     return;
                 }
+                catch (ApiRequestException e) when (e.IsMessageCantBeReactedError())
+                {
+                   // If the message was deleted or can't be reacted for some reason, we can ignore this
+                }
 
                 int? deletedReplyId = status.BotReplyId;
                 if (deletedReplyId != null)
                 {
-
                     try
                     {
                         await botClient.DeleteMessage(
                             status.TelegramChatId,
                             deletedReplyId.Value);
                     }
-                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError() || e.IsChatGoneError())
+                    catch (ApiRequestException e) when (e.IsChatGoneError())
+                    {
+                        await regService.RemoveAllForTgChat(status.TelegramChatId);
+                        return;
+                    }
+                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError())
                     {
                         // If the message was already deleted or chat is gone, we can ignore it
-                        return;
                     }
 
                     if (deletedReplyId == status.BotReplyId)
@@ -273,7 +280,12 @@ namespace TBot.Bot
                             status.BotReplyId.Value,
                             sb.ToString());
                     }
-                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError() || e.IsChatGoneError())
+                    catch (ApiRequestException e) when (e.IsChatGoneError())
+                    {
+                        await regService.RemoveAllForTgChat(status.TelegramChatId);
+                        return;
+                    }
+                    catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError())
                     {
                         // If the message was already deleted or chat is gone, we can ignore it
                         return;

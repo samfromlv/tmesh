@@ -176,7 +176,7 @@ namespace TBot
             int hopLimit,
             bool isEmoji = false)
         {
-            logger.LogInformation("Sending message to device {DeviceId}: {Message}", deviceId, text);
+            logger.LogInformation("Sending text message to device {DeviceId}", deviceId);
             var envelope = PackTextMessage(
                 newMessageId,
                 deviceId,
