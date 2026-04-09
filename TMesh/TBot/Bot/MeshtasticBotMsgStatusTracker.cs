@@ -226,7 +226,7 @@ namespace TBot.Bot
                 }
                 catch (ApiRequestException e) when (e.IsMessageCantBeReactedError())
                 {
-                   // If the message was deleted or can't be reacted for some reason, we can ignore this
+                    // If the message was deleted or can't be reacted for some reason, we can ignore this
                 }
 
                 int? deletedReplyId = status.BotReplyId;
@@ -251,6 +251,7 @@ namespace TBot.Bot
                     if (deletedReplyId == status.BotReplyId)
                     {
                         status.BotReplyId = null;
+                        status.ReplyText = null;
                     }
                 }
             }
@@ -271,14 +272,30 @@ namespace TBot.Bot
                         sb.Append($". Queue wait: {waitTimeSeconds} seconds");
                     }
                 }
+
+                var text = sb.ToString();
+
                 if (status.BotReplyId != null)
                 {
+                    if (status.ReplyText == text)
+                    {
+                        return;
+                    }
+
                     try
                     {
-                        await botClient.EditMessageText(
+                        var editReplyId = status.BotReplyId.Value;
+
+                        var msg = await botClient.EditMessageText(
                             status.TelegramChatId,
-                            status.BotReplyId.Value,
-                            sb.ToString());
+                            editReplyId,
+                            text);
+
+                        if (status.BotReplyId == editReplyId)
+                        {
+                            status.ReplyText = text;
+                            status.BotReplyId = msg.MessageId;
+                        }
                     }
                     catch (ApiRequestException e) when (e.IsChatGoneError())
                     {
@@ -297,7 +314,7 @@ namespace TBot.Bot
                            regService,
                            logger,
                            status.TelegramChatId,
-                           sb.ToString(),
+                           text,
                            replyParameters: new ReplyParameters
                            {
                                AllowSendingWithoutReply = false,
@@ -310,7 +327,11 @@ namespace TBot.Bot
                         return;
                     }
 
-                    status.BotReplyId = replyMsg.MessageId;
+                    if (status.BotReplyId == null)
+                    {
+                        status.ReplyText = text;
+                        status.BotReplyId = replyMsg.MessageId;
+                    }
                 }
             }
         }

@@ -14,6 +14,8 @@ namespace TBot.Models
 
         public int? BotReplyId { get; set; }
 
+        public string ReplyText { get; set; }
+
         public DateTime? EstimatedSendDate { get; set; }
 
         public Dictionary<long, DeliveryStatusWithRecipientId> MeshMessages { get; set; }

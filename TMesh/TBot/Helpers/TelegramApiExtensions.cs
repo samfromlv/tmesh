@@ -12,7 +12,7 @@ namespace TBot.Helpers
 
         public static bool IsChatGoneError(this ApiRequestException ex)
         {
-            return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest
+            return ex.ErrorCode == 400
                     && !string.IsNullOrEmpty(ex.Message)
                     && (ex.Message.Contains("chat not found", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("group is deactivated", StringComparison.OrdinalIgnoreCase)
@@ -22,7 +22,7 @@ namespace TBot.Helpers
 
         public static bool IsMessageCantBeEditedOrDeletedError(this ApiRequestException ex)
         {
-            return ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest
+            return ex.ErrorCode == 400
                     && !string.IsNullOrEmpty(ex.Message)
                     && (ex.Message.Contains("message can't be deleted", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("message can't be edited", StringComparison.OrdinalIgnoreCase)
