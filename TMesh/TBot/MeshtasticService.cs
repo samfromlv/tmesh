@@ -1,4 +1,5 @@
 ﻿using Google.Protobuf;
+using Google.Protobuf.Collections;
 using Meshtastic;
 using Meshtastic.Crypto;
 using Meshtastic.Protobufs;
@@ -246,19 +247,87 @@ namespace TBot
             return deviceId == BroadcastDeviceId;
         }
 
-        public void SendTraceRouteResponse(TraceRouteMessage msg,
+        public void InjectOurNodeInTraceRouteAndSend(
+            TraceRouteMessage traceRouteMsg,
+            long toDeviceId,
+            IRecipient primaryChannel,
+            string primartChannelName,
+            long? relayGatewayId)
+        {
+            var routeDiscovery = traceRouteMsg.RouteDiscovery;
+
+            var isTowards = traceRouteMsg.RequestId == 0;
+
+            var hopsUsed = traceRouteMsg.HopStart - traceRouteMsg.HopLimit;
+
+            RepeatedField<uint> route;
+            RepeatedField<int> snr;
+            if (isTowards)
+            {
+                route = routeDiscovery.Route;
+                snr = routeDiscovery.SnrTowards;
+            }
+            else
+            {
+                route = routeDiscovery.RouteBack;
+                snr = routeDiscovery.SnrBack;
+            }
+
+            while (route.Count < hopsUsed)
+            {
+                route.Add(BroadcastDeviceId);
+                snr.Add(TraceRouteSNRDefault);
+            }
+
+            route.Add((uint)_options.MeshtasticNodeId);
+            snr.Add(TraceRouteSNRDefault);
+
+            var packet = CreateTraceRoutePacket(
+                       toDeviceId,
+                       traceRouteMsg.DeviceId,
+                       traceRouteMsg.NeedAck,
+                       traceRouteMsg.WantsResponse,
+                       routeDiscovery,
+                       traceRouteMsg.Id,
+                       (uint)traceRouteMsg.HopLimit,
+                       (uint)traceRouteMsg.HopStart,
+                       primaryChannel,
+                       traceRouteMsg.RequestId);
+
+            var env =  CreateMeshtasticEnvelope(packet, primartChannelName);
+            QueueMessage(env, primaryChannel.NetworkId, MessagePriority.High, relayGatewayId);
+        }
+
+        public void SendTraceRouteToUsResponse(TraceRouteMessage msg,
             long? relayGatewayId,
             IRecipient primaryChannel)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-            var envelope = PackTraceRouteResponse(
+
+            while (msg.RouteDiscovery.Route.Count < hopsUsed)
+            {
+                msg.RouteDiscovery.Route.Add(BroadcastDeviceId);
+                msg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
+            }
+
+            msg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
+
+            var hopStartAndLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, hopsForReply);
+
+            var packet = CreateTraceRoutePacket(
                 msg.DeviceId,
+                _options.MeshtasticNodeId,
+                msg.NeedAck,
+                wantReply: false,
                 msg.RouteDiscovery,
-                msg.Id,
-                hopsUsed,
-                hopsForReply,
-                primaryChannel);
+                GenerateNewMessageId(),
+                hopStartAndLimit,
+                hopStartAndLimit,
+                primaryChannel,
+                msg.Id);
+
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
 
             AddStat(new MeshStat
             {
@@ -385,24 +454,7 @@ namespace TBot
             return envelope;
         }
 
-        private ServiceEnvelope PackTraceRouteResponse(
-            long deviceId,
-            RouteDiscovery routeDiscovery,
-            long messageId,
-            int hopsUsed,
-            int messageHopLimit,
-            IRecipient primaryChannel)
-        {
-            var packet = CreateTraceRouteResponsePacket(
-                deviceId,
-                routeDiscovery,
-                messageId,
-                hopsUsed,
-                messageHopLimit,
-                primaryChannel);
-            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
-            return envelope;
-        }
+   
 
         private ServiceEnvelope PackNoPublicKeyMessage(
             long deviceId,
@@ -541,40 +593,42 @@ namespace TBot
             return packet;
         }
 
-        public MeshPacket CreateTraceRouteResponsePacket(
+        public MeshPacket CreateTraceRoutePacket(
            long deviceId,
+           long fromDeviceId,
+           bool wantAck,
+           bool wantReply,
            RouteDiscovery routeDiscovery,
            long messageId,
-           int hopsUsed,
-           int messageHopLimit,
-           IRecipient primaryChannel)
+           uint hopLimit,
+           uint hopStart,
+           IRecipient primaryChannel,
+           long requestId)
         {
-            while (routeDiscovery.Route.Count < hopsUsed)
-            {
-                routeDiscovery.Route.Add(BroadcastDeviceId);
-                routeDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
-            }
-
-            routeDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
-
             var packet = new MeshPacket()
             {
                 Channel = 0,
-                WantAck = false,
+                WantAck = wantAck,
                 To = (uint)deviceId,
-                From = (uint)_options.MeshtasticNodeId,
+                From = (uint)fromDeviceId,
                 Priority = MeshPacket.Types.Priority.Reliable,
-                Id = GenerateNewMessageId(),
-                HopLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
-                HopStart = (uint)Math.Min(_options.OutgoingMessageHopLimit, messageHopLimit),
+                Id = (uint)messageId,
+                HopLimit = hopLimit,
+                HopStart = hopStart,
                 Decoded = new Meshtastic.Protobufs.Data()
                 {
+                    WantResponse = wantReply,
                     Portnum = PortNum.TracerouteApp,
-                    RequestId = (uint)messageId,
+                    RequestId = (uint)requestId,
                     Bitfield = OkToMqttMask,
                     Payload = routeDiscovery.ToByteString(),
                 },
             };
+            if (wantReply)
+            {
+                packet.Decoded.Bitfield |= NeedReplyMask;
+            }
+
             packet = EncryptPacketWithPsk(packet, primaryChannel);
             return packet;
         }
@@ -1236,7 +1290,18 @@ namespace TBot
             }
             var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
             msg.RouteDiscovery = routeDiscovery;
+            msg.RequestId = decoded.RequestId;
+            msg.WantsResponse = (decoded.Bitfield & NeedReplyMask) != 0;
             return (true, msg);
+        }
+
+        public static bool PacketWantsResponse(MeshPacket packet)
+        {
+            if (packet?.Decoded == null)
+            {
+                return false;
+            }
+            return (packet.Decoded.Bitfield & NeedReplyMask) != 0;
         }
 
         public static (bool success, Data data) DecryptPKI(byte[] recipientPrivateKey, byte[] senderPublicKey, MeshPacket meshPacket)

@@ -12,6 +12,11 @@ namespace TBot.Models.MeshMessages
         override public MeshMessageType MessageType => MeshMessageType.TraceRoute;
 
         public RouteDiscovery RouteDiscovery { get; set; }
+
+        public long RequestId { get; set; }
+
+        public bool WantsResponse { get; set; }
+
     }
 
 

@@ -716,6 +716,11 @@ namespace TBot.Bot
 
         private async Task ProcessInboundTraceRoute(TraceRouteMessage message, Device deviceOrNull)
         {
+            if (!message.WantsResponse)
+            {
+                return;
+            }
+
             var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
             if (primaryChannel == null)
             {
@@ -723,7 +728,7 @@ namespace TBot.Bot
                 return;
             }
 
-            meshtasticService.SendTraceRouteResponse(message, message.GatewayId, primaryChannel);
+            meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel);
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull == null)
             {
@@ -829,7 +834,7 @@ namespace TBot.Bot
                 string deviceName;
                 if (MeshtasticService.IsBroadcastDeviceId(nodeId))
                 {
-                    deviceName = "Unknown";
+                    deviceName = "Unknown " + MeshtasticService.GetMeshtasticNodeHexId(nodeId);
                 }
                 else
                 {

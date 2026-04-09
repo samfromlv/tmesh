@@ -1,3 +1,5 @@
+using Google.Protobuf;
+using Google.Protobuf.Collections;
 using Meshtastic.Protobufs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -510,7 +512,9 @@ public class MessageLoopService(
         if (_options.BridgeDirectMessagesToGateways
                && senderDeviceId != receiverDeviceId
                && senderDeviceId != _options.MeshtasticNodeId
-               && _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId)
+               && (_gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId)
+                ||  (_options.BridgeAllowedExtraNodeIds != null
+                    && _options.BridgeAllowedExtraNodeIds.Contains(receiverDeviceId)))
                && (_gatewayNetworkIds.ContainsKey(senderDeviceId) ||
                 (_options.BridgeAllowedExtraNodeIds != null
                     && _options.BridgeAllowedExtraNodeIds.Contains(senderDeviceId)))
@@ -533,33 +537,21 @@ public class MessageLoopService(
             {
                 outgoing = envelope.Clone();
                 outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+                meshtasticService.QueueMessage(
+                    outgoing, 
+                    receiverNetworkId,
+                    MessagePriority.High,
+                    receiverDeviceId);
             }
             else
             {
-                var traceRouteMsg = (TraceRouteMessage)decryptRes.msg;
-
-                var hopsUsed = traceRouteMsg.HopStart - traceRouteMsg.HopLimit;
-
-                //Will be added in CreateTraceRouteResponsePacket
-                //traceRouteMsg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
-                traceRouteMsg.RouteDiscovery.Route.Add((uint)_options.MeshtasticNodeId);
-
-                var packet = meshtasticService.CreateTraceRouteResponsePacket(
+                meshtasticService.InjectOurNodeInTraceRouteAndSend(
+                    (TraceRouteMessage)decryptRes.msg,
                     receiverDeviceId,
-                    traceRouteMsg.RouteDiscovery,
-                    decryptRes.msg.Id,
-                    hopsUsed,
-                    traceRouteMsg.HopLimit,
-                    primaryChannel);
-
-                outgoing = meshtasticService.CreateMeshtasticEnvelope(packet, primaryChannel.Name);
-                //Already set to same in CreateMeshtasticEnvelope, but set again to be sure it's correct for the bridge message
-                if (outgoing.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
-                {
-                    outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                }
+                    primaryChannel,
+                    primaryChannel.Name,
+                    receiverDeviceId);
             }
-            meshtasticService.QueueMessage(outgoing, receiverNetworkId, MessagePriority.High, receiverDeviceId);
             return true;
         }
         return false;

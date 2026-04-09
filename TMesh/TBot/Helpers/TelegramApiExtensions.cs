@@ -12,7 +12,7 @@ namespace TBot.Helpers
 
         public static bool IsChatGoneError(this ApiRequestException ex)
         {
-            return ex.ErrorCode == 400
+            return (ex.ErrorCode == 400 || ex.ErrorCode == 403)
                     && !string.IsNullOrEmpty(ex.Message)
                     && (ex.Message.Contains("chat not found", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("group is deactivated", StringComparison.OrdinalIgnoreCase)
