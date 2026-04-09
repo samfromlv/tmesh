@@ -159,7 +159,7 @@ namespace TBot.Bot
             StoreDeviceGateway(msg.DeviceId, msg.GatewayId, msg.GetSuggestedReplyHopLimit());
         }
 
-        private void StoreDeviceGateway(long deviceId, long gatewayId, int replyHopLimit)
+        public void StoreDeviceGateway(long deviceId, long gatewayId, int replyHopLimit)
         {
             if (_options.DirectGatewayRoutingSeconds <= 0)
             {

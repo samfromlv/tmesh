@@ -509,22 +509,41 @@ public class MessageLoopService(
         var senderDeviceId = envelope.Packet.From;
         var receiverDeviceId = envelope.Packet.To;
 
+        var senderIsGateway = _gatewayNetworkIds.TryGetValue(senderDeviceId, out var senderNetworkId);
+        var receiverIsGateway = _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId);
+
         if (_options.BridgeDirectMessagesToGateways
                && senderDeviceId != receiverDeviceId
                && senderDeviceId != _options.MeshtasticNodeId
-               && (_gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId)
-                ||  (_options.BridgeAllowedExtraNodeIds != null
+               && (senderIsGateway || receiverIsGateway)
+               && (receiverIsGateway || (_options.BridgeAllowedExtraNodeIds != null
                     && _options.BridgeAllowedExtraNodeIds.Contains(receiverDeviceId)))
-               && (_gatewayNetworkIds.ContainsKey(senderDeviceId) ||
-                (_options.BridgeAllowedExtraNodeIds != null
+               && (senderIsGateway || (_options.BridgeAllowedExtraNodeIds != null
                     && _options.BridgeAllowedExtraNodeIds.Contains(senderDeviceId)))
                && gatewayId != _options.MeshtasticNodeId)
         {
-            var primaryChannel = _primaryChannels.GetValueOrDefault(receiverNetworkId);
+            long outGoingGatewayId;
+            if (receiverIsGateway)
+            {
+                outGoingGatewayId = receiverDeviceId;
+            }
+            else
+            {
+                var ids = botCache.GetDeviceGateway(receiverDeviceId);
+                if (ids == null || !_gatewayNetworkIds.TryGetValue(ids.GatewayId, out receiverNetworkId))
+                {
+                    return false;
+                }
+                outGoingGatewayId = ids.GatewayId;
+            }
 
-            var decryptRes = primaryChannel != null
-                ? meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, gatewayId) :
-                default;
+            var primaryChannel = _primaryChannels.GetValueOrDefault(receiverNetworkId);
+            if (primaryChannel == null)
+            {
+                return false;
+            }
+
+            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel);
 
             meshtasticService.AddStat(new MeshStat
             {
@@ -532,25 +551,33 @@ public class MessageLoopService(
                 BridgeDirectMessagesToGateways = 1,
             });
 
+            if (!senderIsGateway)
+            {
+                botCache.StoreDeviceGateway(senderDeviceId, gatewayId, _options.OutgoingMessageHopLimit);
+            }
+
             ServiceEnvelope outgoing;
             if (!decryptRes.success || decryptRes.msg == null || decryptRes.msg.MessageType != MeshMessageType.TraceRoute)
             {
                 outgoing = envelope.Clone();
                 outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
                 meshtasticService.QueueMessage(
-                    outgoing, 
+                    outgoing,
                     receiverNetworkId,
                     MessagePriority.High,
-                    receiverDeviceId);
+                    outGoingGatewayId);
             }
             else
             {
+                logger.LogInformation("Bridging direct message from {Sender} to {Receiver} via trace route injection", MeshtasticService.GetMeshtasticNodeHexId(senderDeviceId), MeshtasticService.GetMeshtasticNodeHexId(receiverDeviceId));
+                
                 meshtasticService.InjectOurNodeInTraceRouteAndSend(
                     (TraceRouteMessage)decryptRes.msg,
                     receiverDeviceId,
                     primaryChannel,
                     primaryChannel.Name,
-                    receiverDeviceId);
+                    gatewayId,
+                    outGoingGatewayId);
             }
             return true;
         }

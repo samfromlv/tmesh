@@ -252,7 +252,8 @@ namespace TBot
             long toDeviceId,
             IRecipient primaryChannel,
             string primartChannelName,
-            long? relayGatewayId)
+            long incommingGatewayNodeId,
+            long outgoingGatewayNodeId)
         {
             var routeDiscovery = traceRouteMsg.RouteDiscovery;
 
@@ -271,6 +272,13 @@ namespace TBot
             {
                 route = routeDiscovery.RouteBack;
                 snr = routeDiscovery.SnrBack;
+            }
+
+            if (!route.Contains((uint)incommingGatewayNodeId)
+                        && traceRouteMsg.DeviceId != incommingGatewayNodeId)
+            {
+                route.Add((uint)incommingGatewayNodeId);
+                snr.Add(traceRouteMsg.RxSnrRounded);
             }
 
             while (route.Count < hopsUsed)
@@ -295,7 +303,7 @@ namespace TBot
                        traceRouteMsg.RequestId);
 
             var env =  CreateMeshtasticEnvelope(packet, primartChannelName);
-            QueueMessage(env, primaryChannel.NetworkId, MessagePriority.High, relayGatewayId);
+            QueueMessage(env, primaryChannel.NetworkId, MessagePriority.High, outgoingGatewayNodeId);
         }
 
         public void SendTraceRouteToUsResponse(TraceRouteMessage msg,
@@ -1104,8 +1112,7 @@ namespace TBot
 
         public (bool success, MeshMessage msg) TryDecryptPskTraceRoute(
            ServiceEnvelope envelope,
-           IRecipient recipient,
-           long gatewayNodeId)
+           IRecipient recipient)
         {
             if (envelope.Packet.PkiEncrypted)
             {
@@ -1118,7 +1125,7 @@ namespace TBot
                 return default;
             }
 
-            return ReadTraceRoute(envelope, gatewayNodeId, decoded, recipient);
+            return ReadTraceRoute(envelope, decoded, recipient);
         }
 
         private (bool success, MeshMessage msg) DecryptPksMessage(
@@ -1159,7 +1166,17 @@ namespace TBot
             else if (decoded.Portnum == PortNum.TracerouteApp
                 && envelope.Packet.To == _options.MeshtasticNodeId)
             {
-                return ReadTraceRoute(envelope, gatewayNodeId, decoded, recipient);
+                var res = ReadTraceRoute(envelope, decoded, recipient);
+                if (res.success && res.msg is TraceRouteMessage trs)
+                {
+                    if (!trs.RouteDiscovery.Route.Contains((uint)gatewayNodeId)
+                         && envelope.Packet.From != gatewayNodeId)
+                    {
+                        trs.RouteDiscovery.Route.Add((uint)gatewayNodeId);
+                        trs.RouteDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
+                    }
+                }
+                return res;
             }
             else if (decoded.Portnum == PortNum.PositionApp)
             {
@@ -1270,7 +1287,7 @@ namespace TBot
             }
         }
 
-        private static (bool success, MeshMessage msg) ReadTraceRoute(ServiceEnvelope envelope, long gatewayNodeId, Data decoded, IRecipient recipient)
+        private static (bool success, MeshMessage msg) ReadTraceRoute(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             RouteDiscovery routeDiscovery;
             try
@@ -1282,16 +1299,12 @@ namespace TBot
                 return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
             }
 
-            if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
-                && envelope.Packet.From != gatewayNodeId)
-            {
-                routeDiscovery.Route.Add((uint)gatewayNodeId);
-                routeDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
-            }
+            
             var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
             msg.RouteDiscovery = routeDiscovery;
             msg.RequestId = decoded.RequestId;
             msg.WantsResponse = (decoded.Bitfield & NeedReplyMask) != 0;
+            msg.RxSnrRounded = RoundSnrForTrace(envelope.Packet.RxSnr);
             return (true, msg);
         }
 

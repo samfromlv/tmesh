@@ -16,7 +16,7 @@ namespace TBot.Models.MeshMessages
         public long RequestId { get; set; }
 
         public bool WantsResponse { get; set; }
-
+        public int RxSnrRounded { get; set; }
     }
 
 
