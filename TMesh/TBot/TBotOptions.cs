@@ -42,6 +42,7 @@ public class TBotOptions
     public int DirectGatewayRoutingSeconds { get; set; }
 
     public bool BridgeDirectMessagesToGateways { get; set; }
+    public long[] BridgeAllowedExtraNodeIds { get; set; }
     public bool ReplyToPublicPingsViaDirectMessage { get; set; }
 
     public string[] PingWords { get; set; }

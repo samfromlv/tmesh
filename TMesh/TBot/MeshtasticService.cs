@@ -284,7 +284,7 @@ namespace TBot
         }
 
 
-        private TimeSpan QueueMessage(
+        public TimeSpan QueueMessage(
             ServiceEnvelope envelope,
             int networkId,
             MessagePriority messagePriority,
@@ -415,7 +415,7 @@ namespace TBot
             return envelope;
         }
 
-        private ServiceEnvelope CreateMeshtasticEnvelope(MeshPacket packet, string channelName)
+        public ServiceEnvelope CreateMeshtasticEnvelope(MeshPacket packet, string channelName)
         {
             return new ServiceEnvelope()
             {
@@ -552,7 +552,7 @@ namespace TBot
             while (routeDiscovery.Route.Count < hopsUsed)
             {
                 routeDiscovery.Route.Add(BroadcastDeviceId);
-                routeDiscovery.SnrTowards.Add(sbyte.MinValue);
+                routeDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
             }
 
             routeDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
@@ -924,30 +924,7 @@ namespace TBot
             return cipher.DoFinal(input);
         }
 
-        public bool TryBridge(ServiceEnvelope envelope, Dictionary<long, int> gatewayIds)
-        {
-            if (envelope.Packet == null)
-            {
-                return false;
-            }
-
-            var senderDeviceId = envelope.Packet.From;
-            var receiverDeviceId = envelope.Packet.To;
-
-            if (_options.BridgeDirectMessagesToGateways
-                   && senderDeviceId != receiverDeviceId
-                   && senderDeviceId != _options.MeshtasticNodeId
-                   && gatewayIds.TryGetValue(receiverDeviceId, out var receiverNetworkId)
-                   && envelope.GatewayId != GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
-            {
-                var newMsg = envelope.Clone();
-                newMsg.GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
-                IncreaseBridgeDirectMessagesToGatewaysStat(receiverNetworkId);
-                QueueMessage(newMsg, receiverNetworkId, MessagePriority.High, receiverDeviceId);
-                return true;
-            }
-            return false;
-        }
+       
 
         public static MeshAddressInfo GetPacketAddresses(
             ServiceEnvelope envelope)
@@ -1071,7 +1048,29 @@ namespace TBot
             return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decodedPki, device));
         }
 
-        private (bool success, MeshMessage msg) DecryptPksMessage(ServiceEnvelope envelope, List<IRecipient> recipients, long gatewayNodeId)
+        public (bool success, MeshMessage msg) TryDecryptPskTraceRoute(
+           ServiceEnvelope envelope,
+           IRecipient recipient,
+           long gatewayNodeId)
+        {
+            if (envelope.Packet.PkiEncrypted)
+            {
+                return default;
+            }
+
+            var (decoded, _) = DecryptPacketWithPsk(envelope.Packet, [recipient]);
+            if (decoded == null || decoded.Portnum != PortNum.TracerouteApp)
+            {
+                return default;
+            }
+
+            return ReadTraceRoute(envelope, gatewayNodeId, decoded, recipient);
+        }
+
+        private (bool success, MeshMessage msg) DecryptPksMessage(
+            ServiceEnvelope envelope,
+            List<IRecipient> recipients,
+            long gatewayNodeId)
         {
             var (decoded, recipient) = DecryptPacketWithPsk(envelope.Packet, recipients);
             if (decoded == null)
@@ -1106,25 +1105,7 @@ namespace TBot
             else if (decoded.Portnum == PortNum.TracerouteApp
                 && envelope.Packet.To == _options.MeshtasticNodeId)
             {
-                RouteDiscovery routeDiscovery;
-                try
-                {
-                    routeDiscovery = RouteDiscovery.Parser.ParseFrom(decoded.Payload);
-                }
-                catch
-                {
-                    return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
-                }
-
-                if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
-                    && envelope.Packet.From != gatewayNodeId)
-                {
-                    routeDiscovery.Route.Add((uint)gatewayNodeId);
-                    routeDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
-                }
-                var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
-                msg.RouteDiscovery = routeDiscovery;
-                return (true, msg);
+                return ReadTraceRoute(envelope, gatewayNodeId, decoded, recipient);
             }
             else if (decoded.Portnum == PortNum.PositionApp)
             {
@@ -1235,6 +1216,29 @@ namespace TBot
             }
         }
 
+        private static (bool success, MeshMessage msg) ReadTraceRoute(ServiceEnvelope envelope, long gatewayNodeId, Data decoded, IRecipient recipient)
+        {
+            RouteDiscovery routeDiscovery;
+            try
+            {
+                routeDiscovery = RouteDiscovery.Parser.ParseFrom(decoded.Payload);
+            }
+            catch
+            {
+                return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
+            }
+
+            if (!routeDiscovery.Route.Contains((uint)gatewayNodeId)
+                && envelope.Packet.From != gatewayNodeId)
+            {
+                routeDiscovery.Route.Add((uint)gatewayNodeId);
+                routeDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
+            }
+            var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
+            msg.RouteDiscovery = routeDiscovery;
+            return (true, msg);
+        }
+
         public static (bool success, Data data) DecryptPKI(byte[] recipientPrivateKey, byte[] senderPublicKey, MeshPacket meshPacket)
         {
             if (meshPacket.Encrypted == null || meshPacket.Encrypted.Length == 0) return (false, null);
@@ -1242,7 +1246,7 @@ namespace TBot
             var decrypted = PKIEncryption.Decrypt(recipientPrivateKey, senderPublicKey, encryptedData, meshPacket.Id, meshPacket.From);
             Data data;
             try
-            {  
+            {
                 data = Data.Parser.ParseFrom(decrypted);
             }
             catch
@@ -1338,14 +1342,6 @@ namespace TBot
             return (true, msg);
         }
 
-        public void IncreaseBridgeDirectMessagesToGatewaysStat(int networkId)
-        {
-            AddStat(new MeshStat
-            {
-                NetworkId = networkId,
-                BridgeDirectMessagesToGateways = 1
-            });
-        }
 
         public MeshStat AggregateStartFrom(int networkId, DateTime fromUtc)
         {

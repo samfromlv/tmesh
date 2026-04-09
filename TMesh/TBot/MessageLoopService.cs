@@ -243,7 +243,7 @@ public class MessageLoopService(
     {
         var stat = new Dictionary<string, DateTime?>();
         var gatewaysInNetwork = _gatewayNetworkIds.Where(g => g.Value == networkId).Select(g => g.Key);
-        
+
         foreach (var gwId in gatewaysInNetwork.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
@@ -416,7 +416,7 @@ public class MessageLoopService(
                 return;
             }
 
-            if (meshtasticService.TryBridge(env, _gatewayNetworkIds))
+            if (TryBridge(env, gatewayId))
             {
                 return;
             }
@@ -495,6 +495,74 @@ public class MessageLoopService(
         {
             scope?.Dispose();
         }
+    }
+
+    private bool TryBridge(ServiceEnvelope envelope, long gatewayId)
+    {
+        if (envelope.Packet == null || envelope.Packet.PayloadVariantCase != MeshPacket.PayloadVariantOneofCase.Encrypted)
+        {
+            return false;
+        }
+
+        var senderDeviceId = envelope.Packet.From;
+        var receiverDeviceId = envelope.Packet.To;
+
+        if (_options.BridgeDirectMessagesToGateways
+               && senderDeviceId != receiverDeviceId
+               && senderDeviceId != _options.MeshtasticNodeId
+               && _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId)
+               && (_gatewayNetworkIds.ContainsKey(senderDeviceId) ||
+                (_options.BridgeAllowedExtraNodeIds != null
+                    && _options.BridgeAllowedExtraNodeIds.Contains(senderDeviceId)))
+               && gatewayId != _options.MeshtasticNodeId)
+        {
+            var primaryChannel = _primaryChannels.GetValueOrDefault(receiverNetworkId);
+
+            var decryptRes = primaryChannel != null
+                ? meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, gatewayId) :
+                default;
+
+            meshtasticService.AddStat(new MeshStat
+            {
+                NetworkId = receiverNetworkId,
+                BridgeDirectMessagesToGateways = 1,
+            });
+
+            ServiceEnvelope outgoing;
+            if (!decryptRes.success || decryptRes.msg == null || decryptRes.msg.MessageType != MeshMessageType.TraceRoute)
+            {
+                outgoing = envelope.Clone();
+                outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+            }
+            else
+            {
+                var traceRouteMsg = (TraceRouteMessage)decryptRes.msg;
+
+                var hopsUsed = traceRouteMsg.HopStart - traceRouteMsg.HopLimit;
+
+                //Will be added in CreateTraceRouteResponsePacket
+                //traceRouteMsg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
+                traceRouteMsg.RouteDiscovery.Route.Add((uint)_options.MeshtasticNodeId);
+
+                var packet = meshtasticService.CreateTraceRouteResponsePacket(
+                    receiverDeviceId,
+                    traceRouteMsg.RouteDiscovery,
+                    decryptRes.msg.Id,
+                    hopsUsed,
+                    traceRouteMsg.HopLimit,
+                    primaryChannel);
+
+                outgoing = meshtasticService.CreateMeshtasticEnvelope(packet, primaryChannel.Name);
+                //Already set to same in CreateMeshtasticEnvelope, but set again to be sure it's correct for the bridge message
+                if (outgoing.GatewayId != MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId))
+                {
+                    outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
+                }
+            }
+            meshtasticService.QueueMessage(outgoing, receiverNetworkId, MessagePriority.High, receiverDeviceId);
+            return true;
+        }
+        return false;
     }
 
     private async ValueTask PerhapsUplinkToMap(
