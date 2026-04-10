@@ -1,0 +1,28 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using TBot.Database.Models;
+
+namespace TBot.Models.ScheduledMessages
+{
+    public class ScheduledMessaageForList
+    {
+        public int Id { get; set; }
+
+        public string Text { get; set; }
+
+        public int IntervalMinutes { get; set; }
+
+        public DateTime? LastSentUtc { get; set; }
+
+        public int PublicChannelId { get; set; }
+
+        public bool Enabled { get; set; }
+
+        public PublicChannel Channel { get; set; }
+
+        public Network Network { get; set; }
+    }
+}

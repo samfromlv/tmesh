@@ -7,6 +7,7 @@ using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
+using TBot.Models.ScheduledMessages;
 
 namespace TBot
 {
@@ -1441,5 +1442,95 @@ namespace TBot
                 memoryCache.Remove($"NetworksLookup");
             }
         }
+
+        // ── Scheduled Messages ──────────────────────────────────────────────────
+
+        public async Task<ScheduledMessage> AddScheduledMessageAsync(int publicChannelId, int intervalMinutes, string text)
+        {
+            var msg = new ScheduledMessage
+            {
+                PublicChannelId = publicChannelId,
+                IntervalMinutes = intervalMinutes,
+                Text = text,
+                Enabled = true,
+                LastSentUtc = null
+            };
+            db.ScheduledMessages.Add(msg);
+            await db.SaveChangesAsync();
+            return msg;
+        }
+
+        public async Task<bool> DeleteScheduledMessageAsync(int messageId)
+        {
+            var msg = await db.ScheduledMessages.FindAsync(messageId);
+            if (msg == null) return false;
+            db.ScheduledMessages.Remove(msg);
+            await db.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool?> ToggleScheduledMessageAsync(int messageId)
+        {
+            var msg = await db.ScheduledMessages.FindAsync(messageId);
+            if (msg == null) return null;
+            msg.Enabled = !msg.Enabled;
+            await db.SaveChangesAsync();
+            return msg.Enabled;
+        }
+
+        public async Task<List<ScheduledMessaageForList>> ListScheduledMessagesAsync()
+        {
+            var res = await (from m in db.ScheduledMessages
+                      join c in db.PublicChannels on m.PublicChannelId equals c.Id into lj1
+                      from c in lj1.DefaultIfEmpty()
+                      select new ScheduledMessaageForList
+                      {
+                          Id = m.Id,
+                          Enabled = m.Enabled,
+                          Text = m.Text,
+                          IntervalMinutes = m.IntervalMinutes,
+                          LastSentUtc = m.LastSentUtc,
+                          PublicChannelId = m.PublicChannelId,
+                          Channel = c
+                      }).ToListAsync();
+
+            var networks = await GetNetworksLookupCached();
+            foreach (var msg in res.Where(x => x.Channel != null))
+            {
+                msg.Network = networks.GetValueOrDefault(msg.Channel.NetworkId);
+            }
+            return res;
+        }
+
+        public async Task<List<(ScheduledMessage Message, PublicChannel Channel)>> GetDueScheduledMessagesAsync(DateTime now)
+        {
+
+            var due = await (from m in db.ScheduledMessages
+                             join c in db.PublicChannels on m.PublicChannelId equals c.Id 
+                             where 
+                                m.Enabled
+                                && (m.LastSentUtc == null
+                                    || now >= m.LastSentUtc.Value.AddMinutes(m.IntervalMinutes))
+                             select new 
+                             {
+                                 Message = m,
+                                 Channel = c
+                             }).ToListAsync();
+
+            return due
+                .Select(m => (m.Message, m.Channel))
+                .ToList();
+        }
+
+        public async Task UpdateScheduledMessageLastSentAsync(List<ScheduledMessage> messages, DateTime sentUtc)
+        {
+            foreach (var msg in messages)
+            {
+                msg.LastSentUtc = sentUtc;
+            }
+            await db.SaveChangesAsync();
+        }
+
+        // ── end Scheduled Messages ──────────────────────────────────────────────
     }
 }

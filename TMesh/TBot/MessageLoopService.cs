@@ -116,10 +116,61 @@ public class MessageLoopService(
                 _lastGatewayCleanup = DateTime.UtcNow;
                 await CheckGatewayActivity(scope);
             }
+
+            await SendScheduledMessages(scope);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error in ServiceInfo timer");
+        }
+    }
+
+    private async Task SendScheduledMessages(IServiceScope scope)
+    {
+        try
+        {
+            var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            var now = DateTime.UtcNow;
+
+            var due = await registrationService.GetDueScheduledMessagesAsync(now);
+            if (due.Count == 0)
+                return;
+
+            var sent = new List<ScheduledMessage>(due.Count);
+            foreach (var (msg, channel) in due)
+            {
+                if (channel == null)
+                {
+                    logger.LogWarning("ScheduledMessage #{Id}: public channel #{ChannelId} not found, skipping", msg.Id, msg.PublicChannelId);
+                    continue;
+                }
+
+                try
+                {
+                    meshtasticService.SendPublicTextMessage(
+                        msg.Text,
+                        relayGatewayId: null,
+                        hopLimit: int.MaxValue,
+                        publicChannelName: channel.Name,
+                        recipient: channel);
+
+                    sent.Add(msg);
+                    logger.LogInformation("ScheduledMessage #{Id} sent to channel \"{Channel}\"", msg.Id, channel.Name);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error sending ScheduledMessage #{Id}", msg.Id);
+                }
+            }
+
+            if (sent.Count > 0)
+            {
+                await registrationService.UpdateScheduledMessageLastSentAsync(sent, now);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error processing scheduled messages");
         }
     }
 

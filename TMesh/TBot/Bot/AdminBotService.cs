@@ -1,5 +1,6 @@
 using Linux.Bluetooth;
 using Microsoft.Extensions.Options;
+using Npgsql.EntityFrameworkCore.PostgreSQL.ValueGeneration;
 using System.Text;
 using System.Text.Json;
 using TBot.Database.Models;
@@ -15,7 +16,8 @@ namespace TBot.Bot
         IOptions<TBotOptions> options,
         BotCache botCache,
         RegistrationService registrationService,
-        MeshtasticService meshtasticService)
+        MeshtasticService meshtasticService,
+        TimeZoneHelper timeZoneHelper)
     {
 
         private readonly TBotOptions _options = options.Value;
@@ -120,6 +122,22 @@ namespace TBot.Bot
                     {
                         return await RemovePublicChannel(chatId, segments);
                     }
+                case "add_scheduled_message":
+                    {
+                        return await AddScheduledMessage(chatId, noPrefix, segments);
+                    }
+                case "delete_scheduled_message":
+                    {
+                        return await DeleteScheduledMessage(chatId, segments);
+                    }
+                case "toggle_scheduled_message":
+                    {
+                        return await ToggleScheduledMessage(chatId, segments);
+                    }
+                case "list_scheduled_messages":
+                    {
+                        return await ListScheduledMessages(chatId);
+                    }
                 case "nodeinfo":
                     {
                         return await ShowNodeInfo(chatId, segments);
@@ -150,7 +168,7 @@ namespace TBot.Bot
             {
                 sb.AppendLine();
                 var urlPart = network.Url != null ? $" - {network.Url}" : string.Empty;
-                sb.AppendLine($"*\\[{network.Id}] {StringHelper.EscapeMd(network.Name)}* (`{StringHelper.EscapeMd(network.ShortName)}`){StringHelper.EscapeMd(urlPart)}");
+                sb.AppendLine($"*\\[{network.Id}\\] {StringHelper.EscapeMdV2(network.Name)}* \\(`{StringHelper.EscapeMdV2(network.ShortName)}`\\){StringHelper.EscapeMdV2(urlPart)}");
                 sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}`");
 
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
@@ -163,7 +181,7 @@ namespace TBot.Bot
                     foreach (var ch in publicChannels)
                     {
                         var primaryMark = ch.IsPrimary ? " ⭐" : "  ";
-                        sb.AppendLine($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMd(ch.Name)}`");
+                        sb.AppendLine($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMdV2(ch.Name)}`");
                     }
                 }
 
@@ -175,8 +193,8 @@ namespace TBot.Bot
                     {
                         var device = await registrationService.GetDeviceAsync(gw.DeviceId);
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
-                        var lastSeen = gw.LastSeen.HasValue ? gw.LastSeen.Value.ToString("yyyy-MM-dd HH:mm") : "never";
-                        sb.AppendLine($"  • {StringHelper.EscapeMd(device?.NodeName ?? hexId)} `{hexId}` - seen: {lastSeen}");
+                        var lastSeen = gw.LastSeen.HasValue ? StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(gw.LastSeen.Value).ToString("yyyy-MM-dd HH:mm")) : "never";
+                        sb.AppendLine($"  • {StringHelper.EscapeMdV2(device?.NodeName ?? hexId)} `{StringHelper.EscapeMdV2(hexId)}` \\- seen: {lastSeen}");
                     }
                 }
                 else
@@ -185,7 +203,7 @@ namespace TBot.Bot
                 }
             }
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
             return TgResult.Ok;
         }
 
@@ -946,6 +964,128 @@ namespace TBot.Bot
             {
                 await botClient.SendMessage(chatId, "Invalid admin password.");
             }
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> AddScheduledMessage(long chatId, string noPrefix, string[] segments)
+        {
+            // Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text with spaces>
+            if (segments.Length < 4)
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text>\n" +
+                    "Example: add_scheduled_message 1 60 Hello from the mesh!");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(segments[1], out var publicChannelId))
+            {
+                await botClient.SendMessage(chatId, "Invalid public channel ID.");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(segments[2], out var intervalMinutes) || intervalMinutes < 1)
+            {
+                await botClient.SendMessage(chatId, "Invalid interval. Must be a positive integer number of minutes.");
+                return TgResult.Ok;
+            }
+
+            var channel = await registrationService.GetPublicChannelByIdAsync(publicChannelId);
+            if (channel == null)
+            {
+                await botClient.SendMessage(chatId, $"Public channel with ID {publicChannelId} not found.");
+                return TgResult.Ok;
+            }
+
+            // Text is everything after "add_scheduled_message <id> <interval> "
+            var prefixToSkip = $"add_scheduled_message {segments[1]} {segments[2]} ";
+            var text = noPrefix[prefixToSkip.Length..].Trim();
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Message text cannot be empty.");
+                return TgResult.Ok;
+            }
+
+            if (!MeshtasticService.CanSendMessage(text))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Message is too long. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes.");
+                return TgResult.Ok;
+            }
+
+            var msg = await registrationService.AddScheduledMessageAsync(publicChannelId, intervalMinutes, text);
+
+            await botClient.SendMessage(chatId,
+                $"Scheduled message #{msg.Id} added: every {intervalMinutes} min → channel #{publicChannelId} \"{StringHelper.EscapeMd(channel.Name)}\"\nText: {StringHelper.EscapeMd(text)}",
+                parseMode: ParseMode.Markdown);
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> DeleteScheduledMessage(long chatId, string[] segments)
+        {
+            if (segments.Length < 2 || !int.TryParse(segments[1], out var messageId))
+            {
+                await botClient.SendMessage(chatId, "Usage: delete_scheduled_message <messageId>");
+                return TgResult.Ok;
+            }
+
+            var deleted = await registrationService.DeleteScheduledMessageAsync(messageId);
+            await botClient.SendMessage(chatId, deleted
+                ? $"Scheduled message #{messageId} deleted."
+                : $"Scheduled message #{messageId} not found.");
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> ToggleScheduledMessage(long chatId, string[] segments)
+        {
+            if (segments.Length < 2 || !int.TryParse(segments[1], out var messageId))
+            {
+                await botClient.SendMessage(chatId, "Usage: toggle_scheduled_message <messageId>");
+                return TgResult.Ok;
+            }
+
+            var enabled = await registrationService.ToggleScheduledMessageAsync(messageId);
+            if (enabled == null)
+            {
+                await botClient.SendMessage(chatId, $"Scheduled message #{messageId} not found.");
+            }
+            else
+            {
+                var status = enabled.Value ? "enabled ✅" : "disabled ⏸";
+                await botClient.SendMessage(chatId, $"Scheduled message #{messageId} is now {status}.");
+            }
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> ListScheduledMessages(long chatId)
+        {
+            var items = await registrationService.ListScheduledMessagesAsync();
+
+            if (items.Count == 0)
+            {
+                await botClient.SendMessage(chatId, "No scheduled messages configured.");
+                return TgResult.Ok;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("🕐 *Scheduled messages:*");
+
+            foreach (var msg in items)
+            {
+                var chLabel = msg.Channel != null ? $"`{StringHelper.EscapeMdV2(msg.Channel.Name)}`" : $"Unknown channel";
+                var network = msg.Network != null ? $"network `{StringHelper.EscapeMdV2(msg.Network.Name)}`" : $"unknown network";
+                var statusIcon = msg.Enabled ? "✅" : "⏸";
+                var lastSent = msg.LastSentUtc.HasValue
+                    ? StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.LastSentUtc.Value).ToString("yyyy-MM-dd HH:mm"))
+                    : "never";
+                sb.AppendLine();
+                sb.AppendLine($"{statusIcon} *\\#{msg.Id}* → ch\\#{msg.PublicChannelId} {chLabel} \\({network}\\) every `{msg.IntervalMinutes}` min · last sent: `{lastSent}`");
+                sb.AppendLine($"  _{StringHelper.EscapeMdV2(msg.Text)}_");
+                sb.AppendLine();
+            }
+
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
             return TgResult.Ok;
         }
     }

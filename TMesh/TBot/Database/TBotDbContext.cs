@@ -17,6 +17,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
     public DbSet<TgChatApprovedDevice> TgChatApprovedDevices => Set<TgChatApprovedDevice>();
     public DbSet<TgChatApprovedChannel> TgChatApprovedChannels => Set<TgChatApprovedChannel>();
     public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
+    public DbSet<ScheduledMessage> ScheduledMessages => Set<ScheduledMessage>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceRegistration>(e =>
@@ -225,6 +226,19 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.ChannelId);
             e.Property(p => p.ExpirationDate).IsRequired();
             e.HasIndex(p => p.ExpirationDate);
+        });
+
+        modelBuilder.Entity<ScheduledMessage>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).ValueGeneratedOnAdd();
+            e.Property(p => p.PublicChannelId).IsRequired();
+            e.Property(p => p.Text).IsRequired();
+            e.Property(p => p.IntervalMinutes).IsRequired();
+            e.Property(p => p.LastSentUtc);
+            e.Property(p => p.Enabled).IsRequired().HasDefaultValue(true);
+            e.HasIndex(p => p.PublicChannelId);
+            e.HasIndex(p => p.Enabled);
         });
     }
 }
