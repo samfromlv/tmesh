@@ -138,7 +138,7 @@ namespace TBot
                 return SendPublicTextMessage(text,
                     relayGatewayId,
                     hopLimit,
-                    publicChannelName ?? "Channel",
+                    publicChannelName,
                     recipient);
             }
             else
@@ -233,7 +233,7 @@ namespace TBot
             }
 
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-            var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, msg.EnvelopeChannelName ?? PKIChannelName, recipient);
+            var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, msg.EnvelopeChannelName, recipient);
             AddStat(new MeshStat
             {
                 NetworkId = msg.NetworkId,
@@ -460,7 +460,7 @@ namespace TBot
             IRecipient primaryChannel)
         {
             var packet = CreateNoPublicKeyMessagePacket(deviceId, messageId, messageHopLimit, primaryChannel);
-            var envelope = CreateMeshtasticEnvelope(packet, channelName ?? PKIChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, channelName);
             return envelope;
         }
 
@@ -469,7 +469,7 @@ namespace TBot
             return new ServiceEnvelope()
             {
                 Packet = packet,
-                ChannelId = channelName,
+                ChannelId = channelName ?? PKIChannelName,
                 GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId),
             };
         }
