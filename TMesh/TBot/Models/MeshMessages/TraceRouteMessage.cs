@@ -17,6 +17,10 @@ namespace TBot.Models.MeshMessages
 
         public bool WantsResponse { get; set; }
         public int RxSnrRounded { get; set; }
+
+        public long ToDeviceId { get; set; }
+
+        public bool IsTowards => RequestId == 0;
     }
 
 

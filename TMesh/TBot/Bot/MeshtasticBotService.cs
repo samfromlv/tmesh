@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Google.Protobuf.Collections;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NodaTime;
@@ -148,17 +149,7 @@ namespace TBot.Bot
                 return;
             }
 
-            List<long> chatIds;
-
-            var activeSessionChatId = botCache.GetActiveChatSessionForDevice(message.DeviceId);
-            if (activeSessionChatId != null)
-            {
-                chatIds = [activeSessionChatId.Value];
-            }
-            else
-            {
-                chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
-            }
+            var chatIds = await GetChatsForDevice(message.DeviceId);
 
             if (chatIds.Count == 0)
             {
@@ -181,6 +172,23 @@ namespace TBot.Bot
                         horizontalAccuracy: Math.Min(message.AccuracyMeters, 1500));
             }
 
+        }
+
+        private async Task<List<long>> GetChatsForDevice(long deviceId)
+        {
+            List<long> chatIds;
+
+            var activeSessionChatId = botCache.GetActiveChatSessionForDevice(deviceId);
+            if (activeSessionChatId != null)
+            {
+                chatIds = [activeSessionChatId.Value];
+            }
+            else
+            {
+                chatIds = await registrationService.GetChatsByDeviceIdCached(deviceId);
+            }
+
+            return chatIds;
         }
 
         private async Task ProcessInboundMeshTextMessage(TextMessage message, Device deviceOrNull)
@@ -604,24 +612,14 @@ namespace TBot.Bot
                 return;
             }
 
-            long? chatSessionTgChatId = botCache.GetActiveChatSessionForDevice(message.DeviceId);
-
-            List<long> chatIds;
-            if (chatSessionTgChatId != null)
+            var chatIds = await GetChatsForDevice(message.DeviceId);
+            if (chatIds.Count == 0)
             {
-                chatIds = [chatSessionTgChatId.Value];
-            }
-            else
-            {
-                chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
-                if (chatIds.Count == 0)
+                if (message.ReplyTo == 0)
                 {
-                    if (message.ReplyTo == 0)
-                    {
-                        MaybeSendNotRegisteredResponse(message, deviceOrNull);
-                    }
-                    return;
+                    MaybeSendNotRegisteredResponse(message, deviceOrNull);
                 }
+                return;
             }
 
             var text = message.Text;
@@ -682,6 +680,12 @@ namespace TBot.Bot
 
             if (!sentReply)
             {
+                if (chatIds.Count == 0)
+                {
+                    MaybeSendNotRegisteredResponse(message, deviceOrNull);
+                    return;
+                }
+
                 foreach (var chatId in chatIds)
                 {
                     var msg = await TrySendMessage(
@@ -716,11 +720,6 @@ namespace TBot.Bot
 
         private async Task ProcessInboundTraceRoute(TraceRouteMessage message, Device deviceOrNull)
         {
-            if (!message.WantsResponse)
-            {
-                return;
-            }
-
             var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
             if (primaryChannel == null)
             {
@@ -728,29 +727,48 @@ namespace TBot.Bot
                 return;
             }
 
-            meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel);
+            if (message.IsTowards)
+            {
+                await ProcessTowardsTrace(message, deviceOrNull, primaryChannel);
+            }
+            else
+            {
+                await ProcessTraceResponse(message);
+            }
+        }
+
+        private async Task ProcessTraceResponse(TraceRouteMessage message)
+        {
+            var chatId = botCache.GetTraceRouteChat(message.RequestId);
+            if (chatId != null)
+            {
+                var text = await FormatTraceRouteMessage(message);
+                await TrySendMessage(
+                    chatId: chatId.Value,
+                    text: $"Trace response:\n" + text);
+            }
+        }
+
+        private async Task ProcessTowardsTrace(TraceRouteMessage message, Device deviceOrNull, PublicChannel primaryChannel)
+        {
+            if (message.WantsResponse)
+            {
+                meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel);
+            }
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull == null)
             {
                 return;
             }
+
             var text = await FormatTraceRouteMessage(message);
 
-            var activeChatId = botCache.GetActiveChatSessionForDevice(message.DeviceId);
-            List<long> chatIds;
-            if (activeChatId != null)
-            {
-                chatIds = [activeChatId.Value];
-            }
-            else
-            {
-                chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
-            }
+            var chatIds = await GetChatsForDevice(message.DeviceId);
             foreach (var chatId in chatIds)
             {
                 await TrySendMessage(
                     chatId: chatId,
-                    text: $"{deviceOrNull.NodeName} trace\r\n" + text);
+                    text: $"Trace:\n" + text);
             }
         }
 
@@ -824,37 +842,97 @@ namespace TBot.Bot
         private async Task<string> FormatTraceRouteMessage(TraceRouteMessage msg)
         {
             var sb = new StringBuilder();
-            for (int i = 0; i < msg.RouteDiscovery.Route.Count; i++)
+
+            if (msg.IsTowards)
             {
-                var nodeId = msg.RouteDiscovery.Route[i];
-                var snr = msg.RouteDiscovery.SnrTowards.Count > i
-                    ? msg.RouteDiscovery.SnrTowards[i]
+                sb = await AppendRouteDiscoveryInfo(
+                    sb,
+                    msg.DeviceId,
+                    msg.ToDeviceId,
+                    msg.RouteDiscovery.Route,
+                    msg.RouteDiscovery.SnrTowards);
+            }
+            else
+            {
+                sb = await AppendRouteDiscoveryInfo(
+                   sb,
+                   msg.ToDeviceId,
+                   msg.DeviceId,
+                   msg.RouteDiscovery.Route,
+                   msg.RouteDiscovery.SnrTowards);
+
+                sb.AppendLine();
+                sb.AppendLine("Route back:");
+
+                sb = await AppendRouteDiscoveryInfo(
+                   sb,
+                   msg.DeviceId,
+                   msg.ToDeviceId,
+                   msg.RouteDiscovery.RouteBack,
+                   msg.RouteDiscovery.SnrBack);
+            }
+
+            return sb.ToString();
+        }
+
+        private async ValueTask<StringBuilder> AppendRouteDiscoveryInfo(
+            StringBuilder sb, 
+            long fromDeviceId, 
+            long toDeviceId,  
+            RepeatedField<uint> route,
+            RepeatedField<int> snrSet)
+        {
+            var fromDeviceName = await GetTraceDeviceName(fromDeviceId);
+            sb.AppendLine(fromDeviceName ?? MeshtasticService.GetMeshtasticNodeHexId(fromDeviceId));
+            for (int i = 0; i < route.Count; i++)
+            {
+                var nodeId = route[i];
+                var snr = snrSet.Count > i
+                    ? snrSet[i]
                     : sbyte.MinValue;
 
-                string deviceName;
-                if (MeshtasticService.IsBroadcastDeviceId(nodeId))
-                {
-                    deviceName = "Unknown " + MeshtasticService.GetMeshtasticNodeHexId(nodeId);
-                }
-                else
-                {
-                    var device = await registrationService.GetDeviceAsync(nodeId);
-                    if (device != null)
-                    {
-                        deviceName = device.NodeName;
-                    }
-                    else
-                    {
-                        deviceName = null;
-                    }
-                }
+                string deviceName = await GetTraceDeviceName(nodeId);
 
                 sb.AppendLine($"↓↓ SNR {(snr == sbyte.MinValue ? "?" : MeshtasticService.UnroundSnrFromTrace(snr).ToString())} dB");
                 sb.AppendLine(deviceName ?? MeshtasticService.GetMeshtasticNodeHexId(nodeId));
             }
-            sb.AppendLine($"↓↓ SNR ? dB");
-            sb.AppendLine(_options.MeshtasticNodeNameLong);
-            return sb.ToString();
+
+            if (snrSet.Count - 1 == route.Count)
+            {
+                var snr = snrSet.Last();
+                sb.AppendLine($"↓↓ SNR {(snr == sbyte.MinValue ? "?" : MeshtasticService.UnroundSnrFromTrace(snr).ToString())} dB");
+            }
+
+            var toDeviceName = await GetTraceDeviceName(toDeviceId);
+            sb.AppendLine(toDeviceName ?? MeshtasticService.GetMeshtasticNodeHexId(toDeviceId));
+            return sb;
+        }
+
+        private async ValueTask<string> GetTraceDeviceName(long deviceId)
+        {
+            string deviceName;
+            if (MeshtasticService.IsBroadcastDeviceId(deviceId))
+            {
+                deviceName = "Unknown " + MeshtasticService.GetMeshtasticNodeHexId(deviceId);
+            }
+            else if (_options.MeshtasticNodeId == deviceId)
+            {
+                deviceName = _options.MeshtasticNodeNameLong;
+            }
+            else
+            {
+                var device = await registrationService.GetDeviceAsync(deviceId);
+                if (device != null)
+                {
+                    deviceName = device.NodeName;
+                }
+                else
+                {
+                    deviceName = null;
+                }
+            }
+
+            return deviceName;
         }
 
         private ValueTask<string> GetRecipientName(IRecipient recipient)

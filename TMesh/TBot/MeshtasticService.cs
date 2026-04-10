@@ -257,38 +257,8 @@ namespace TBot
         {
             var routeDiscovery = traceRouteMsg.RouteDiscovery;
 
-            var isTowards = traceRouteMsg.RequestId == 0;
-
-            var hopsUsed = traceRouteMsg.HopStart - traceRouteMsg.HopLimit;
-
-            RepeatedField<uint> route;
-            RepeatedField<int> snr;
-            if (isTowards)
-            {
-                route = routeDiscovery.Route;
-                snr = routeDiscovery.SnrTowards;
-            }
-            else
-            {
-                route = routeDiscovery.RouteBack;
-                snr = routeDiscovery.SnrBack;
-            }
-
-            if (!route.Contains((uint)incommingGatewayNodeId)
-                        && traceRouteMsg.DeviceId != incommingGatewayNodeId)
-            {
-                route.Add((uint)incommingGatewayNodeId);
-                snr.Add(traceRouteMsg.RxSnrRounded);
-            }
-
-            while (route.Count < hopsUsed)
-            {
-                route.Add(BroadcastDeviceId);
-                snr.Add(TraceRouteSNRDefault);
-            }
-
-            route.Add((uint)_options.MeshtasticNodeId);
-            snr.Add(TraceRouteSNRDefault);
+            AddIntermidiateNodeToTraceRoute(traceRouteMsg, incommingGatewayNodeId);
+            AddIntermidiateNodeToTraceRoute(traceRouteMsg, _options.MeshtasticNodeId);
 
             var packet = CreateTraceRoutePacket(
                        toDeviceId,
@@ -306,20 +276,35 @@ namespace TBot
             QueueMessage(env, primaryChannel.NetworkId, MessagePriority.High, outgoingGatewayNodeId);
         }
 
+        public void SendTraceRouteRequest(
+            long messageId,
+            long toDeviceId,
+            long? relayGatewayId,
+            IRecipient primaryChannel)
+        {
+            var packet = CreateTraceRoutePacket(
+                toDeviceId,
+                _options.MeshtasticNodeId,
+                wantAck: true,
+                wantReply: true,
+                new RouteDiscovery(),
+                messageId,
+                (uint)_options.OutgoingMessageHopLimit,
+                (uint)_options.OutgoingMessageHopLimit,
+                primaryChannel,
+                0);
+
+            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
+
+            QueueMessage(envelope, primaryChannel.NetworkId, MessagePriority.Normal, relayGatewayId);
+        }
+
         public void SendTraceRouteToUsResponse(TraceRouteMessage msg,
             long? relayGatewayId,
             IRecipient primaryChannel)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-
-            while (msg.RouteDiscovery.Route.Count < hopsUsed)
-            {
-                msg.RouteDiscovery.Route.Add(BroadcastDeviceId);
-                msg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
-            }
-
-            msg.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
 
             var hopStartAndLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, hopsForReply);
 
@@ -1169,11 +1154,14 @@ namespace TBot
                 var res = ReadTraceRoute(envelope, decoded, recipient);
                 if (res.success && res.msg is TraceRouteMessage trs)
                 {
-                    if (!trs.RouteDiscovery.Route.Contains((uint)gatewayNodeId)
-                         && envelope.Packet.From != gatewayNodeId)
+                    AddIntermidiateNodeToTraceRoute(trs, gatewayNodeId);
+                    if (trs.IsTowards)
                     {
-                        trs.RouteDiscovery.Route.Add((uint)gatewayNodeId);
-                        trs.RouteDiscovery.SnrTowards.Add(RoundSnrForTrace(envelope.Packet.RxSnr));
+                        trs.RouteDiscovery.SnrTowards.Add(TraceRouteSNRDefault);
+                    }
+                    else
+                    {
+                        trs.RouteDiscovery.SnrBack.Add(TraceRouteSNRDefault);
                     }
                 }
                 return res;
@@ -1287,6 +1275,43 @@ namespace TBot
             }
         }
 
+
+        private static void AddIntermidiateNodeToTraceRoute(
+            TraceRouteMessage trs, 
+            long gatewayId)
+        {
+            var isTowards = trs.RequestId == 0;
+            RepeatedField<uint> route;
+            RepeatedField<int> snr;
+            if (isTowards)
+            {
+                route = trs.RouteDiscovery.Route;
+                snr = trs.RouteDiscovery.SnrTowards;
+            }
+            else
+            {
+                route = trs.RouteDiscovery.RouteBack;
+                snr = trs.RouteDiscovery.SnrBack;
+            }
+
+
+            var hopsUsed = trs.HopStart - trs.HopLimit;
+
+            while (route.Count < hopsUsed)
+            {
+                route.Add(BroadcastDeviceId);
+                snr.Add(TraceRouteSNRDefault);
+            }
+
+            if (!route.Contains((uint)gatewayId)
+                        && trs.DeviceId != gatewayId
+                        && trs.ToDeviceId != gatewayId)
+            {
+                route.Add((uint)gatewayId);
+                snr.Add(trs.RxSnrRounded);
+            }
+        }
+
         private static (bool success, MeshMessage msg) ReadTraceRoute(ServiceEnvelope envelope, Data decoded, IRecipient recipient)
         {
             RouteDiscovery routeDiscovery;
@@ -1305,6 +1330,7 @@ namespace TBot
             msg.RequestId = decoded.RequestId;
             msg.WantsResponse = (decoded.Bitfield & NeedReplyMask) != 0;
             msg.RxSnrRounded = RoundSnrForTrace(envelope.Packet.RxSnr);
+            msg.ToDeviceId  = envelope.Packet.To;
             return (true, msg);
         }
 

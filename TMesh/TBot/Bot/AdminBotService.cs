@@ -70,6 +70,10 @@ namespace TBot.Bot
                     {
                         return await PublicText(chatId, noPrefix);
                     }
+                case "trace":
+                    {
+                        return await Trace(chatId, segments);
+                    }
                 case "text":
                     {
                         return await DirectText(chatId, noPrefix, segments);
@@ -188,10 +192,10 @@ namespace TBot.Bot
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
             // Usage: add_network "<name>" (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]
-            
+
             // Reconstruct the full command from segments to properly parse quoted strings
             var fullCommand = string.Join(' ', segments);
-            
+
             // Try to extract the name from quotes
             var nameStartIdx = fullCommand.IndexOf('"');
             if (nameStartIdx == -1)
@@ -208,11 +212,11 @@ namespace TBot.Bot
             }
 
             var name = fullCommand.Substring(nameStartIdx + 1, nameEndIdx - nameStartIdx - 1);
-            
+
             // Parse the remaining arguments after the quoted name
             var remainingCommand = fullCommand[(nameEndIdx + 1)..].Trim();
             var remainingSegments = remainingCommand.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            
+
             if (remainingSegments.Length < 1)
             {
                 await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false\nNote: shortname is required.");
@@ -488,6 +492,67 @@ namespace TBot.Bot
             };
         }
 
+        private async Task<TgResult> Trace(long chatId, string[] segments)
+        {
+            var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(nodeId)
+                || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
+            {
+                await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                return TgResult.Ok;
+            }
+
+            int? networkId = segments.Length >= 3 && int.TryParse(segments[2], out var parsedNetworkId) ? parsedNetworkId : null;
+
+            var device = await registrationService.GetDeviceAsync(parsedNodeId);
+            if (device == null && networkId == null)
+            {
+                await botClient.SendMessage(chatId, "Node not found and there is no network specified as second argument, please specify network for tracking unknown nodes (/trace !aabbccdd 1)");
+                return TgResult.Ok;
+            }
+
+            if (device != null && networkId != null && device.NetworkId != networkId.Value)
+            {
+                await botClient.SendMessage(chatId, $"Node {device.NodeName} belongs to a different network [{device.NetworkId}] than the one specified in the command [{networkId.Value}]. Please check the network ID or omit it to trace the node in its registered network.");
+                return TgResult.Ok;
+            }
+
+            if (networkId == null)
+            {
+                networkId = device.NetworkId;
+            }
+
+            var network = await registrationService.GetNetwork(networkId.Value);
+
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId.Value} not found.");
+                return TgResult.Ok;
+            }
+
+            var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(networkId.Value);
+            if (primaryChannel == null)
+            {
+                await botClient.SendMessage(chatId, $"The network {network.Name} does not have a primary channel configured. Please set up a primary channel for the network to enable tracing.");
+                return TgResult.Ok;
+            }
+
+            var deviceGateway = botCache.GetDeviceGateway(parsedNodeId);
+
+            var msgId = MeshtasticService.GetNextMeshtasticMessageId();
+
+            botCache.StoreTraceRouteChat(msgId, chatId);
+
+            meshtasticService.SendTraceRouteRequest(msgId, parsedNodeId, deviceGateway?.GatewayId, primaryChannel);
+
+            var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
+
+            await botClient.SendMessage(chatId, $"Started tracing node `{(device != null? device.NodeName + $" ({hexId})" : hexId)}` in network [{networkId.Value}] \"{network.Name}\". You will receive updates in this chat as the trace route progresses.");
+
+            return TgResult.Ok;
+        }
+
         private async Task<TgResult> ShowNodeInfo(long chatId, string[] segments)
         {
             var nodeId = segments.Length >= 2 ? segments[1] : string.Empty;
@@ -729,6 +794,8 @@ namespace TBot.Bot
                 TelegramMessageId = msg.Id
             });
         }
+
+
 
         private async Task<TgResult> PublicText(long chatId, string noPrefix)
         {

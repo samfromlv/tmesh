@@ -499,6 +499,20 @@ namespace TBot.Bot
             memoryCache.Remove(PendingChannelTgToMeshKey(channelId));
         }
 
+        public void StoreTraceRouteChat(long msgId, long chatId)
+        {
+            memoryCache.Set($"TraceRouteChat_{msgId}", chatId, TimeSpan.FromMinutes(10));
+        }
+
+        public long? GetTraceRouteChat(long msgId)
+        {
+            if (memoryCache.TryGetValue<long>($"TraceRouteChat_{msgId}", out var chatId))
+            {
+                return chatId;
+            }
+            return null;
+        }
+
         private static string ChatSessionActive_TgChat_Key(long chatId) => $"ChatSession_TgChat_{chatId}";
         private static string ChatSessionActive_Device_Key(long deviceId) => $"ChatSession_Device_{deviceId}";
         private static string ChatSessionActive_Channel_Key(long channelId) => $"ChatSession_Channel_{channelId}";
@@ -506,5 +520,6 @@ namespace TBot.Bot
         private static string PendingDeviceTgToMeshKey(long deviceId) => $"PendingDeviceChatTgToMesh_{deviceId}";
         private static string PendingChannelTgToMeshKey(int channelId) => $"PendingChannelChatTgToMesh_{channelId}";
 
+        
     }
 }
