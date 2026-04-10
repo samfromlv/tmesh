@@ -185,7 +185,10 @@ public class MessageLoopService(
             arg.Data.Message,
             relayThroughGatewayId);
 
-        await UplinkToMap(arg.Data.NetworkId, arg.Data.Message);
+        if (mapMqttService.UplinkEnabled)
+        {
+            await UplinkToMap(arg.Data.NetworkId, arg.Data.Message);
+        }
     }
 
     private async Task PublishStats(IServiceScope scope)
