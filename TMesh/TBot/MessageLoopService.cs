@@ -184,6 +184,8 @@ public class MessageLoopService(
             arg.Data.NetworkId,
             arg.Data.Message,
             relayThroughGatewayId);
+
+        await UplinkToMap(arg.Data.NetworkId, arg.Data.Message);
     }
 
     private async Task PublishStats(IServiceScope scope)
