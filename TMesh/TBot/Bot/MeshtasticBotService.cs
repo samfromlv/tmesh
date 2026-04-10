@@ -753,7 +753,7 @@ namespace TBot.Bot
         {
             if (message.WantsResponse)
             {
-                meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel);
+                meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel, primaryChannel.Name);
             }
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull == null)

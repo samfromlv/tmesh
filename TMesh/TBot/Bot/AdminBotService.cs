@@ -544,7 +544,7 @@ namespace TBot.Bot
 
             botCache.StoreTraceRouteChat(msgId, chatId);
 
-            meshtasticService.SendTraceRouteRequest(msgId, parsedNodeId, deviceGateway?.GatewayId, primaryChannel);
+            meshtasticService.SendTraceRouteRequest(msgId, parsedNodeId, deviceGateway?.GatewayId, primaryChannel, primaryChannel.Name);
 
             var hexId = MeshtasticService.GetMeshtasticNodeHexId(parsedNodeId);
 

@@ -178,7 +178,7 @@ namespace TBot
             bool isEmoji = false)
         {
             logger.LogInformation("Sending text message to device {DeviceId}", deviceId);
-            var envelope = PackTextMessage(
+            var envelope = PackDirectTextMessage(
                 newMessageId,
                 deviceId,
                 publicKey,
@@ -233,7 +233,7 @@ namespace TBot
             }
 
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-            var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, recipient);
+            var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, msg.EnvelopeChannelName ?? PKIChannelName, recipient);
             AddStat(new MeshStat
             {
                 NetworkId = msg.NetworkId,
@@ -280,7 +280,8 @@ namespace TBot
             long messageId,
             long toDeviceId,
             long? relayGatewayId,
-            IRecipient primaryChannel)
+            IRecipient primaryChannel,
+            string primaryChannelName)
         {
             var packet = CreateTraceRoutePacket(
                 toDeviceId,
@@ -294,14 +295,15 @@ namespace TBot
                 primaryChannel,
                 0);
 
-            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, primaryChannelName);
 
             QueueMessage(envelope, primaryChannel.NetworkId, MessagePriority.Normal, relayGatewayId);
         }
 
         public void SendTraceRouteToUsResponse(TraceRouteMessage msg,
             long? relayGatewayId,
-            IRecipient primaryChannel)
+            IRecipient primaryChannel,
+            string primaryChannelName)
         {
             var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
@@ -320,7 +322,7 @@ namespace TBot
                 primaryChannel,
                 msg.Id);
 
-            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, primaryChannelName);
 
             AddStat(new MeshStat
             {
@@ -336,7 +338,7 @@ namespace TBot
             IRecipient primaryChannel)
         {
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-            var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply, primaryChannel);
+            var envelope = PackNoPublicKeyMessage(msg.DeviceId, msg.Id, hopsForReply, msg.EnvelopeChannelName, primaryChannel);
             AddStat(new MeshStat
             {
                 NetworkId = msg.NetworkId,
@@ -365,7 +367,7 @@ namespace TBot
             return $"meshtastic:outgoing:{id:X}";
         }
 
-        private ServiceEnvelope PackTextMessage(
+        private ServiceEnvelope PackDirectTextMessage(
             long newMessageId,
             long deviceId,
             byte[] publicKey,
@@ -436,6 +438,7 @@ namespace TBot
             long deviceId,
             long messageId,
             int messageHopLimit,
+            string channelName,
             IRecipient recipient)
         {
             var packet = CreateAckMessagePacket(deviceId, recipient.RecipientType == RecipientType.Device ? recipient.RecipientKey : null, messageId, messageHopLimit);
@@ -443,7 +446,7 @@ namespace TBot
             {
                 packet = EncryptPacketWithPsk(packet, recipient);
             }
-            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, channelName);
             return envelope;
         }
 
@@ -453,10 +456,11 @@ namespace TBot
             long deviceId,
             long messageId,
             int messageHopLimit,
+            string channelName,
             IRecipient primaryChannel)
         {
             var packet = CreateNoPublicKeyMessagePacket(deviceId, messageId, messageHopLimit, primaryChannel);
-            var envelope = CreateMeshtasticEnvelope(packet, PKIChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, channelName ?? PKIChannelName);
             return envelope;
         }
 

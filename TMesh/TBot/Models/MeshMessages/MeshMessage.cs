@@ -34,6 +34,8 @@ namespace TBot.Models.MeshMessages
 
         public long GatewayId { get; set; }
 
+        public string EnvelopeChannelName { get; set; }
+
         public IRecipient DecodedBy { get; set; }
 
         public int GetSuggestedReplyHopLimit() => MeshtasticService.GetSuggestedReplyHopLimit(this);
@@ -45,6 +47,7 @@ namespace TBot.Models.MeshMessages
             {
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
+                EnvelopeChannelName = env.ChannelId,
                 ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,
                 GatewayId = MeshtasticService.PraseDeviceHexId(env.GatewayId),
