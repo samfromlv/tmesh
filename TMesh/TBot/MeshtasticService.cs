@@ -272,7 +272,7 @@ namespace TBot
                        primaryChannel,
                        traceRouteMsg.RequestId);
 
-            var env =  CreateMeshtasticEnvelope(packet, primartChannelName);
+            var env = CreateMeshtasticEnvelope(packet, primartChannelName);
             QueueMessage(env, primaryChannel.NetworkId, MessagePriority.High, outgoingGatewayNodeId);
         }
 
@@ -310,6 +310,22 @@ namespace TBot
 
             var hopStartAndLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, hopsForReply);
 
+            IRecipient encodeBy;
+            string channelName;
+
+            if (msg.DecodedBy == null 
+                 || (msg.DecodedBy.IsPublicChannel 
+                    && msg.DecodedBy.RecipientPublicChannelId == primaryChannel.RecipientPublicChannelId) )
+            {
+                encodeBy = primaryChannel;
+                channelName = primaryChannelName;
+            }
+            else
+            {
+                encodeBy = msg.DecodedBy;
+                channelName = UnknownChannelName;
+            }
+
             var packet = CreateTraceRoutePacket(
                 msg.DeviceId,
                 _options.MeshtasticNodeId,
@@ -319,17 +335,17 @@ namespace TBot
                 GenerateNewMessageId(),
                 hopStartAndLimit,
                 hopStartAndLimit,
-                primaryChannel,
+                encodeBy,
                 msg.Id);
 
-            var envelope = CreateMeshtasticEnvelope(packet, primaryChannelName);
+            var envelope = CreateMeshtasticEnvelope(packet, channelName);
 
             AddStat(new MeshStat
             {
                 NetworkId = msg.NetworkId,
                 TraceRoutes = 1
             });
-            QueueMessage(envelope, msg.NetworkId, MessagePriority.Low, relayGatewayId);
+            QueueMessage(envelope, msg.NetworkId, MessagePriority.Normal, relayGatewayId);
         }
 
         public void NakNoPubKeyMeshtasticMessage(
@@ -450,7 +466,7 @@ namespace TBot
             return envelope;
         }
 
-   
+
 
         private ServiceEnvelope PackNoPublicKeyMessage(
             long deviceId,
@@ -975,7 +991,7 @@ namespace TBot
             return cipher.DoFinal(input);
         }
 
-       
+
 
         public static MeshAddressInfo GetPacketAddresses(
             ServiceEnvelope envelope)
@@ -1281,8 +1297,8 @@ namespace TBot
 
 
         private static void AddIntermidiateNodeToTraceRoute(
-            TraceRouteMessage trs, 
-            long gatewayId)
+            TraceRouteMessage trs,
+            long nodeId)
         {
             var isTowards = trs.RequestId == 0;
             RepeatedField<uint> route;
@@ -1307,11 +1323,11 @@ namespace TBot
                 snr.Add(TraceRouteSNRDefault);
             }
 
-            if (!route.Contains((uint)gatewayId)
-                        && trs.DeviceId != gatewayId
-                        && trs.ToDeviceId != gatewayId)
+            if (!route.Contains((uint)nodeId)
+                        && trs.DeviceId != nodeId
+                        && trs.ToDeviceId != nodeId)
             {
-                route.Add((uint)gatewayId);
+                route.Add((uint)nodeId);
                 snr.Add(trs.RxSnrRounded);
             }
         }
@@ -1328,13 +1344,13 @@ namespace TBot
                 return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
             }
 
-            
+
             var msg = MeshMessage.FromEnvelope<TraceRouteMessage>(envelope, decoded, recipient);
             msg.RouteDiscovery = routeDiscovery;
             msg.RequestId = decoded.RequestId;
             msg.WantsResponse = (decoded.Bitfield & NeedReplyMask) != 0;
             msg.RxSnrRounded = RoundSnrForTrace(envelope.Packet.RxSnr);
-            msg.ToDeviceId  = envelope.Packet.To;
+            msg.ToDeviceId = envelope.Packet.To;
             return (true, msg);
         }
 

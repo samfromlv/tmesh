@@ -6,6 +6,8 @@ namespace TBot.Database.Models
     {
         public long? RecipientDeviceId { get; }
         public int? RecipientPrivateChannelId { get; }
+
+        public int? RecipientPublicChannelId { get; }
         [JsonIgnore]
         public byte[] RecipientKey { get; }
         public byte? RecipientChannelXor { get; }
@@ -18,8 +20,6 @@ namespace TBot.Database.Models
 
         public long? RecipientId => RecipientDeviceId ?? RecipientPrivateChannelId;
 
-        public bool IsPublicChannel => RecipientChannelXor.HasValue
-            && RecipientDeviceId == null
-            && RecipientPrivateChannelId == null;
+        public bool IsPublicChannel => RecipientPublicChannelId.HasValue;
     }
 }

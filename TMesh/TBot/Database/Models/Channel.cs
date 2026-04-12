@@ -22,4 +22,8 @@ public class Channel: IRecipient
     int? IRecipient.RecipientPrivateChannelId => Id;
 
     bool? IRecipient.IsSingleDeviceChannel => IsSingleDevice;
+
+    int? IRecipient.RecipientPublicChannelId => null;
+
+    int IRecipient.NetworkId => NetworkId;
 }

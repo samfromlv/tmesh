@@ -26,5 +26,9 @@ namespace TBot.Models
         int? IRecipient.RecipientPrivateChannelId => null;
 
         bool? IRecipient.IsSingleDeviceChannel => null;
+
+        int? IRecipient.RecipientPublicChannelId => null;
+
+        int IRecipient.NetworkId => NetworkId;
     }
 }
