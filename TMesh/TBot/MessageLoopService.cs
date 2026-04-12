@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shared.Models;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Timers;
 using TBot.Analytics;
 using TBot.Bot;
@@ -517,6 +518,15 @@ public class MessageLoopService(
             if (!res.success)
             {
                 await UplinkToMap(networkId, env);
+                return;
+            }
+
+            if (res.msg != null
+                && res.msg.MessageType == MeshMessageType.NodeInfo
+                && res.msg is NodeInfoMessage nim
+                && nim.DeviceId == _options.MeshtasticNodeId)
+            {
+                logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
                 return;
             }
 
