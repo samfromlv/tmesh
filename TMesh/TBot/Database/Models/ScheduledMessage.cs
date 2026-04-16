@@ -8,4 +8,6 @@ public class ScheduledMessage
     public int IntervalMinutes { get; set; }
     public DateTime? LastSentUtc { get; set; }
     public bool Enabled { get; set; }
+    public DateTime? EnableAt { get; set; }
+    public DateTime? DisableAt { get; set; }
 }

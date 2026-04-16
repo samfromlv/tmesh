@@ -133,6 +133,8 @@ public class MessageLoopService(
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             var now = DateTime.UtcNow;
 
+            await registrationService.ApplyScheduledMessageStatusUpdatesAsync(now);
+
             var due = await registrationService.GetDueScheduledMessagesAsync(now);
             if (due.Count == 0)
                 return;

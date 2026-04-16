@@ -1445,15 +1445,44 @@ namespace TBot
 
         // ── Scheduled Messages ──────────────────────────────────────────────────
 
-        public async Task<ScheduledMessage> AddScheduledMessageAsync(int publicChannelId, int intervalMinutes, string text)
+        public async Task<List<ScheduledMessage>> ApplyScheduledMessageStatusUpdatesAsync(DateTime now)
+        {
+            var changed = await db.ScheduledMessages
+                .Where(m => (m.EnableAt != null && m.EnableAt <= now && !m.Enabled)
+                         || (m.DisableAt != null && m.DisableAt <= now && m.Enabled))
+                .ToListAsync();
+
+            foreach (var msg in changed)
+            {
+                if (msg.EnableAt.HasValue && msg.EnableAt <= now && !msg.Enabled)
+                {
+                    msg.Enabled = true;
+                    msg.EnableAt = null;
+                }
+                if (msg.DisableAt.HasValue && msg.DisableAt <= now && msg.Enabled)
+                {
+                    msg.Enabled = false;
+                    msg.DisableAt = null;
+                }
+            }
+
+            if (changed.Count > 0)
+                await db.SaveChangesAsync();
+
+            return changed;
+        }
+
+        public async Task<ScheduledMessage> AddScheduledMessageAsync(int publicChannelId, int intervalMinutes, string text, DateTime? enableAtUtc = null, DateTime? disableAtUtc = null)
         {
             var msg = new ScheduledMessage
             {
                 PublicChannelId = publicChannelId,
                 IntervalMinutes = intervalMinutes,
                 Text = text,
-                Enabled = true,
-                LastSentUtc = null
+                Enabled = enableAtUtc == null,   // disabled if EnableAt is set, will be activated by scheduler
+                LastSentUtc = null,
+                EnableAt = enableAtUtc,
+                DisableAt = disableAtUtc
             };
             db.ScheduledMessages.Add(msg);
             await db.SaveChangesAsync();
@@ -1490,6 +1519,8 @@ namespace TBot
                           Text = m.Text,
                           IntervalMinutes = m.IntervalMinutes,
                           LastSentUtc = m.LastSentUtc,
+                          EnableAt = m.EnableAt,
+                          DisableAt = m.DisableAt,
                           PublicChannelId = m.PublicChannelId,
                           Channel = c
                       }).ToListAsync();

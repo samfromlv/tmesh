@@ -1,6 +1,5 @@
 using Linux.Bluetooth;
 using Microsoft.Extensions.Options;
-using Npgsql.EntityFrameworkCore.PostgreSQL.ValueGeneration;
 using System.Text;
 using System.Text.Json;
 using TBot.Database.Models;
@@ -967,14 +966,22 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
+        private static readonly string LocalDateFormat = "yyyy-MM-ddTHH:mm:ss";
+
+        private bool TryParseLocalDate(string value, out DateTime result)
+            => DateTime.TryParseExact(value, LocalDateFormat,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out result);
+
         private async Task<TgResult> AddScheduledMessage(long chatId, string noPrefix, string[] segments)
         {
-            // Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text with spaces>
+            // Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text> [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]
             if (segments.Length < 4)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text>\n" +
-                    "Example: add_scheduled_message 1 60 Hello from the mesh!");
+                    "Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text> [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]\n" +
+                    "Example: add_scheduled_message 1 60 Hello mesh! enable_at=2025-06-01T08:00:00 disable_at=2025-09-01T00:00:00\n" +
+                    "Dates are in local time. If enable_at is set the message starts disabled.");
                 return TgResult.Ok;
             }
 
@@ -997,9 +1004,43 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            // Text is everything after "add_scheduled_message <id> <interval> "
-            var prefixToSkip = $"add_scheduled_message {segments[1]} {segments[2]} ";
-            var text = noPrefix[prefixToSkip.Length..].Trim();
+            // Everything after "add_scheduled_message <id> <interval> "
+            var afterFixed = noPrefix[$"add_scheduled_message {segments[1]} {segments[2]} ".Length..].Trim();
+
+            // Peel off trailing key=value tokens (enable_at / disable_at) from the end
+            DateTime? enableAtUtc = null;
+            DateTime? disableAtUtc = null;
+            var words = afterFixed.Split(' ');
+            int textWordCount = words.Length;
+
+            for (int i = words.Length - 1; i >= 1; i--)
+            {
+                var word = words[i];
+                var eqIdx = word.IndexOf('=');
+                if (eqIdx <= 0) break;
+                var key = word[..eqIdx].ToLowerInvariant();
+                var val = word[(eqIdx + 1)..];
+
+                if (key == "enable_at" || key == "disable_at")
+                {
+                    if (!TryParseLocalDate(val, out var localDt))
+                    {
+                        await botClient.SendMessage(chatId,
+                            $"Invalid date format for {key}: '{val}'. Required format: {LocalDateFormat}");
+                        return TgResult.Ok;
+                    }
+                    var utcDt = timeZoneHelper.ConvertFromDefaultTimezoneToUtc(localDt);
+                    if (key == "enable_at") enableAtUtc = utcDt;
+                    else disableAtUtc = utcDt;
+                    textWordCount = i;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            var text = string.Join(' ', words[..textWordCount]).Trim();
 
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -1014,11 +1055,18 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var msg = await registrationService.AddScheduledMessageAsync(publicChannelId, intervalMinutes, text);
+            var msg = await registrationService.AddScheduledMessageAsync(publicChannelId, intervalMinutes, text, enableAtUtc, disableAtUtc);
 
-            await botClient.SendMessage(chatId,
-                $"Scheduled message #{msg.Id} added: every {intervalMinutes} min → channel #{publicChannelId} \"{StringHelper.EscapeMd(channel.Name)}\"\nText: {StringHelper.EscapeMd(text)}",
-                parseMode: ParseMode.Markdown);
+            var sb = new StringBuilder();
+            sb.AppendLine($"Scheduled message #{msg.Id} added: every {intervalMinutes} min → channel #{publicChannelId} \"{StringHelper.EscapeMd(channel.Name)}\"");
+            sb.AppendLine($"Status: {(msg.Enabled ? "enabled ✅" : "disabled ⏸ (starts when enable\\_at is reached)")}");
+            if (enableAtUtc.HasValue)
+                sb.AppendLine($"Enable at: `{StringHelper.EscapeMd(timeZoneHelper.ConvertFromUtcToDefaultTimezone(enableAtUtc.Value).ToString(LocalDateFormat))}` (local)");
+            if (disableAtUtc.HasValue)
+                sb.AppendLine($"Disable at: `{StringHelper.EscapeMd(timeZoneHelper.ConvertFromUtcToDefaultTimezone(disableAtUtc.Value).ToString(LocalDateFormat))}` (local)");
+            sb.AppendLine($"Text: {StringHelper.EscapeMd(text)}");
+
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
 
@@ -1081,6 +1129,10 @@ namespace TBot.Bot
                     : "never";
                 sb.AppendLine();
                 sb.AppendLine($"{statusIcon} *\\#{msg.Id}* → ch\\#{msg.PublicChannelId} {chLabel} \\({network}\\) every `{msg.IntervalMinutes}` min · last sent: `{lastSent}`");
+                if (msg.EnableAt.HasValue)
+                    sb.AppendLine($"  enable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.EnableAt.Value).ToString(LocalDateFormat))}`");
+                if (msg.DisableAt.HasValue)
+                    sb.AppendLine($"  disable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.DisableAt.Value).ToString(LocalDateFormat))}`");
                 sb.AppendLine($"  _{StringHelper.EscapeMdV2(msg.Text)}_");
                 sb.AppendLine();
             }

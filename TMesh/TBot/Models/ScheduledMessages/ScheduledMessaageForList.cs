@@ -21,6 +21,10 @@ namespace TBot.Models.ScheduledMessages
 
         public bool Enabled { get; set; }
 
+        public DateTime? EnableAt { get; set; }
+
+        public DateTime? DisableAt { get; set; }
+
         public PublicChannel Channel { get; set; }
 
         public Network Network { get; set; }

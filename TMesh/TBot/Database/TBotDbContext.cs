@@ -237,6 +237,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.IntervalMinutes).IsRequired();
             e.Property(p => p.LastSentUtc);
             e.Property(p => p.Enabled).IsRequired().HasDefaultValue(true);
+            e.Property(p => p.EnableAt);
+            e.Property(p => p.DisableAt);
             e.HasIndex(p => p.PublicChannelId);
             e.HasIndex(p => p.Enabled);
         });
