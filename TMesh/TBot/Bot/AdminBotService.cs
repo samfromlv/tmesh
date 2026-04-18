@@ -169,10 +169,10 @@ namespace TBot.Bot
             foreach (var network in networks)
             {
                 sb.AppendLine();
-                var urlPart = network.Url != null ? $" - {network.Url}" : string.Empty;
+                var urlPart = network.Url != null ? $" - {network.Url}" : " No URL";
                 sb.AppendLine($"*\\[{network.Id}\\] {StringHelper.EscapeMdV2(network.Name)}* \\(`{StringHelper.EscapeMdV2(network.ShortName)}`\\){StringHelper.EscapeMdV2(urlPart)}");
                 sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}` · disablewelcome: `{network.DisableWelcomeMessage}`");
-                var communityUrlPart = network.CommunityUrl != null ? $" · communityurl: `{StringHelper.EscapeMdV2(network.CommunityUrl)}`" : string.Empty;
+                var communityUrlPart = network.CommunityUrl != null ? $" · communityurl: `{StringHelper.EscapeMdV2(network.CommunityUrl)}`" : "No Community URL";
                 if (!string.IsNullOrEmpty(communityUrlPart))
                 {
                     sb.AppendLine($"  {communityUrlPart.TrimStart(new char[] { ' ', '·' })}");
