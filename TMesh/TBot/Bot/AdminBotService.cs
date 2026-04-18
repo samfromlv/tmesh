@@ -1,4 +1,3 @@
-using Linux.Bluetooth;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
@@ -116,6 +115,10 @@ namespace TBot.Bot
                 case "add_public_channel":
                     {
                         return await AddPublicChannel(chatId, segments);
+                    }
+                case "update_public_channel":
+                    {
+                        return await UpdatePublicChannel(chatId, segments);
                     }
                 case "remove_public_channel":
                     {
@@ -402,13 +405,16 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddPublicChannel(long chatId, string[] segments)
         {
-            // Usage: add_public_channel <networkId> <n> <key_hex> [primary]
+            // Usage: add_public_channel <networkId> <n> <key_base64> primary
+            //        add_public_channel <networkId> <n> <key_base64> secondary <send_node_info_on_secondary>
             if (segments.Length < 5)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: add_public_channel <networkId> <n> <key_hex> [primary/secondary]\n" +
+                    "Usage: add_public_channel <networkId> <n> <key_base64> primary\n" +
+                    "       add_public_channel <networkId> <n> <key_base64> secondary <send_node_info_on_secondary>\n" +
                     "key_base64: channel key as base64 (16 or 32 bytes)\n" +
-                    "Example: add_public_channel 1 LongFast AQ== primary");
+                    "Example: add_public_channel 1 LongFast AQ== primary\n" +
+                    "Example: add_public_channel 1 MediumSlow AQ== secondary true");
                 return TgResult.Ok;
             }
 
@@ -444,10 +450,22 @@ namespace TBot.Bot
 
             var isPrimary = channelType.Equals("primary", StringComparison.OrdinalIgnoreCase);
 
+            bool sendNodeInfoOnSecondary = false;
+            if (!isPrimary)
+            {
+                if (segments.Length < 6 || !bool.TryParse(segments[5], out sendNodeInfoOnSecondary))
+                {
+                    await botClient.SendMessage(chatId,
+                        "For secondary channels, <send_node_info_on_secondary> is required (true or false).\n" +
+                        "Example: add_public_channel 1 MediumSlow AQ== secondary false");
+                    return TgResult.Ok;
+                }
+            }
+
             // Check for duplicates in this network
             var existingChannels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
 
-            // Check for case-sensitive name duplicate
+            // Check for case-sensitive name+key duplicate
             var nameDuplicate = existingChannels.FirstOrDefault(c => c.Name == channelName && c.Key.SequenceEqual(key));
             if (nameDuplicate != null)
             {
@@ -463,8 +481,8 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var ch = await registrationService.AddPublicChannelAsync(networkId, channelName, key, isPrimary);
-            var primaryMark = isPrimary ? " [primary]" : string.Empty;
+            var ch = await registrationService.AddPublicChannelAsync(networkId, channelName, key, isPrimary, sendNodeInfoOnSecondary);
+            var primaryMark = isPrimary ? " [primary]" : $" [secondary, send_node_info={sendNodeInfoOnSecondary}]";
             await botClient.SendMessage(chatId,
                 $"Public channel added: #{ch.Id} \"{ch.Name}\"{primaryMark} → network [{networkId}] \"{network.Name}\"");
 
@@ -475,9 +493,52 @@ namespace TBot.Bot
             };
         }
 
+        private async Task<TgResult> UpdatePublicChannel(long chatId, string[] segments)
+        {
+            // Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary>
+            if (segments.Length < 4
+                || !int.TryParse(segments[1], out var channelId)
+                || !bool.TryParse(segments[2], out var isPrimary)
+                || !bool.TryParse(segments[3], out var sendNodeInfoOnSecondary))
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary>\n" +
+                    "Example: update_public_channel 2 false true");
+                return TgResult.Ok;
+            }
+
+            var ch = await registrationService.GetPublicChannelByIdAsync(channelId);
+            if (ch == null)
+            {
+                await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
+                return TgResult.Ok;
+            }
+
+            (var ok, var updated) = await registrationService.TryUpdatePublicChannelAsync(
+                channelId, 
+                isPrimary,
+                sendNodeInfoOnSecondary);
+
+            if (!ok)
+            {
+                await botClient.SendMessage(chatId, $"Failed to update public channel with ID {channelId}. It may have been removed or you are trying to remove only primary channel.");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(updated.NetworkId);
+            var primaryMark = updated.IsPrimary ? " [primary]" : $" [secondary, send_node_info={updated.SendNodeInfoOnSecondary}]";
+            await botClient.SendMessage(chatId,
+                $"Public channel updated: #{updated.Id} \"{updated.Name}\"{primaryMark} → network [{updated.NetworkId}] \"{network?.Name}\"");
+
+            return new TgResult
+            {
+                Handled = true,
+                NetworkWithUpdatedPublicChannels = new List<int> { updated.NetworkId }
+            };
+        }
+
         private async Task<TgResult> RemovePublicChannel(long chatId, string[] segments)
         {
-            // Usage: remove_public_channel <id>
             if (segments.Length < 2 || !int.TryParse(segments[1], out var channelId))
             {
                 await botClient.SendMessage(chatId, "Usage: remove_public_channel <id>\nExample: remove_public_channel 3");

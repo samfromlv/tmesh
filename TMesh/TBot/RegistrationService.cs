@@ -282,6 +282,27 @@ namespace TBot
         public void InvalidatePrimaryChannelsCache()
         {
             memoryCache.Remove($"PrimaryPublicChannels");
+            memoryCache.Remove($"NodeInfoPublicChannels");
+        }
+
+        /// <summary>
+        /// Returns channels on which virtual node info should be sent:
+        /// primary channels plus secondary channels with SendNodeInfoOnSecondary=true.
+        /// </summary>
+        public async Task<List<PublicChannel>> GetAllNodeInfoChannelsCached()
+        {
+            if (memoryCache.TryGetValue<List<PublicChannel>>($"NodeInfoPublicChannels", out var cached))
+            {
+                return cached;
+            }
+
+            var res = await db.PublicChannels
+                .AsNoTracking()
+                .Where(c => c.IsPrimary || c.SendNodeInfoOnSecondary)
+                .ToListAsync();
+
+            memoryCache.Set($"NodeInfoPublicChannels", res, DateTimeOffset.UtcNow.AddHours(12));
+            return res;
         }
 
         public Task<List<DeviceKey>> GetDeviceKeysByChatIdCached(long chatId)
@@ -1143,10 +1164,11 @@ namespace TBot
         public void InvalidatePublicChannelsCache(int networkId)
         {
             memoryCache.Remove($"GetPublicChannelKeysLookupByHash#{networkId}");
-            memoryCache.Remove($"PrimaryPublicChannels");
+            memoryCache.Remove("PrimaryPublicChannels");
+            memoryCache.Remove("NodeInfoPublicChannels");
         }
 
-        public async Task<PublicChannel> AddPublicChannelAsync(int networkId, string name, byte[] key, bool isPrimary)
+        public async Task<PublicChannel> AddPublicChannelAsync(int networkId, string name, byte[] key, bool isPrimary, bool sendNodeInfoOnSecondary = false)
         {
             var xorHash = MeshtasticService.GenerateChannelHash(name, key);
             var now = DateTime.UtcNow;
@@ -1157,12 +1179,46 @@ namespace TBot
                 Key = key,
                 XorHash = xorHash,
                 IsPrimary = isPrimary,
+                SendNodeInfoOnSecondary = sendNodeInfoOnSecondary,
                 CreatedUtc = now
             };
             db.PublicChannels.Add(entity);
             await db.SaveChangesAsync();
             InvalidatePublicChannelsCache(networkId);
             return entity;
+        }
+
+        public async Task<(bool success, PublicChannel updated)> TryUpdatePublicChannelAsync(
+            int id,
+            bool isPrimary,
+            bool sendNodeInfoOnSecondary)
+        {
+            var entity = await db.PublicChannels.FirstOrDefaultAsync(c => c.Id == id);
+            if (entity == null)
+            {
+                return default;
+            }
+
+            if (entity.IsPrimary && !isPrimary)
+            {
+                return default;
+            }
+
+            if (!entity.IsPrimary && isPrimary)
+            {
+                var currentPrimary = await db.PublicChannels
+                    .FirstOrDefaultAsync(c => c.NetworkId == entity.NetworkId && c.IsPrimary);
+                if (currentPrimary != null)
+                {
+                    currentPrimary.IsPrimary = false;
+                }
+            }
+
+            entity.IsPrimary = isPrimary;
+            entity.SendNodeInfoOnSecondary = sendNodeInfoOnSecondary && !isPrimary;
+            await db.SaveChangesAsync();
+            InvalidatePublicChannelsCache(entity.NetworkId);
+            return (true, entity);
         }
 
         public async Task<(bool found, int networkId)> RemovePublicChannelAsync(int id)

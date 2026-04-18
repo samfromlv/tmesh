@@ -77,8 +77,8 @@ public class MessageLoopService(
     {
         _lastVirtualNodeInfoSent = DateTime.UtcNow;
         var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
-        var primaryChannels = await regService.GetAllPrimaryChannelsCached();
-        foreach (var channel in primaryChannels.Values)
+        var nodeInfoChannels = await regService.GetAllNodeInfoChannelsCached();
+        foreach (var channel in nodeInfoChannels)
         {
             meshtasticService.SendVirtualNodeInfo(channel.Name, channel);
         }

@@ -170,6 +170,10 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .IsRequired()
                 .HasDefaultValue(false);
 
+            e.Property(p => p.SendNodeInfoOnSecondary)
+                .IsRequired()
+                .HasDefaultValue(false);
+
             e.Property(p => p.CreatedUtc)
                 .IsRequired();
 
