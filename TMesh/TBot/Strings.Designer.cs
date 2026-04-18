@@ -922,6 +922,168 @@ namespace TBot {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to • Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {0} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*..
+        /// </summary>
+        internal static string GatewaySetup_DeviceRole_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_DeviceRole_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Encryption enabled:* On ✅.
+        /// </summary>
+        internal static string GatewaySetup_EncryptionOn_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_EncryptionOn_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to When the first packet will be received by the TMesh from your device, you will get a notification in this chat..
+        /// </summary>
+        internal static string GatewaySetup_FirstSeenNotification_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_FirstSeenNotification_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *JSON output enabled:* Off ❌.
+        /// </summary>
+        internal static string GatewaySetup_JsonOff_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_JsonOff_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Map reporting:* On ✅.
+        /// </summary>
+        internal static string GatewaySetup_MapReportingOn_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_MapReportingOn_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 📡 *MQTT Gateway Setup Instructions*.
+        /// </summary>
+        internal static string GatewaySetup_MqttHeader_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_MqttHeader_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Open your Meshtastic app → Config → Network → MQTT and set the following:.
+        /// </summary>
+        internal static string GatewaySetup_MqttIntroNoStep_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_MqttIntroNoStep_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Other settings:.
+        /// </summary>
+        internal static string GatewaySetup_OtherSettings_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_OtherSettings_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Password:* `{0}`.
+        /// </summary>
+        internal static string GatewaySetup_Password_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_Password_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ✅ Device *{0}* ({1}) has been promoted to gateway..
+        /// </summary>
+        internal static string GatewaySetup_PromotedHeader_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_PromotedHeader_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Root topic:* `{0}`.
+        /// </summary>
+        internal static string GatewaySetup_RootTopic_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_RootTopic_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Server address:* `{0}`.
+        /// </summary>
+        internal static string GatewaySetup_ServerAddress_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_ServerAddress_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 1. If you haven&apos;t already, flash the custom TMesh firmware: {0}.
+        /// </summary>
+        internal static string GatewaySetup_Step1Flasher_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_Step1Flasher_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 2. Open your Meshtastic app → Config → Network → MQTT and set the following:.
+        /// </summary>
+        internal static string GatewaySetup_Step2MqttIntro_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_Step2MqttIntro_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • Enable Device telemetry in Meshtastic settings, this will help to monitor network quality..
+        /// </summary>
+        internal static string GatewaySetup_TelemetryEnable_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_TelemetryEnable_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7..
+        /// </summary>
+        internal static string GatewaySetup_TelemetryHops_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_TelemetryHops_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *TLS enabled:* Off ❌.
+        /// </summary>
+        internal static string GatewaySetup_TlsOff_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_TlsOff_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to • *Username:* `{0}`.
+        /// </summary>
+        internal static string GatewaySetup_Username_Md1 {
+            get {
+                return ResourceManager.GetString("GatewaySetup_Username_Md1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to ID.
         /// </summary>
         internal static string Id_Md1 {
@@ -1310,6 +1472,33 @@ namespace TBot {
         internal static string RemoveChannel_InvalidIdOrStop {
             get {
                 return ResourceManager.GetString("RemoveChannel_InvalidIdOrStop", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Approved channels:.
+        /// </summary>
+        internal static string RemoveChannel_ListApproved {
+            get {
+                return ResourceManager.GetString("RemoveChannel_ListApproved", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Please send the ID of the channel you want to remove..
+        /// </summary>
+        internal static string RemoveChannel_ListAskId {
+            get {
+                return ResourceManager.GetString("RemoveChannel_ListAskId", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Registered channels:.
+        /// </summary>
+        internal static string RemoveChannel_ListRegistered {
+            get {
+                return ResourceManager.GetString("RemoveChannel_ListRegistered", resourceCulture);
             }
         }
         

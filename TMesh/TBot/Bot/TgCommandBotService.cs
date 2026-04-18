@@ -196,7 +196,7 @@ namespace TBot.Bot
                 {
                     response.AppendLine(Strings.ChatStatus_ChatActive_Md2);
                     response.AppendLine(string.Format(Strings.ChatStatus_ChatCommand_Md2,
-                            StringHelper.EscapeMdV2(Commands.Chat), 
+                            StringHelper.EscapeMdV2(Commands.Chat),
                             StringHelper.EscapeMdV2(registeredChat.ChatName),
                             StringHelper.EscapeMd(_options.MeshtasticNodeNameLong)));
                 }
@@ -205,7 +205,7 @@ namespace TBot.Bot
                     response.AppendLine(string.Format(Strings.ChatStatus_ChatDisabled_Md2,
                             StringHelper.EscapeMdV2(registeredChat.ChatName)));
                     response.AppendLine(Strings.ChatStatus_ApprovedCanStillStartChat_Md2);
-                    response.AppendLine(string.Format(Strings.ChatStatus_ToReenableUseStart_Md2, 
+                    response.AppendLine(string.Format(Strings.ChatStatus_ToReenableUseStart_Md2,
                             StringHelper.EscapeMdV2(Commands.Start)));
                 }
             }
@@ -426,7 +426,7 @@ namespace TBot.Bot
 
                 await botClient.SendMessage(chatId,
                     string.Format(Strings.PromoteGateway_RepeatFirmwareConfirm_Md1,
-                        flasherLine, 
+                        flasherLine,
                         StringHelper.EscapeMd(Commands.Stop)),
                     parseMode: ParseMode.Markdown);
                 return TgResult.Ok;
@@ -435,7 +435,8 @@ namespace TBot.Bot
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
             if (chatStateWithData?.DeviceId == null)
             {
-                await botClient.SendMessage(chatId, string.Format(Strings.PromoteGateway_SessionLost, Commands.PromoteToGateway));
+                await botClient.SendMessage(chatId,
+                    string.Format(Strings.PromoteGateway_SessionLost, Commands.PromoteToGateway));
                 registrationService.SetChatState(userId, chatId, ChatState.Default);
                 return TgResult.Ok;
             }
@@ -451,7 +452,8 @@ namespace TBot.Bot
             var device = await registrationService.GetDeviceAsync(deviceId);
             if (device == null)
             {
-                await botClient.SendMessage(chatId, string.Format(Strings.PromoteGateway_DeviceNotFound, Commands.PromoteToGateway));
+                await botClient.SendMessage(chatId,
+                    string.Format(Strings.PromoteGateway_DeviceNotFound, Commands.PromoteToGateway));
                 registrationService.SetChatState(userId, chatId, ChatState.Default);
                 return TgResult.Ok;
             }
@@ -498,43 +500,43 @@ namespace TBot.Bot
             bool includeInfoAboutFirstSeenMessage)
         {
             var instructions = new StringBuilder();
-            instructions.AppendLine($"\u2705 Device *{StringHelper.EscapeMd(deviceName ?? hexId)}* ({hexId}) has been promoted to gateway.");
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_PromotedHeader_Md1, StringHelper.EscapeMd(deviceName ?? hexId), hexId));
             instructions.AppendLine();
-            instructions.AppendLine("\ud83d\udce1 *MQTT Gateway Setup Instructions*");
+            instructions.AppendLine(Strings.GatewaySetup_MqttHeader_Md1);
             instructions.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(flasherAddress))
             {
-                instructions.AppendLine($"1. If you haven't already, flash the custom TMesh firmware: {flasherAddress}");
+                instructions.AppendLine(string.Format(Strings.GatewaySetup_Step1Flasher_Md1, StringHelper.EscapeMd(flasherAddress)));
                 instructions.AppendLine();
-                instructions.AppendLine("2. Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
+                instructions.AppendLine(Strings.GatewaySetup_Step2MqttIntro_Md1);
             }
             else
             {
-                instructions.AppendLine("Open your Meshtastic app \u2192 Config \u2192 Network \u2192 MQTT and set the following:");
+                instructions.AppendLine(Strings.GatewaySetup_MqttIntroNoStep_Md1);
             }
 
             instructions.AppendLine();
-            instructions.AppendLine($"• *Server address:* `{mqttAddress}`");
-            instructions.AppendLine($"• *Username:* `{mqttUsername}`");
-            instructions.AppendLine($"• *Password:* `{mqttPassword}`");
-            instructions.AppendLine($"• *Root topic:* `{mqttTopic}`");
-            instructions.AppendLine($"• *Encryption enabled:* On \u2705");
-            instructions.AppendLine($"• *JSON output enabled:* Off \u274c");
-            instructions.AppendLine($"• *TLS enabled:* Off \u274c");
-            instructions.AppendLine($"• *Map reporting:* On ✅");
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_ServerAddress_Md1, StringHelper.EscapeMd(mqttAddress)));
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_Username_Md1, StringHelper.EscapeMd(mqttUsername)));
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_Password_Md1, StringHelper.EscapeMd(mqttPassword)));
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_RootTopic_Md1, StringHelper.EscapeMd(mqttTopic)));
+            instructions.AppendLine(Strings.GatewaySetup_EncryptionOn_Md1);
+            instructions.AppendLine(Strings.GatewaySetup_JsonOff_Md1);
+            instructions.AppendLine(Strings.GatewaySetup_TlsOff_Md1);
+            instructions.AppendLine(Strings.GatewaySetup_MapReportingOn_Md1);
             instructions.AppendLine();
-            instructions.AppendLine("Other settings:");
-            instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {StringHelper.EscapeMd(botNodeName)} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
+            instructions.AppendLine(Strings.GatewaySetup_OtherSettings_Md1);
+            instructions.AppendLine(string.Format(Strings.GatewaySetup_DeviceRole_Md1, StringHelper.EscapeMd(botNodeName)));
             if (networkAnalyticsEnabled)
             {
-                instructions.AppendLine("• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.");
-                instructions.AppendLine("• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.");
+                instructions.AppendLine(Strings.GatewaySetup_TelemetryEnable_Md1);
+                instructions.AppendLine(Strings.GatewaySetup_TelemetryHops_Md1);
             }
             if (includeInfoAboutFirstSeenMessage)
             {
                 instructions.AppendLine();
-                instructions.AppendLine("When the first packet will be received by the TMesh from your device, you will get a notification in this chat.");
+                instructions.AppendLine(Strings.GatewaySetup_FirstSeenNotification_Md1);
             }
             return instructions;
         }
@@ -892,7 +894,8 @@ namespace TBot.Bot
                 if (!state.InsecureKeyConfirmed && MeshtasticService.IsDefaultKey(key))
                 {
                     await botClient.SendMessage(chatId,
-                                 string.Format(Strings.AddChannel_DefaultKeyWarning_Md1, StringHelper.EscapeMd(Commands.Stop)), ParseMode.Markdown);
+                                 string.Format(Strings.AddChannel_DefaultKeyWarning_Md1,
+                                    StringHelper.EscapeMd(Commands.Stop)), ParseMode.Markdown);
                     state.ChannelKey = key;
                     state.State = ChatState.AddingChannel_NeedInsecureKeyConfirm;
                     registrationService.SetChatStateWithData(userId, chatId, state);
@@ -1174,7 +1177,7 @@ namespace TBot.Bot
             else
             {
                 await botClient.SendMessage(chatId,
-                    string.Format(Strings.Kill_RepeatConfirmPrompt_Md1, 
+                    string.Format(Strings.Kill_RepeatConfirmPrompt_Md1,
                         StringHelper.EscapeMd(Commands.Stop)),
                     ParseMode.Markdown);
                 return TgResult.Ok;
@@ -1191,7 +1194,8 @@ namespace TBot.Bot
             else
             {
                 await botClient.SendMessage(chatId,
-                    string.Format(Strings.PrivacyConfirm_RepeatPrompt_Md1, StringHelper.EscapeMd(Commands.Stop)), ParseMode.Markdown);
+                    string.Format(Strings.PrivacyConfirm_RepeatPrompt_Md1, StringHelper.EscapeMd(Commands.Stop)),
+                    ParseMode.Markdown);
                 return TgResult.Ok;
             }
         }
@@ -1211,7 +1215,8 @@ namespace TBot.Bot
             else
             {
                 await botClient.SendMessage(chatId,
-                    string.Format(Strings.PrivacyConfirm_RepeatPrompt_Md1, StringHelper.EscapeMd(Commands.Stop)), ParseMode.Markdown);
+                    string.Format(Strings.PrivacyConfirm_RepeatPrompt_Md1, StringHelper.EscapeMd(Commands.Stop)),
+                    ParseMode.Markdown);
                 return TgResult.Ok;
             }
         }
@@ -1375,7 +1380,7 @@ namespace TBot.Bot
             tgChat = await registrationService.RegisterTgChatAsync(chatId, name, isPrivate: false);
             registrationService.SetChatState(userId, chatId, ChatState.Default);
             await botClient.SendMessage(chatId, string.Format(Strings.RegisterGroup_Done,
-                tgChat.ChatName, 
+                tgChat.ChatName,
                 tgChat.ChatName,
                 _options.MeshtasticNodeNameLong,
                 Commands.Chat
@@ -1496,10 +1501,9 @@ namespace TBot.Bot
                 if (!int.TryParse(networkIdText, out networkId))
                 {
                     await botClient.SendMessage(chatId,
-                        string.Format(Strings.AddChannel_InvalidIdFormat
-                            ,networkIdText
-                            ,Commands.AddChannel
-                            ));
+                        string.Format(Strings.AddChannel_InvalidIdFormat,
+                            networkIdText,
+                            Commands.AddChannel));
                     return TgResult.Ok;
                 }
 
@@ -1585,7 +1589,7 @@ namespace TBot.Bot
             if (!MeshtasticService.TryParseChannelKey(channelKey, out var keyBytesForSingle))
             {
                 await botClient.SendMessage(chatId,
-                    string.Format(Strings.AddChannel_InvalidKeyFormat, 
+                    string.Format(Strings.AddChannel_InvalidKeyFormat,
                         channelKey,
                         Commands.AddChannel));
                 return TgResult.Ok;
@@ -1738,18 +1742,16 @@ namespace TBot.Bot
                 var sb = new StringBuilder();
                 if (channelRegs.Count > 0)
                 {
-                    sb.AppendLine("Registered channels:");
-                    var lines = channelRegs.Select(c => $"• {c.Name} (ID {c.Id})");
-                    lines.ToList().ForEach(l => sb.AppendLine(l));
+                    sb.AppendLine(Strings.RemoveChannel_ListRegistered);
+                    channelRegs.ForEach(c => sb.AppendLine($"• {c.Name} (ID {c.Id})"));
                 }
                 if (approvals.Count > 0)
                 {
                     if (sb.Length > 0) sb.AppendLine();
-                    sb.AppendLine("Approved channels:");
-                    var lines = approvals.Select(a => $"• {a.Name} (ID {a.Id})");
-                    lines.ToList().ForEach(l => sb.AppendLine(l));
+                    sb.AppendLine(Strings.RemoveChannel_ListApproved);
+                    approvals.ForEach(a => sb.AppendLine($"• {a.Name} (ID {a.Id})"));
                 }
-                sb.AppendLine("Please send the ID of the channel you want to remove.");
+                sb.AppendLine(Strings.RemoveChannel_ListAskId);
                 await botClient.SendMessage(chatId, sb.ToString());
                 registrationService.SetChatState(userId, chatId,
                     isRemoveFromAll ? ChatState.RemovingChannelFromAll : ChatState.RemovingChannel);
@@ -1761,7 +1763,7 @@ namespace TBot.Bot
             {
                 await botClient.SendMessage(chatId,
                     string.Format(Strings.RemoveChannel_InvalidIdFormat,
-                        channelIdText, 
+                        channelIdText,
                         Commands.RemoveChannel));
                 return TgResult.Ok;
             }
@@ -1888,7 +1890,7 @@ namespace TBot.Bot
         private async Task<TgResult> HandleKill(long userId, long chatId, Message message)
         {
             await botClient.SendMessage(chatId, string.Format(Strings.Kill_ConfirmPrompt_Md1,
-                StringHelper.EscapeMd(Commands.Kill), 
+                StringHelper.EscapeMd(Commands.Kill),
                 StringHelper.EscapeMd(Commands.Disable),
                 StringHelper.EscapeMd(Commands.Stop)), ParseMode.Markdown);
             registrationService.SetChatState(userId, chatId, ChatState.KillingChat_NeedConfirm);
@@ -1991,7 +1993,7 @@ namespace TBot.Bot
                 await botCache.StopChatSession(chatId, db);
             }
             var disabled = await registrationService.DisableTgChatAsync(chatId);
-            await botClient.SendMessage(chatId, disabled 
+            await botClient.SendMessage(chatId, disabled
                 ? string.Format(Strings.Disable_Done, Commands.Start, Commands.AddDevice, Commands.AddChannel)
                 : string.Format(Strings.Disable_AlreadyDisabled, Commands.Start, Commands.AddDevice, Commands.AddChannel));
             return TgResult.Ok;
@@ -2068,8 +2070,8 @@ namespace TBot.Bot
             if (deviceId == _options.MeshtasticNodeId)
             {
                 await botClient.SendMessage(chatId, string.Format(Strings.ChatDevice_IsBotNode
-                    ,_options.MeshtasticNodeNameLong
-                    ,Commands.Chat));
+                    , _options.MeshtasticNodeNameLong
+                    , Commands.Chat));
                 return TgResult.Ok;
             }
 

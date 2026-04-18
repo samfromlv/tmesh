@@ -276,7 +276,7 @@ To confirm please reply with `yes` or {2} to cancel the operation.</value>
     <value>To confirm that you want to remove this chat, please reply with `yes`.
 
 Please try again or type {0} to cancel.</value>
-	  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="Kill_Done" xml:space="preserve">
     <value>Chat has been removed. All registrations and approvals have been removed and the chat will no longer receive any messages from the bot. To start using the bot again use {0} command.</value>
@@ -341,13 +341,13 @@ You can also use `{2}` and `{3}` commands to register devices and channels for p
     <value>To confirm that you have read and understood the privacy notice, please reply with `yes`.
 
 Please try again or type {0} to cancel.</value>
-	    <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="ChannelPrivacyConfirm_RepeatPrompt_Md1" xml:space="preserve">
     <value>To confirm that you understand the privacy risks and want to proceed with registering this channel, please reply with `yes`.
 
 Please try again or type {0} to cancel.</value>
-	  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="AddDevice_NeedId" xml:space="preserve">
     <value>Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).</value>
@@ -452,6 +452,15 @@ Or use {1} without parameters and I'll ask for the device ID.</value>
   <data name="RemoveChannel_NoChanels" xml:space="preserve">
     <value>No channels are registered or approved in this chat.</value>
   </data>
+  <data name="RemoveChannel_ListRegistered" xml:space="preserve">
+    <value>Registered channels:</value>
+  </data>
+  <data name="RemoveChannel_ListApproved" xml:space="preserve">
+    <value>Approved channels:</value>
+  </data>
+  <data name="RemoveChannel_ListAskId" xml:space="preserve">
+    <value>Please send the ID of the channel you want to remove.</value>
+  </data>
   <data name="RemoveChannel_InvalidIdFormat" xml:space="preserve">
     <value>Invalid channel ID format: '{0}'. The channel ID must be a valid integer.
 
@@ -510,13 +519,13 @@ Please try again or type {1} to cancel the registration.</value>
   </data>
   <data name="AddChannel_DefaultKeyWarning_Md1" xml:space="preserve">
     <value>The provided channel key is the default Meshtastic channel key. Anyone will be able to read your messages. This is not secure. Please reply with `my key is not secure` to confirm that you understand the risks and want to proceed with registering this channel, or type {0} to cancel.</value>
-  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="AddChannel_InsecureKeyRepeatConfirm_Md1" xml:space="preserve">
     <value>To confirm that you understand the risks and want to proceed with registering this channel, please reply with `my key is not secure`.
 
 Please try again or type {0} to cancel the registration.</value>
-	  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="AddChannel_PublicKeyNotAllowed" xml:space="preserve">
     <value>Adding public, well known channels is not allowed. Registration process aborted. Please try with private channels.</value>
@@ -529,6 +538,7 @@ Please try again or type {0} to cancel the registration.</value>
   </data>
   <data name="AddChannel_CorruptedStateNetwork" xml:space="preserve">
     <value>Registration data is corrupted, network is missing in chat state. Registration process aborted. Please try again.</value>
+    <comment>&#x8;</comment>
   </data>
   <data name="AddChannel_AlreadyRegistered" xml:space="preserve">
     <value>Channel {0} with same key is already registered in this chat. Registration aborted.</value>
@@ -549,11 +559,11 @@ Please try again or type {0} to cancel the registration.</value>
 • Reply *multiple* - Standard broadcast routing will be used
 
 Type {0} to cancel.</value>
-	    <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="AddChannel_InvalidSingleDeviceReply_Md1" xml:space="preserve">
     <value>Please reply with *single* or *multiple*, or type {0} to cancel.</value>
-	  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="AddChannel_InvalidIdFormat" xml:space="preserve">
     <value>Invalid network ID format: '{0}'. The network ID must be a valid integer.
@@ -622,7 +632,7 @@ Type {2} to cancel.</value>
   </data>
   <data name="PromoteGateway_NeedIdOrStop" xml:space="preserve">
     <value>Please send a Meshtastic device ID or {0} to cancel.</value>
-	  <comment>{0} - stop command</comment>
+    <comment>{0} - stop command</comment>
   </data>
   <data name="PromoteGateway_InvalidIdOrStop" xml:space="preserve">
     <value>Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send {0} to cancel.</value>
@@ -713,7 +723,7 @@ You can disconnect it from the MQTT server in your Meshtastic app settings.</val
 Examples:
 • {0} !75bcd15
 • {0} MyApprovedNode</value>
-	  <comment>{0} - chat command</comment>
+    <comment>{0} - chat command</comment>
   </data>
   <data name="ChatDevice_MultipleMatch" xml:space="preserve">
     <value>Multiple devices match the provided filter '{0}'. Please be more specific.</value>
@@ -765,7 +775,7 @@ Examples:
 • {1} MyChannel:1
 Where 'MyChannel' name is Meshtastic channel name and '1' is the channel ID you get from TMesh when registering the channel with {0} command.
 If channel is registered or approved in this chat you can start chat with {1} MyChannel, where Name is just filter by name (will match MyChannelX, amychannel)</value>
- <comment>{0} - add channel command, {1} - chat channel command</comment>
+    <comment>{0} - add channel command, {1} - chat channel command</comment>
   </data>
   <data name="ChatChannel_MultipleMatch" xml:space="preserve">
     <value>Multiple channels match the provided filter '{0}'. Please be more specific or provide channel ID to start chat.</value>
@@ -811,5 +821,66 @@ Waiting for the channel to reply with 6 digit numeric code to approve the chat..
   <data name="StopChat_MeshOtherEndedNotification" xml:space="preserve">
     <value>Chat with {0} is ended</value>
     <comment>{0} - tg chat name or @username</comment>
+  </data>
+  <data name="GatewaySetup_PromotedHeader_Md1" xml:space="preserve">
+    <value>✅ Device *{0}* ({1}) has been promoted to gateway.</value>
+    <comment>{0} - device name (escaped), {1} - hex id</comment>
+  </data>
+  <data name="GatewaySetup_MqttHeader_Md1" xml:space="preserve">
+    <value>📡 *MQTT Gateway Setup Instructions*</value>
+  </data>
+  <data name="GatewaySetup_Step1Flasher_Md1" xml:space="preserve">
+    <value>1. If you haven't already, flash the custom TMesh firmware: {0}</value>
+    <comment>{0} - flasher address URL</comment>
+  </data>
+  <data name="GatewaySetup_Step2MqttIntro_Md1" xml:space="preserve">
+    <value>2. Open your Meshtastic app → Config → Network → MQTT and set the following:</value>
+  </data>
+  <data name="GatewaySetup_MqttIntroNoStep_Md1" xml:space="preserve">
+    <value>Open your Meshtastic app → Config → Network → MQTT and set the following:</value>
+  </data>
+  <data name="GatewaySetup_ServerAddress_Md1" xml:space="preserve">
+    <value>• *Server address:* `{0}`</value>
+    <comment>{0} - MQTT server address</comment>
+  </data>
+  <data name="GatewaySetup_Username_Md1" xml:space="preserve">
+    <value>• *Username:* `{0}`</value>
+    <comment>{0} - MQTT username</comment>
+  </data>
+  <data name="GatewaySetup_Password_Md1" xml:space="preserve">
+    <value>• *Password:* `{0}`</value>
+    <comment>{0} - MQTT password</comment>
+  </data>
+  <data name="GatewaySetup_RootTopic_Md1" xml:space="preserve">
+    <value>• *Root topic:* `{0}`</value>
+    <comment>{0} - MQTT root topic</comment>
+  </data>
+  <data name="GatewaySetup_EncryptionOn_Md1" xml:space="preserve">
+    <value>• *Encryption enabled:* On ✅</value>
+  </data>
+  <data name="GatewaySetup_JsonOff_Md1" xml:space="preserve">
+    <value>• *JSON output enabled:* Off ❌</value>
+  </data>
+  <data name="GatewaySetup_TlsOff_Md1" xml:space="preserve">
+    <value>• *TLS enabled:* Off ❌</value>
+  </data>
+  <data name="GatewaySetup_MapReportingOn_Md1" xml:space="preserve">
+    <value>• *Map reporting:* On ✅</value>
+  </data>
+  <data name="GatewaySetup_OtherSettings_Md1" xml:space="preserve">
+    <value>Other settings:</value>
+  </data>
+  <data name="GatewaySetup_DeviceRole_Md1" xml:space="preserve">
+    <value>• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {0} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.</value>
+    <comment>{0} - bot node name (escaped)</comment>
+  </data>
+  <data name="GatewaySetup_TelemetryEnable_Md1" xml:space="preserve">
+    <value>• Enable Device telemetry in Meshtastic settings, this will help to monitor network quality.</value>
+  </data>
+  <data name="GatewaySetup_TelemetryHops_Md1" xml:space="preserve">
+    <value>• If you have enabled Device telemetry please set Number of Hops in LoRa settings to 7.</value>
+  </data>
+  <data name="GatewaySetup_FirstSeenNotification_Md1" xml:space="preserve">
+    <value>When the first packet will be received by the TMesh from your device, you will get a notification in this chat.</value>
   </data>
 </root>
