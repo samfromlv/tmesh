@@ -1206,7 +1206,9 @@ namespace TBot
 
                 if (position == null
                     || !position.HasLatitudeI
-                    || !position.HasLongitudeI)
+                    || !position.HasLongitudeI
+                    || position.PrecisionBits < 0
+                    || position.PrecisionBits > 32)
                 {
                     return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decoded, recipient));
                 }
@@ -1379,20 +1381,7 @@ namespace TBot
             }
             return (true, data);
         }
-
-
-        public static double PrecisionBitsToAccuracyMeters(int precisionBits)
-        {
-            const double EarthCircumference = 40075016.0; // meters
-            if (precisionBits < 1 || precisionBits > 32)
-                throw new ArgumentOutOfRangeException(nameof(precisionBits), "precisionBits must be between 1 and 32.");
-
-            int possibleValues = 1 << precisionBits;
-            double degreeStep = 180.0 / possibleValues;
-            double metersPerDegree = EarthCircumference / 360.0;
-            double accuracyMeters = (degreeStep * metersPerDegree) / 2.0;
-            return accuracyMeters;
-        }
+        
         private static int RoundSnrForTrace(float snr)
         {
             return (int)Math.Round(snr * 4);

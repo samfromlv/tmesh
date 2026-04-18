@@ -528,7 +528,12 @@ public class MessageLoopService(
                 && res.msg is NodeInfoMessage nim
                 && nim.DeviceId == _options.MeshtasticNodeId)
             {
-                logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
+                var publicKeyBase64 = Convert.ToBase64String(nim.PublicKey);
+                if (publicKeyBase64 != _options.MeshtasticPublicKeyBase64
+                    || nim.NodeName != _options.MeshtasticNodeNameLong)
+                {
+                    logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
+                }
                 return;
             }
 
@@ -638,7 +643,7 @@ public class MessageLoopService(
             else
             {
                 logger.LogInformation("Bridging direct message from {Sender} to {Receiver} via trace route injection", MeshtasticService.GetMeshtasticNodeHexId(senderDeviceId), MeshtasticService.GetMeshtasticNodeHexId(receiverDeviceId));
-                
+
                 meshtasticService.InjectOurNodeInTraceRouteAndSend(
                     (TraceRouteMessage)decryptRes.msg,
                     receiverDeviceId,
