@@ -28,7 +28,7 @@ namespace TBot.Bot
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
             var chatState = chatStateWithData?.State;
 
-            var noPrefix = text["/admin".Length..].Trim();
+            var noPrefix = text[Commands.Admin.Length..].Trim();
             var segments = noPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (segments.Length == 0)
             {
@@ -756,7 +756,7 @@ namespace TBot.Bot
                || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
             {
                 await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #)." +
-                    $"Example: /admin add_gateway <nodeId> <networkId>");
+                    $"Example: {Commands.Admin} add_gateway <nodeId> <networkId>");
                 return TgResult.Ok;
             }
 
@@ -767,7 +767,7 @@ namespace TBot.Bot
             if (networkId == null)
             {
                 await botClient.SendMessage(chatId, $"Invalid or missing network ID. Please specify a valid integer network ID as the second argument." +
-                    $"Example: /admin add_gateway <nodeId> <networkId>");
+                    $"Example: {Commands.Admin} add_gateway <nodeId> <networkId>");
                 return TgResult.Ok;
             }
 

@@ -265,9 +265,9 @@ namespace TBot.Bot
         void HandleHelpCommand(MeshMessage msg, IRecipient recipient)
         {
             var helpText =
-                "/ping - bot will respond with pong\n" +
-                "/chat @tg_user - starts chat with Telegram user\n" +
-                "/end_chat - ends active chat \n" +
+                $"{Commands.PingMeshtastic} - bot will respond with pong\n" +
+                $"{Commands.ChatMeshtastic} @tg_user - starts chat with Telegram user\n" +
+                $"{Commands.EndChatMeshtastic} - ends active chat \n" +
                 $"@{_options.TelegramBotUserName} - Telegram bot\n" +
                 "tmesh.ru - more help";
 
@@ -302,7 +302,7 @@ namespace TBot.Bot
             }
 
             // Handle /chat @username command from Mesh device
-            if (cmdText != null && cmdText.StartsWith("chat ", StringComparison.OrdinalIgnoreCase))
+            if (cmdText != null && cmdText.StartsWith($"{Commands.ChatMeshtastic.TrimStart('/')} ", StringComparison.OrdinalIgnoreCase))
             {
                 var parts = cmdText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2)
@@ -531,7 +531,7 @@ namespace TBot.Bot
             }
 
             // Handle /chat @username command from Mesh device
-            if (cmdText != null && cmdText.StartsWith("chat", StringComparison.OrdinalIgnoreCase))
+            if (cmdText != null && cmdText.StartsWith(Commands.ChatMeshtastic.TrimStart('/'), StringComparison.OrdinalIgnoreCase))
             {
                 var firstSpaceIndex = cmdText.IndexOf(' ');
                 if (firstSpaceIndex > 0)
@@ -546,18 +546,18 @@ namespace TBot.Bot
                         message.DeviceId,
                         deviceOrNull.NetworkId,
                         deviceOrNull.PublicKey,
-                        $"Use /chat @<tg_username> or /chat <tg_group_name>",
+                        $"Use {Commands.ChatMeshtastic} @<tg_username> or {Commands.ChatMeshtastic} <tg_group_name>",
                         replyToMessageId: message.Id,
                         relayGatewayId: message.GatewayId,
                         hopLimit: message.GetSuggestedReplyHopLimit());
                 }
             }
-            else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
+            else if (cmdText != null && cmdText.StartsWith(Commands.EndChatMeshtastic.TrimStart('/'), StringComparison.OrdinalIgnoreCase))
             {
                 await HandleEndChatRequstFromMesh(message, deviceOrNull, deviceOrNull);
                 return;
             }
-            else if (cmdText != null && cmdText.Equals("help", StringComparison.OrdinalIgnoreCase))
+            else if (cmdText != null && cmdText.Equals(Commands.HelpMeshtastic.TrimStart('/'), StringComparison.OrdinalIgnoreCase))
             {
                 HandleHelpCommand(message, deviceOrNull);
                 return;
@@ -830,7 +830,7 @@ namespace TBot.Bot
                 {
                     await TrySendMessage(
                         chatId: chatId,
-                        text: $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
+                        text: $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using {Commands.RemoveDevice} command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
                 }
             }
         }
@@ -1036,7 +1036,7 @@ namespace TBot.Bot
             {
                 meshtasticService.SendTextMessage(
                     recipient,
-                    $"❌ Chat is disabled. Please reactivate the chat with /start command in Telegram.",
+                    $"❌ Chat is disabled. Please reactivate the chat with {Commands.Start} command in Telegram.",
                     replyToMessageId: message.Id,
                     relayGatewayId: message.GatewayId,
                     hopLimit: message.GetSuggestedReplyHopLimit());

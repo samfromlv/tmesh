@@ -1,0 +1,815 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AvailableNetworks_Md1" xml:space="preserve">
+    <value>Available networks:</value>
+  </data>
+  <data name="ChannelKeyShort_Md1" xml:space="preserve">
+    <value>key</value>
+  </data>
+  <data name="Channel_Md2" xml:space="preserve">
+    <value>Channel</value>
+  </data>
+  <data name="ChatStatus_ActiveChatSession_Md2" xml:space="preserve">
+    <value>Active chat session:</value>
+  </data>
+  <data name="ChatStatus_ApprovedCanStillStartChat_Md2" xml:space="preserve">
+    <value>Approved or registered devices and channels still can start new chat sessions\.</value>
+  </data>
+  <data name="ChatStatus_ApprovedChannels_Md2" xml:space="preserve">
+    <value>Channels approved for chat sessions</value>
+  </data>
+  <data name="ChatStatus_ApprovedDevices_Md2" xml:space="preserve">
+    <value>Devices approved for chat sessions</value>
+  </data>
+  <data name="ChatStatus_ChatActive_Md2" xml:space="preserve">
+    <value>This chat is *active* in TMesh and can get new chat requests from Meshtastic devices and channels\.</value>
+  </data>
+  <data name="ChatStatus_ChatCommand_Md2" xml:space="preserve">
+    <value>Meshtastic command: `{0} {1}` via DM to {2} or private channel registered with TMesh\.</value>
+    <comment>{0} - chat command, {1} - registered tg chat name, {2} - tbot node name</comment>
+  </data>
+  <data name="ChatStatus_ChatDisabled_Md2" xml:space="preserve">
+    <value>This chat is registered in TMesh with name {0} but currently *disabled* for new chat requests\.</value>
+    <comment>{0} - tg chat name</comment>
+  </data>
+  <data name="ChatStatus_ChatNotRegistered_Md2" xml:space="preserve">
+    <value>This chat is not registered in TMesh and cannot receive chat requests from Meshtastic devices or channels\.</value>
+  </data>
+  <data name="ChatStatus_FilteredChannelsAndDevices_Md2" xml:space="preserve">
+    <value>Filtered channels and devices:</value>
+  </data>
+  <data name="ChatStatus_NoDevicesMatchFilter_Md2" xml:space="preserve">
+    <value>No registered or approved devices or channels matching filter '{0}'\.</value>
+    <comment>{0} - user filter</comment>
+  </data>
+  <data name="ChatStatus_NoRegisteredDevicesOrChannels_Md2" xml:space="preserve">
+    <value>No registered devices or channels\. You can register a new device with the {0} command, channel with {1} command, or start a temporary chat with `{2} \!\&lt;deviceId\&gt;`\. Please remove the bot from the group if you don't need it\.</value>
+    <comment>{0} - add device command, {1} - add channel command, {2} - chat command</comment>
+  </data>
+  <data name="ChatStatus_RegisteredChannelsAndDevices_Md2" xml:space="preserve">
+    <value>Registered channels and devices:</value>
+  </data>
+  <data name="ChatStatus_RegisteredChannels_Md2" xml:space="preserve">
+    <value>Registered channels:</value>
+  </data>
+  <data name="ChatStatus_RegisteredDevices_Md2" xml:space="preserve">
+    <value>Registered devices:</value>
+  </data>
+  <data name="ChatStatus_StartToRegister_Md2" xml:space="preserve">
+    <value>To register this chat in TMesh run command: `{0}`</value>
+    <comment>{0} - start command</comment>
+  </data>
+  <data name="ChatStatus_ToReenableUseStart_Md2" xml:space="preserve">
+    <value>To allow incoming chat request from new Meshtastic devices run command: `{0}`</value>
+    <comment>{0} - start command</comment>
+  </data>
+  <data name="CityNotListed_Md1" xml:space="preserve">
+    <value>If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator - {0)</value>
+  </data>
+  <data name="Device" xml:space="preserve">
+    <value>Device</value>
+  </data>
+  <data name="DevicesWithoutKnownPosition" xml:space="preserve">
+    <value>Devices without known position</value>
+  </data>
+  <data name="Device_Md2" xml:space="preserve">
+    <value>Device</value>
+  </data>
+  <data name="Filtered_Md2" xml:space="preserve">
+    <value>filtered</value>
+  </data>
+  <data name="FlashFirmwareAt_Md1" xml:space="preserve">
+    <value>Flash it at</value>
+  </data>
+  <data name="Gateways_Md1" xml:space="preserve">
+    <value>Gateways</value>
+  </data>
+  <data name="Gateway_Md2" xml:space="preserve">
+    <value>Gateway</value>
+  </data>
+  <data name="Id_Md1" xml:space="preserve">
+    <value>ID</value>
+  </data>
+  <data name="Id_Md2" xml:space="preserve">
+    <value>ID</value>
+  </data>
+  <data name="LastPositionUpdate" xml:space="preserve">
+    <value>last position update</value>
+  </data>
+  <data name="Network_Md2" xml:space="preserve">
+    <value>network</value>
+  </data>
+  <data name="NodeInfo_Md2" xml:space="preserve">
+    <value>node info</value>
+  </data>
+  <data name="NoNetworksConfigured" xml:space="preserve">
+    <value>No networks configured.</value>
+  </data>
+  <data name="NoPublicChannels_Md1" xml:space="preserve">
+    <value>No public channels</value>
+  </data>
+  <data name="NoRegisteredDevices" xml:space="preserve">
+    <value>No registered devices matching filter '{0}'</value>
+  </data>
+  <data name="NotAvailableShort_Md2" xml:space="preserve">
+    <value>N/A</value>
+  </data>
+  <data name="Position_Md2" xml:space="preserve">
+    <value>position</value>
+  </data>
+  <data name="SingleDeviceMode_Md2" xml:space="preserve">
+    <value>Single Device</value>
+  </data>
+  <data name="TimestampAgo" xml:space="preserve">
+    <value>{0} ago</value>
+  </data>
+  <data name="TimestampAgo_Md2" xml:space="preserve">
+    <value>{0} ago</value>
+  </data>
+  <data name="Unknown" xml:space="preserve">
+    <value>Unknown</value>
+  </data>
+  <data name="WelcomeMessage_Md1" xml:space="preserve">
+    <value>Welcome to the TMesh Telegram bot! This bot allows you to connect your Telegram account with Meshtastic devices and channels, enabling seamless communication between them.
+Please read carefully the privacy disclaimer:
+
+*{0}*
+
+Please reply with *{1}* to start using the bot or {2} to cancel.</value>
+    <comment>{0} - privacy disclaimer message, {1} - yes resource, {2} - stop command</comment>
+  </data>
+  <data name="yes" xml:space="preserve">
+    <value>yes</value>
+  </data>
+  <data name="OperationCanceled" xml:space="preserve">
+    <value>Operation canceled.</value>
+  </data>
+  <data name="NoActiveOperationToStop" xml:space="preserve">
+    <value>There is no active operation to stop it.</value>
+  </data>
+  <data name="Kill_ConfirmPrompt_Md1" xml:space="preserve">
+    <value>Please confirm that you want to delete this chat from TMesh.
+This will delete chat, delete all registered devices and channels, delete approved devices and channels.
+If you want to disable new chat requests from unknown devices and channels you can use {1} command instead of {0}.
+
+To confirm please reply with `yes` or {2} to cancel the operation.</value>
+    <comment>{0} - kill command, {1} - disable command, {2} - stop command</comment>
+  </data>
+  <data name="Kill_RepeatConfirmPrompt_Md1" xml:space="preserve">
+    <value>To confirm that you want to remove this chat, please reply with `yes`.
+
+Please try again or type {0} to cancel.</value>
+	  <comment>{0} - stop command</comment>
+  </data>
+  <data name="Kill_Done" xml:space="preserve">
+    <value>Chat has been removed. All registrations and approvals have been removed and the chat will no longer receive any messages from the bot. To start using the bot again use {0} command.</value>
+    <comment>{0} - start command</comment>
+  </data>
+  <data name="Disable_ActiveSessionEnded" xml:space="preserve">
+    <value>Active chat session was ended</value>
+  </data>
+  <data name="Disable_Done" xml:space="preserve">
+    <value>✅ Your chat has been disabled. You will not receive requests to start new chat from Meshtastic devices. Devices and channels added via {1} and {2} will still be able to send messages.
+
+Use {0} to re-enable it.</value>
+    <comment>{0} - start command, {1} - add device command, {2} - add channel</comment>
+  </data>
+  <data name="Disable_AlreadyDisabled" xml:space="preserve">
+    <value>This chat is already disabled. You will not receive requests to start new chat from Meshtastic devices. Devices and channels added via {1} and {2} will still be able to send messages.
+
+Use {0} to re-enable it.</value>
+    <comment>{0} - start command, {1} - add device command, {2} - add channel</comment>
+  </data>
+  <data name="Start_NeedUsername" xml:space="preserve">
+    <value>To use chat features you need to set a Telegram username for your account in Telegram settings. Please set a username and then use {0} command again.</value>
+    <comment>{0} - start command</comment>
+  </data>
+  <data name="Start_PrivateDone_Md2" xml:space="preserve">
+    <value>✅ Your Telegram chat is now registered with TMesh\!
+
+🔹 Meshtastic devices and channels can now initiate a chat with you using:
+  `{4} {0}` via {1} or private channel registered with TMesh\.
+
+🔹 You can also start a chat with any Meshtastic device:
+  `{4} \!\&lt;deviceId\&gt;`
+  Example: `{4} \!75bcd15`
+
+🔹 To end an active chat session:
+  `{5}` \- ends current chat session
+🔹 To disable your chat from receiving new chat request from Meshtastic \(already approved devices and channels still will be able to start chat sessions\):
+  `{6}`
+
+You can also use `{2}` and `{3}` commands to register devices and channels for permanent messaging\.</value>
+    <comment>{0} - chat name (escaped), {1} - bot node name (escaped), {2} - add device command, {3} - add channel command, {4} - chat command, {5} - end chat command, {6} - disable command</comment>
+  </data>
+  <data name="Start_GroupAlreadyActive_Md1" xml:space="preserve">
+    <value>This group chat is already registered and active with name *{0}*. Meshtastic devices can reach it using `{3} {1}` command via {2} or private channel registered with TMesh. If you want to change group name, disable it with `{4}` command and start again with new name.</value>
+    <comment>{0} - chat name (escaped), {1} - chat name (escaped), {2} - bot node name (escaped), {3} - chat command, {4} - disable command</comment>
+  </data>
+  <data name="Start_GroupNeedName" xml:space="preserve">
+    <value>This chat is group chat. Please provide a unique name for the chat. Name should have no spaces and contain less than {0} characters. Name can't start with '@'. Meshtastic devices will be able to connect to this chat with {2} &lt;your_chat_name&gt; command via {1} node or private channel registered with TMesh.</value>
+    <comment>{0} - max chat name length, {1} - bot node name, {2} - chat command</comment>
+  </data>
+  <data name="RegisterGroup_NeedValidName" xml:space="preserve">
+    <value>Please provide a valid name for the chat.</value>
+  </data>
+  <data name="RegisterGroup_NameTaken" xml:space="preserve">
+    <value>Chat name '{0}' is already taken. Please choose a different name.</value>
+  </data>
+  <data name="RegisterGroup_Done" xml:space="preserve">
+    <value>✅ Chat is registered successfully with name {0}. Devices can now send requests to start chat with this group using {3} {1} command via {2} node or private channel registered with TMesh.</value>
+    <comment>{0} - chat name, {1} - chat name, {2} - bot node name, {3} - chat command</comment>
+  </data>
+  <data name="PrivacyConfirm_RepeatPrompt_Md1" xml:space="preserve">
+    <value>To confirm that you have read and understood the privacy notice, please reply with `yes`.
+
+Please try again or type {0} to cancel.</value>
+	    <comment>{0} - stop command</comment>
+  </data>
+  <data name="ChannelPrivacyConfirm_RepeatPrompt_Md1" xml:space="preserve">
+    <value>To confirm that you understand the privacy risks and want to proceed with registering this channel, please reply with `yes`.
+
+Please try again or type {0} to cancel.</value>
+	  <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddDevice_NeedId" xml:space="preserve">
+    <value>Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).</value>
+  </data>
+  <data name="AddDevice_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid device ID format: '{0}'. The device ID can be decimal or hex (hex starts with ! or #).
+
+Examples:
+• {1} 123456789
+• {1} !75bcd15
+• {1} #75bcd15
+
+Or use {1} without parameters and I'll ask for the device ID.</value>
+    <comment>{0} - provided device ID text, {1} - add device command</comment>
+  </data>
+  <data name="AddDevice_InvalidIdFormatShort" xml:space="preserve">
+    <value>Invalid device ID. Please send a valid Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #). Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddDevice_NotSeenByNode" xml:space="preserve">
+    <value>Device {0} has not yet been seen by the {1} node in the Meshtastic network.
+1. Check that you are located in supported city (network) with {3} command.
+2. Verify that primary channel on your device is configured correctly (see correct channels in {3}).
+3. Find node {1} in the node list, open it and click on 'Exchange user information'. {1} broadcasts its node info every {2} minutes.
+
+Registration aborted.</value>
+    <comment>{0} - hex device id, {1} - bot node name long, {2} - nodeinfo interval minutes, {3} - list networks command</comment>
+  </data>
+  <data name="AddDevice_AlreadyRegistered" xml:space="preserve">
+    <value>Device {0} ({1}) is already registered in this chat. Registration aborted.</value>
+    <comment>{0} - node name, {1} - hex id</comment>
+  </data>
+  <data name="AddDevice_TooManyCodesSent" xml:space="preserve">
+    <value>Device {0} ({1}) has reached the maximum number of verification codes sent. Please wait at least 1 hour before trying again to add the same device to any chats. Registration aborted.</value>
+    <comment>{0} - node name, {1} - hex id</comment>
+  </data>
+  <data name="AddDevice_VerificationCodeSent" xml:space="preserve">
+    <value>Verification code sent to device {0} ({1}). Please reply with the received code here. The code is valid for 5 minutes.</value>
+    <comment>{0} - node name, {1} - hex id</comment>
+  </data>
+  <data name="VerificationCode_InvalidFormat" xml:space="preserve">
+    <value>Invalid code format. Please send the 6-digit verification code sent to your Meshtastic device. Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="VerificationCode_InvalidOrExpired" xml:space="preserve">
+    <value>Invalid or expired code. Please check it and try again, or cancel with {0}.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="VerificationCode_Success" xml:space="preserve">
+    <value>Registration successful.</value>
+  </data>
+  <data name="VerificationCode_Text" xml:space="preserve">
+    <value>TMesh verification code is: {0}</value>
+    <comment>{0} - the 6-digit code</comment>
+  </data>
+  <data name="RemoveDevice_NeedId" xml:space="preserve">
+    <value>Please send your Meshtastic device ID. The device ID can be decimal or hex (hex starts with ! or #).</value>
+  </data>
+  <data name="RemoveDevice_NeedIdOrStop" xml:space="preserve">
+    <value>Please send a Meshtastic device ID to remove or {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="RemoveDevice_InvalidIdOrStop" xml:space="preserve">
+    <value>Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="RemoveDevice_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid device ID format: '{0}'. The device ID can be decimal or hex (hex starts with ! or #).
+
+Examples:
+• {1} 123456789
+• {1} !75bcd15
+• {1} #75bcd15
+
+Or use {1} without parameters and I'll ask for the device ID.</value>
+    <comment>{0} - provided device ID text, {1} - remove device command</comment>
+  </data>
+  <data name="RemoveDevice_NotRegistered" xml:space="preserve">
+    <value>Device {0} is not registered in this chat.</value>
+    <comment>{0} - hex id</comment>
+  </data>
+  <data name="RemoveDevice_Done" xml:space="preserve">
+    <value>Device {0} has been removed from this chat.</value>
+    <comment>{0} - hex id</comment>
+  </data>
+  <data name="RemoveDevice_NotRegisteredInChatForAll" xml:space="preserve">
+    <value>Device {0} is not registered in this chat. To prove ownership of device please register it first in this chat then retry the command.</value>
+    <comment>{0} - hex id</comment>
+  </data>
+  <data name="RemoveDevice_DoneFromAll" xml:space="preserve">
+    <value>Device {0} has been removed from all chats.</value>
+    <comment>{0} - hex id</comment>
+  </data>
+  <data name="RemoveChannel_NeedIdOrStop" xml:space="preserve">
+    <value>Please send a Channel ID to remove or {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="RemoveChannel_InvalidIdOrStop" xml:space="preserve">
+    <value>Invalid channel ID format. The channel ID must be a valid integer. Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="RemoveChannel_NoChanels" xml:space="preserve">
+    <value>No channels are registered or approved in this chat.</value>
+  </data>
+  <data name="RemoveChannel_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid channel ID format: '{0}'. The channel ID must be a valid integer.
+
+Please use remove command without params to see ids of registered channels
+Examples:
+• {1} 123456789
+Or use {1} without parameters and I'll ask for the channel ID.</value>
+    <comment>{0} - provided channel ID text, {1} - remove channel command</comment>
+  </data>
+  <data name="RemoveChannel_NotRegistered" xml:space="preserve">
+    <value>Channel {0} is not registered in this chat.</value>
+    <comment>{0} - channel id</comment>
+  </data>
+  <data name="RemoveChannel_Done" xml:space="preserve">
+    <value>Channel {0} has been removed from this chat.</value>
+    <comment>{0} - channel id</comment>
+  </data>
+  <data name="RemoveChannel_NotRegisteredInChatForAll" xml:space="preserve">
+    <value>Channel {0} is not registered in this chat. To prove that you still have access to the channel please register it first in this chat then retry the command.</value>
+    <comment>{0} - channel id</comment>
+  </data>
+  <data name="RemoveChannel_DoneFromAllWithOthers" xml:space="preserve">
+    <value>Channel {0} has been removed from this chat and all other chats where you have registered it. Registration of the channel created by other Telegram users in other chats are not removed.</value>
+    <comment>{0} - channel id</comment>
+  </data>
+  <data name="AddChannel_NeedNetworkId" xml:space="preserve">
+    <value>Please reply with the network ID from the list, or {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_InvalidNetworkId" xml:space="preserve">
+    <value>Invalid network ID. Please reply with a valid network ID from the list, or {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_NetworkSelected" xml:space="preserve">
+    <value>You have selected network "{0}".
+Please send your Meshtastic channel name.</value>
+    <comment>{0} - network name</comment>
+  </data>
+  <data name="AddChannel_NeedKey" xml:space="preserve">
+    <value>Please send your Meshtastic channel key (base64-encoded, 16 or 32 bytes).</value>
+  </data>
+  <data name="AddChannel_NeedName" xml:space="preserve">
+    <value>Please send your Meshtastic channel name.</value>
+  </data>
+  <data name="AddChannel_InvalidName" xml:space="preserve">
+    <value>Invalid channel name format: '{0}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).
+
+Please try again or type {1} to cancel the registration.</value>
+    <comment>{0} - provided channel name, {1} - stop command</comment>
+  </data>
+  <data name="AddChannel_InvalidKey" xml:space="preserve">
+    <value>Invalid channel key format: '{0}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).
+
+Please try again or type {1} to cancel the registration.</value>
+    <comment>{0} - provided key text, {1} - stop command</comment>
+  </data>
+  <data name="AddChannel_DefaultKeyWarning_Md1" xml:space="preserve">
+    <value>The provided channel key is the default Meshtastic channel key. Anyone will be able to read your messages. This is not secure. Please reply with `my key is not secure` to confirm that you understand the risks and want to proceed with registering this channel, or type {0} to cancel.</value>
+  <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_InsecureKeyRepeatConfirm_Md1" xml:space="preserve">
+    <value>To confirm that you understand the risks and want to proceed with registering this channel, please reply with `my key is not secure`.
+
+Please try again or type {0} to cancel the registration.</value>
+	  <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_PublicKeyNotAllowed" xml:space="preserve">
+    <value>Adding public, well known channels is not allowed. Registration process aborted. Please try with private channels.</value>
+  </data>
+  <data name="AddChannel_PublicKeyNotAllowedDirect" xml:space="preserve">
+    <value>Adding public, well-known channels is not allowed.</value>
+  </data>
+  <data name="AddChannel_CorruptedState" xml:space="preserve">
+    <value>Registration data is corrupted, channel name or network is missing in chat state. Registration process aborted. Please try again.</value>
+  </data>
+  <data name="AddChannel_CorruptedStateNetwork" xml:space="preserve">
+    <value>Registration data is corrupted, network is missing in chat state. Registration process aborted. Please try again.</value>
+  </data>
+  <data name="AddChannel_AlreadyRegistered" xml:space="preserve">
+    <value>Channel {0} with same key is already registered in this chat. Registration aborted.</value>
+    <comment>{0} - channel name</comment>
+  </data>
+  <data name="AddChannel_TooManyCodesSent" xml:space="preserve">
+    <value>Channel {0} has reached the maximum number of verification codes sent. Please wait at least 1 hour before trying again to add the same channel to any chats. Registration aborted.</value>
+    <comment>{0} - channel name</comment>
+  </data>
+  <data name="AddChannel_VerificationCodeSent" xml:space="preserve">
+    <value>Verification code sent to channel {0}. Please reply with the received code here. The code is valid for 5 minutes.</value>
+    <comment>{0} - channel name</comment>
+  </data>
+  <data name="AddChannel_NeedSingleDevice_Md1" xml:space="preserve">
+    <value>Is this channel used by a single device only?
+
+• Reply *single* - Optimized routing will be used (works only for single device channels)
+• Reply *multiple* - Standard broadcast routing will be used
+
+Type {0} to cancel.</value>
+	    <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_InvalidSingleDeviceReply_Md1" xml:space="preserve">
+    <value>Please reply with *single* or *multiple*, or type {0} to cancel.</value>
+	  <comment>{0} - stop command</comment>
+  </data>
+  <data name="AddChannel_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid network ID format: '{0}'. The network ID must be a valid integer.
+
+Examples:
+• {1} 123 MyChannel ZGeGFyhk&lt;...&gt;3sUOUGyaHqrvU= single
+• {1} 123 MyChannel ZGeGFyhk&lt;...&gt;3sUOUGyaHqrvU= multiple
+Or use {1} without parameters and I'll ask for the network, channel name and key.</value>
+    <comment>{0} - provided network ID text, {1} - add channel command</comment>
+  </data>
+  <data name="AddChannel_InvalidMode" xml:space="preserve">
+    <value>Invalid mode '{0}'. Use 'single' or 'multiple' as the third argument.</value>
+    <comment>{0} - provided mode text</comment>
+  </data>
+  <data name="AddChannel_InvalidKeyFormat" xml:space="preserve">
+    <value>Invalid channel key format: '{0}'. The channel key must be a valid Meshtastic channel key (base64-encoded, 16 or 32 bytes).
+
+Examples:
+• {1} 123 MyChannel ZGeGFyhk&lt;...&gt;3sUOUGyaHqrvU= single
+Or use {1} without parameters and I'll ask for the channel name and key.</value>
+    <comment>{0} - provided key text, {1} - add channel command</comment>
+  </data>
+  <data name="AddChannel_InvalidChannelName" xml:space="preserve">
+    <value>Invalid channel name format: '{0}'. The channel name must be a valid Meshtastic channel name (less than 12 bytes).
+
+Examples:
+• {1} 123 MyChannel ZGeGFyhk&lt;...&gt;3sUOUGyaHqrvU= single
+• {1} 123 MyChannel ZGeGFyhk&lt;...&gt;3sUOUGyaHqrvU= multiple
+Or use {1} without parameters and I'll ask for the channel name and key.</value>
+    <comment>{0} - provided channel name, {1} - add channel command</comment>
+  </data>
+  <data name="AddChannel_NetworkNotFound_Md1" xml:space="preserve">
+    <value>Network ID {0} not found. Please make sure to provide a valid network ID.
+
+*Available networks:*
+{1}
+Please reply with valid network ID or type {2} to cancel the registration.</value>
+    <comment>{0} - network id, {1} - list of networks (already formatted with escaping), {2} - stop command</comment>
+  </data>
+  <data name="AddChannel_SelectNetwork_Md1" xml:space="preserve">
+    <value>Please select a network by replying with its ID:
+{0}
+_If your city is not listed and you are ready to convert your device to a TMesh gateway, please contact the administrator - {1}_
+
+Type {2} to cancel.</value>
+    <comment>{0} - list of networks (pre-formatted), {1} - admin contact (escaped), {2} - stop command</comment>
+  </data>
+  <data name="PromoteGateway_NeedId" xml:space="preserve">
+    <value>Please send the Meshtastic device ID to promote to gateway. The device ID can be decimal or hex (hex starts with ! or #).{0}</value>
+    <comment>{0} - optional firmware warning line (empty or "\n\n⚠️ ...")</comment>
+  </data>
+  <data name="PromoteGateway_FirmwareWarning" xml:space="preserve">
+    <value>
+
+⚠️ This command requires custom TMesh firmware on your device. Flash it first at: {0}</value>
+    <comment>{0} - flasher address</comment>
+  </data>
+  <data name="PromoteGateway_FirmwareWarningNoUrl" xml:space="preserve">
+    <value>
+
+⚠️ This command requires custom TMesh firmware on your device.</value>
+  </data>
+  <data name="PromoteGateway_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid device ID format: '{0}'. The device ID can be decimal or hex (hex starts with ! or #).</value>
+    <comment>{0} - provided device ID text</comment>
+  </data>
+  <data name="PromoteGateway_NeedIdOrStop" xml:space="preserve">
+    <value>Please send a Meshtastic device ID or {0} to cancel.</value>
+	  <comment>{0} - stop command</comment>
+  </data>
+  <data name="PromoteGateway_InvalidIdOrStop" xml:space="preserve">
+    <value>Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="PromoteGateway_NotRegistered" xml:space="preserve">
+    <value>Device {0} is not registered in this chat. Please add it first using {1}.</value>
+    <comment>{0} - hex id, {1} - add device command</comment>
+  </data>
+  <data name="PromoteGateway_SessionLost" xml:space="preserve">
+    <value>Session data lost. Please start over with {0}.</value>
+    <comment>{0} - promote to gateway command</comment>
+  </data>
+  <data name="PromoteGateway_DeviceNotFound" xml:space="preserve">
+    <value>Device not found. Please start over with {0}.</value>
+    <comment>{0} - promote to gateway command</comment>
+  </data>
+  <data name="PromoteGateway_FirmwareConfirmPrompt_Md1" xml:space="preserve">
+    <value>Device: *{0}* ({1})
+
+⚠️ To act as a gateway this device must have custom TMesh firmware installed.{2}
+
+Have you already flashed the TMesh firmware on this device? Reply "*yes*" to confirm and receive MQTT setup instructions, or {3} to cancel.</value>
+    <comment>{0} - device name (escaped), {1} - hex id, {2} - optional flasher line, {3} - stop command</comment>
+  </data>
+  <data name="PromoteGateway_FirmwareConfirmFlasherLine" xml:space="preserve">
+    <value> You can flash it at: {0}</value>
+    <comment>{0} - flasher URL</comment>
+  </data>
+  <data name="PromoteGateway_RepeatFirmwareConfirm_Md1" xml:space="preserve">
+    <value>Please flash the custom TMesh firmware on your device first.{0}
+
+Reply "*yes*" once the firmware is installed, or {1} to cancel.</value>
+    <comment>{0} - optional flasher line, {1} - stop command</comment>
+  </data>
+  <data name="PromoteGateway_FlasherLine_Md1" xml:space="preserve">
+    <value> {0}: {1}</value>
+    <comment>{0} - "Flash it at" label, {1} - flasher URL</comment>
+  </data>
+  <data name="DemoteGateway_NeedId" xml:space="preserve">
+    <value>Please send the Meshtastic device ID to demote from gateway. The device ID can be decimal or hex (hex starts with ! or #).</value>
+  </data>
+  <data name="DemoteGateway_InvalidIdFormat" xml:space="preserve">
+    <value>Invalid device ID format: '{0}'. The device ID can be decimal or hex (hex starts with ! or #).</value>
+    <comment>{0} - provided device ID text</comment>
+  </data>
+  <data name="DemoteGateway_NeedIdOrStop" xml:space="preserve">
+    <value>Please send a Meshtastic device ID or {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="DemoteGateway_InvalidIdOrStop" xml:space="preserve">
+    <value>Invalid device ID format. The device ID can be decimal or hex (hex starts with ! or #). Send {0} to cancel.</value>
+    <comment>{0} - stop command</comment>
+  </data>
+  <data name="DemoteGateway_NotRegistered" xml:space="preserve">
+    <value>Device {0} is not registered in this chat. You can only demote devices registered in this chat.</value>
+    <comment>{0} - hex id</comment>
+  </data>
+  <data name="DemoteGateway_Done" xml:space="preserve">
+    <value>✅ Device {0} ({1}) has been demoted from gateway.
+
+You can disconnect it from the MQTT server in your Meshtastic app settings.</value>
+    <comment>{0} - device name, {1} - hex id</comment>
+  </data>
+  <data name="DemoteGateway_WasNotGateway" xml:space="preserve">
+    <value>Device {0} ({1}) was not registered as a gateway.</value>
+    <comment>{0} - device name, {1} - hex id</comment>
+  </data>
+  <data name="RegisterGroup_NameInvalidSpaces" xml:space="preserve">
+    <value>Chat name can't contain spaces. </value>
+  </data>
+  <data name="RegisterGroup_NameInvalidTooLong" xml:space="preserve">
+    <value>Chat name is too long. Maximum length is {0} characters. </value>
+    <comment>{0} - max length</comment>
+  </data>
+  <data name="RegisterGroup_NameInvalidAt" xml:space="preserve">
+    <value>Chat name can't start with '@' character. </value>
+  </data>
+  <data name="RegisterGroup_NameInvalidPrefix" xml:space="preserve">
+    <value>Invalid chat name. </value>
+  </data>
+  <data name="RegisterGroup_NameInvalidSuffix" xml:space="preserve">
+    <value>Please choose a different name.</value>
+  </data>
+  <data name="ChatDevice_NeedArg" xml:space="preserve">
+    <value>Please provide a device ID or part of the approved/registered device name to start a chat.
+
+Examples:
+• {0} !75bcd15
+• {0} MyApprovedNode</value>
+	  <comment>{0} - chat command</comment>
+  </data>
+  <data name="ChatDevice_MultipleMatch" xml:space="preserve">
+    <value>Multiple devices match the provided filter '{0}'. Please be more specific.</value>
+    <comment>{0} - filter text</comment>
+  </data>
+  <data name="ChatDevice_NotValidIdNoDevices" xml:space="preserve">
+    <value>'{0}' is not a valid device ID and there are no registered or approved devices in this chat to find device by name. The device ID can be decimal or hex (hex starts with ! or #).</value>
+    <comment>{0} - provided arg</comment>
+  </data>
+  <data name="ChatDevice_NotValidIdNoMatch" xml:space="preserve">
+    <value>'{0}' is not a valid device ID and does not match any registered or approved device names.</value>
+    <comment>{0} - provided arg</comment>
+  </data>
+  <data name="ChatDevice_IsBotNode" xml:space="preserve">
+    <value>You can't start a chat with {0} node. This node is used only for relaying messages between devices and Telegram and doesn't have a user interface to reply to messages. Please use {1} command with the ID of your device or a private channel registered with TMesh to start a chat.</value>
+    <comment>{0} - bot node name long, {1} - chat command</comment>
+  </data>
+  <data name="ChatDevice_UnknownDevice" xml:space="preserve">
+    <value>Device {0} is not known to TMesh. The device needs to broadcast its Node info or send it directly to {1} node using "Exchange user information".</value>
+    <comment>{0} - hex id, {1} - bot node name long</comment>
+  </data>
+  <data name="ChatDevice_SessionStarted" xml:space="preserve">
+    <value>✅ Chat with {0} ({1}) is now active. You can start sending messages.
+
+All messages you send will be forwarded only to this device. Use {2} command to end the session.</value>
+    <comment>{0} - device name, {1} - hex id, {2} - end chat command</comment>
+  </data>
+  <data name="ChatDevice_ChattingWithOther" xml:space="preserve">
+    <value>{0} is chatting with someone else</value>
+    <comment>{0} - device name</comment>
+  </data>
+  <data name="ChatDevice_RequestSent" xml:space="preserve">
+    <value>📤 Chat request sent to {0} ({1}).
+Waiting for the device to reply with 6 digit numeric code to approve the chat...</value>
+    <comment>{0} - device name, {1} - hex id</comment>
+  </data>
+  <data name="ChatDevice_TooManyRequests" xml:space="preserve">
+    <value>You have reached the maximum number of chat requests ({0}) sent. Please wait at least 1 hour before trying again to start a chat with any device. Chat request aborted.</value>
+    <comment>{0} - max count</comment>
+  </data>
+  <data name="ChatDevice_RequestText" xml:space="preserve">
+    <value>Chat request from @{0} (Telegram). Reply with code {1} to accept.</value>
+    <comment>{0} - telegram username, {1} - code</comment>
+  </data>
+  <data name="ChatChannel_InvalidCommand" xml:space="preserve">
+    <value>Please provide a channel name and channel ID to start a chat. You or someone else should register channel first with {0} command to get the ID.
+
+Examples:
+• {1} MyChannel:1
+Where 'MyChannel' name is Meshtastic channel name and '1' is the channel ID you get from TMesh when registering the channel with {0} command.
+If channel is registered or approved in this chat you can start chat with {1} MyChannel, where Name is just filter by name (will match MyChannelX, amychannel)</value>
+ <comment>{0} - add channel command, {1} - chat channel command</comment>
+  </data>
+  <data name="ChatChannel_MultipleMatch" xml:space="preserve">
+    <value>Multiple channels match the provided filter '{0}'. Please be more specific or provide channel ID to start chat.</value>
+    <comment>{0} - filter text</comment>
+  </data>
+  <data name="ChatChannel_NotFound" xml:space="preserve">
+    <value>There are no channels with ID {0} and name {1}. The channel needs to be registered first with {2} command to get ID.</value>
+    <comment>{0} - channel id, {1} - channel name part, {2} - add channel command</comment>
+  </data>
+  <data name="ChatChannel_SessionStarted" xml:space="preserve">
+    <value>✅ Chat with {0} is now active. You can start sending messages.
+
+All messages you send will be forwarded only to this channel. Use {1} command to end the session.</value>
+    <comment>{0} - channel name, {1} - end chat command</comment>
+  </data>
+  <data name="ChatChannel_ChattingWithOther" xml:space="preserve">
+    <value>{0} is chatting with someone else</value>
+    <comment>{0} - channel name</comment>
+  </data>
+  <data name="ChatChannel_RequestSent" xml:space="preserve">
+    <value>📤 Chat request sent to {0}.
+Waiting for the channel to reply with 6 digit numeric code to approve the chat...</value>
+    <comment>{0} - channel name</comment>
+  </data>
+  <data name="ChatChannel_TooManyRequests" xml:space="preserve">
+    <value>You have reached the maximum number of chat requests ({0}) sent. Please wait at least 1 hour before trying again to start a chat with any device or channel. Chat request aborted.</value>
+    <comment>{0} - max count</comment>
+  </data>
+  <data name="ChatChannel_RequestText" xml:space="preserve">
+    <value>Chat request from @{0} (Telegram). Reply with code {1} to accept.</value>
+    <comment>{0} - telegram username, {1} - code</comment>
+  </data>
+  <data name="StopChat_NoActiveSession" xml:space="preserve">
+    <value>There is no active chat session to stop.</value>
+  </data>
+  <data name="StopChat_Done" xml:space="preserve">
+    <value>✅ Chat session with {0} has been stopped</value>
+    <comment>{0} - recipient name</comment>
+  </data>
+  <data name="StopChat_MeshNotification" xml:space="preserve">
+    <value>Chat session with Telegram chat has been stopped</value>
+  </data>
+  <data name="StopChat_MeshOtherEndedNotification" xml:space="preserve">
+    <value>Chat with {0} is ended</value>
+    <comment>{0} - tg chat name or @username</comment>
+  </data>
+</root>

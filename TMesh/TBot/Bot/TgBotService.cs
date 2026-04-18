@@ -25,8 +25,8 @@ namespace TBot.Bot
     {
 
         const int TrimUserNamesToLength = 8;
-        public const string NoDeviceOrChannelMessage = "No registered devices or channels. You can register a new device with the /add_device command, channel with /add_channel command, or start a temporary chat with /chat !<deviceId>. Please remove the bot from the group if you don't need it.";
-        public const string NoDeviceMessage = "No registered devices. You can register a new device with the /add_device command.";
+        public const string NoDeviceOrChannelMessage = $"No registered devices or channels. You can register a new device with the {Commands.AddDevice} command, channel with {Commands.AddChannel} command, or start a temporary chat with {Commands.Chat} !<deviceId>. Please remove the bot from the group if you don't need it.";
+        public const string NoDeviceMessage = $"No registered devices. You can register a new device with the {Commands.AddDevice} command.";
         private readonly TBotOptions _options = options.Value;
         public static readonly JsonSerializerOptions IdentedOptions = new()
         {
@@ -52,86 +52,86 @@ namespace TBot.Bot
             [
                 new BotCommand
                 {
-                    Command = "start",
-                    Description = "Allows Meshtastic devices to send new chat request to this Telegram chat with /chat command."
+                    Command = Commands.Start.TrimStart('/'),
+                    Description = $"Allows Meshtastic devices to send new chat request to this Telegram chat with {Commands.Chat} command."
                 },
                 new BotCommand {
-                    Command = "disable",
-                    Description = "Disables new chat requests from Meshtastic. When bot is disabled approved or registered devices still allowed to start chat sessions, only requests from unknown devices are blocked. Use /start to enable it again."
+                    Command = Commands.Disable.TrimStart('/'),
+                    Description = $"Disables new chat requests from Meshtastic. When bot is disabled approved or registered devices still allowed to start chat sessions, only requests from unknown devices are blocked. Use {Commands.Start} to enable it again."
                 },
                 new BotCommand {
-                    Command = "kill",
+                    Command = Commands.Kill.TrimStart('/'),
                     Description = "Remove all registration and approvals and disable new chat requests from Meshtastic devices and channels."
                 },
                 new BotCommand
                 {
-                    Command = "chat",
-                    Description = $"Start a chat session with a Meshtastic device without registering it. Use device ID as parameter (e.g., /chat !aabbcc11). Chat session automatically expires when no new messages are sent or when /end_chat command is used."
+                    Command = Commands.Chat.TrimStart('/'),
+                    Description = $"Start a chat session with a Meshtastic device without registering it. Use device ID as parameter (e.g., {Commands.Chat} !aabbcc11). Chat session automatically expires when no new messages are sent or when {Commands.EndChat} command is used."
                 },
                 new BotCommand
                 {
-                    Command = "chat_channel",
-                    Description = $"Start a chat session with a Meshtastic channel. e.g., /chat_channel MyChannel:123, 123 - is TMesh channel ID created on registration. Use /end_chat command to stop the chat session."
+                    Command = Commands.ChatChannel.TrimStart('/'),
+                    Description = $"Start a chat session with a Meshtastic channel. e.g., {Commands.ChatChannel} MyChannel:123, 123 - is TMesh channel ID created on registration. Use {Commands.EndChat} command to stop the chat session."
                 },
                 new BotCommand
                 {
-                    Command = "end_chat",
-                    Description = "Stop active chat session started with /chat or /chat_channel command."
+                    Command = Commands.EndChat.TrimStart('/'),
+                    Description = $"Stop active chat session started with {Commands.Chat} or {Commands.ChatChannel} command."
                 },
                 new BotCommand
                 {
-                    Command = "add_device",
-                    Description = "Register a Meshtastic device (e.g., /add_device !aabbcc11)"
+                    Command = Commands.AddDevice.TrimStart('/'),
+                    Description = $"Register a Meshtastic device (e.g., {Commands.AddDevice} !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "add_channel",
-                    Description = "Register a Meshtastic private channel"
+                    Command = Commands.AddChannel.TrimStart('/'),
+                    Description = $"Register a Meshtastic private channel (e.g., {Commands.AddChannel} <ChannelID>)"
                 },
                 new BotCommand
                 {
-                    Command = "remove_device",
-                    Description = "Unregister a Meshtastic device or remove it from approved devices (e.g., /remove_device !aabbcc11)"
+                    Command = Commands.RemoveDevice.TrimStart('/'),
+                    Description = $"Unregister a Meshtastic device or remove it from approved devices (e.g., {Commands.RemoveDevice} !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "remove_channel",
-                    Description = "Unregister a Meshtastic private channel or remove it from approved channels (e.g., /remove_channel <ChannelID>). Get registered channel ID with /status command or run /remove_channel without params to see registered channel IDs."
+                    Command = Commands.RemoveChannel.TrimStart('/'),
+                    Description = $"Unregister a Meshtastic private channel or remove it from approved channels (e.g., {Commands.RemoveChannel} <ChannelID>). Get registered channel ID with {Commands.Status} command or run {Commands.RemoveChannel} without params to see registered channel IDs."
                 },
                 new BotCommand
                 {
-                    Command = "remove_device_from_all_chats",
-                    Description = "Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., /remove_from_all_chats !aabbcc11)"
+                    Command = Commands.RemoveDeviceFromAllChats.TrimStart('/'),
+                    Description = $"Unregister a Meshtastic device from all chats. Useful when device changes owner or you have no access to chats where device is registered. (e.g., {Commands.RemoveDeviceFromAllChats} !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "remove_channel_from_all_chats",
-                    Description = "Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Use /status to see registered channel IDs. (e.g., /remove_channel_from_all_chats <ChannelID>)"
+                    Command = Commands.RemoveChannelFromAllChats.TrimStart('/'),
+                    Description = $"Unregister a Meshtastic private channel from current chat and all other chats where you have registered it. Use {Commands.Status} to see registered channel IDs. (e.g., {Commands.RemoveChannelFromAllChats} <ChannelID>)"
                 },
                 new BotCommand
                 {
-                    Command = "status",
-                    Description = "Show status of current chat, list of registered and approved Meshtastic devices and channels, supports filter by name (e.g. /status MyDevice)"
+                    Command = Commands.Status.TrimStart('/'),
+                    Description = $"Show status of current chat, list of registered and approved Meshtastic devices and channels, supports filter by name (e.g. {Commands.Status} MyDevice)"
                 },
                 new BotCommand
                 {
-                    Command = "position",
-                    Description = "Show last known position of registered Meshtastic devices as map, supports filter by name (e.g. /position MyDevice)"
+                    Command = Commands.Position.TrimStart('/'),
+                    Description = $"Show last known position of registered Meshtastic devices as map, supports filter by name (e.g. {Commands.Position} MyDevice)"
                 },
                 new BotCommand
                 {
-                    Command = "promote_to_gateway",
-                    Description = "Promote a registered device to MQTT gateway. Requires custom TMesh firmware to be installed on the device. (e.g., /promote_to_gateway !aabbcc11)"
+                    Command = Commands.PromoteToGateway.TrimStart('/'),
+                    Description = $"Promote a registered device to MQTT gateway. Requires custom TMesh firmware to be installed on the device. (e.g., {Commands.PromoteToGateway} !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "demote_from_gateway",
-                    Description = "Remove a device from MQTT gateway role (e.g., /demote_from_gateway !aabbcc11)"
+                    Command = Commands.DemoteFromGateway.TrimStart('/'),
+                    Description = $"Remove a device from MQTT gateway role (e.g., {Commands.DemoteFromGateway} !aabbcc11)"
                 },
                 new BotCommand
                 {
-                    Command = "list_networks",
-                    Description = "List all available networks and their public channels"
+                    Command = Commands.ListNetworks.TrimStart('/'),
+                    Description = $"List all available networks and their public channels"
                 }
             ]);
         }
