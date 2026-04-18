@@ -354,6 +354,7 @@ namespace TBot.Bot
                         meshtasticService.SendVirtualNodeInfo(
                             primaryChannel.Name,
                             primaryChannel,
+                            item.GetSuggestedReplyHopLimit(),
                             item.DeviceId,
                             item.GatewayId);
                     }

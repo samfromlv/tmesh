@@ -80,7 +80,7 @@ public class MessageLoopService(
         var nodeInfoChannels = await regService.GetAllNodeInfoChannelsCached();
         foreach (var channel in nodeInfoChannels)
         {
-            meshtasticService.SendVirtualNodeInfo(channel.Name, channel);
+            meshtasticService.SendVirtualNodeInfo(channel.Name, channel, hopLimit: int.MaxValue);
         }
     }
 

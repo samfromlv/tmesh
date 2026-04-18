@@ -793,10 +793,11 @@ namespace TBot
         public void SendVirtualNodeInfo(
             string primaryChannelName,
             IRecipient primaryChannel,
+            int hopLimit,
             long destinationDeviceId = BroadcastDeviceId,
             long? relayThroughGatewayId = null)
         {
-            var packet = CreateTMeshVirtualNodeInfo(primaryChannel, destinationDeviceId);
+            var packet = CreateTMeshVirtualNodeInfo(primaryChannel, hopLimit, destinationDeviceId);
             var envelope = CreateMeshtasticEnvelope(packet, primaryChannelName);
             var id = envelope.Packet.Id;
             StoreNoDup(id);
@@ -886,8 +887,13 @@ namespace TBot
             return mac;
         }
 
-        private MeshPacket CreateTMeshVirtualNodeInfo(IRecipient primaryChannel, long destinationDeviceId = BroadcastDeviceId)
+        private MeshPacket CreateTMeshVirtualNodeInfo(
+            IRecipient primaryChannel,
+            int hopLimit,
+            long destinationDeviceId = BroadcastDeviceId)
         {
+            hopLimit = Math.Max(Math.Min(hopLimit, _options.OwnNodeInfoMessageHopLimit), 0);
+
             var packet = new MeshPacket()
             {
                 Channel = 0,
@@ -896,8 +902,8 @@ namespace TBot
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Background,
                 Id = GenerateNewMessageId(),
-                HopLimit = (uint)_options.OwnNodeInfoMessageHopLimit,
-                HopStart = (uint)_options.OwnNodeInfoMessageHopLimit,
+                HopLimit = (uint)hopLimit,
+                HopStart = (uint)hopLimit,
                 Decoded = new Data()
                 {
                     Bitfield = OkToMqttMask,

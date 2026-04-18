@@ -805,6 +805,20 @@ namespace TBot.Bot
                       .Replace("{settings}", string.IsNullOrEmpty(network.Url) ? "" : settingsPart.Replace("{url}", network.Url))
                       .Replace("{community}", string.IsNullOrEmpty(network.CommunityUrl) ? "" : communityPart.Replace("{url}", network.CommunityUrl));  
 
+                    var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
+                    if (primaryChannel == null)
+                    {
+                        return;
+                    }
+
+
+                    meshtasticService.SendVirtualNodeInfo(
+                         primaryChannel.Name,
+                         primaryChannel,
+                         message.GetSuggestedReplyHopLimit(),
+                         destinationDeviceId: message.DeviceId,
+                         message.GatewayId);
+
                     meshtasticService.SendDirectTextMessage(
                         message.DeviceId,
                         message.NetworkId,
