@@ -788,7 +788,34 @@ namespace TBot.Bot
                   message.GatewayId);
             }
 
-            if (!res.success)
+            if (res.res == SaveResult.Inserted)
+            {
+                var network = await registrationService.GetNetwork(message.NetworkId);
+                if (network != null 
+                      && !network.DisableWelcomeMessage
+                      && (!string.IsNullOrEmpty(network.Url) 
+                            || !string.IsNullOrEmpty(network.CommunityUrl)))
+                {
+                    var template = _options.Texts.NewDeviceWelcomeMessage_Template ?? "Welcome!{settings}{community}";
+                    var settingsPart = _options.Texts.NewDeviceWelcomeMessage_Settings ?? " Settings: {url}.";
+                    var communityPart = _options.Texts.NewDeviceWelcomeMessage_Community ?? " Community: {url}";
+
+                    var msgText = new StringBuilder(template);
+                    msgText = msgText
+                      .Replace("{settings}", string.IsNullOrEmpty(network.Url) ? "" : settingsPart.Replace("{url}", network.Url))
+                      .Replace("{community}", string.IsNullOrEmpty(network.CommunityUrl) ? "" : communityPart.Replace("{url}", network.CommunityUrl));  
+
+                    meshtasticService.SendDirectTextMessage(
+                        message.DeviceId,
+                        message.NetworkId,
+                        message.PublicKey,
+                        msgText.ToString(),
+                        replyToMessageId: null,
+                        relayGatewayId: message.GatewayId,
+                        hopLimit: message.GetSuggestedReplyHopLimit());
+                }
+            }
+            else if (res.res == SaveResult.SecurityError)
             {
                 var device = res.device;
                 if (device == null)

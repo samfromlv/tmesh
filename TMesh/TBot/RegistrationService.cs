@@ -751,7 +751,7 @@ namespace TBot
         }
 
 
-        public async Task<(bool success, Device device)> SaveDeviceAsync(
+        public async Task<(SaveResult res, Device device)> SaveDeviceAsync(
             long deviceId,
             int networkId,
             string nodeName,
@@ -764,6 +764,7 @@ namespace TBot
 
             var entity = await db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
             var now = DateTime.UtcNow;
+            SaveResult res;
             if (entity == null)
             {
                 entity = new Device
@@ -776,6 +777,7 @@ namespace TBot
                     UpdatedUtc = now
                 };
                 db.Devices.Add(entity);
+                res = SaveResult.Inserted;
             }
             else if (!entity.HasRegistrations)
             {
@@ -783,6 +785,7 @@ namespace TBot
                 entity.PublicKey = publicKey;
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
+                res = SaveResult.Updated;
             }
             else if (entity.HasRegistrations
                     && entity.PublicKey != null
@@ -791,15 +794,16 @@ namespace TBot
                 entity.NetworkId = networkId;
                 entity.NodeName = nodeName;
                 entity.UpdatedUtc = now;
+                res = SaveResult.Updated;
             }
             else
             {
-                return (false, entity);
+                return (SaveResult.SecurityError, entity);
             }
 
             await db.SaveChangesAsync();
             memoryCache.Set(GetDeviceCacheKey(deviceId), entity, DeviceCacheDuration);
-            return (true, entity);
+            return (res, entity);
         }
 
         public async Task<bool> HasDeviceAsync(long deviceId)
@@ -1468,7 +1472,7 @@ namespace TBot
 
         // ── end TgChat ──────────────────────────────────────────────────────────
 
-        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs)
+        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs, string newCommunityUrl, bool? newDisableWelcomeMessage)
         {
             var entity = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
             if (entity != null)
@@ -1492,6 +1496,14 @@ namespace TBot
                 if (newDisablePongs.HasValue)
                 {
                     entity.DisablePongs = newDisablePongs.Value;
+                }
+                if (newCommunityUrl != null)
+                {
+                    entity.CommunityUrl = newCommunityUrl == "-" ? null : newCommunityUrl;
+                }
+                if (newDisableWelcomeMessage.HasValue)
+                {
+                    entity.DisableWelcomeMessage = newDisableWelcomeMessage.Value;
                 }
                 await db.SaveChangesAsync();
                 memoryCache.Remove($"Networks");
