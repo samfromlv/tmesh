@@ -28,7 +28,7 @@ namespace TBot
         public const int MaxHops = 7;
         public const int WaitForAckStatusMaxMinutes = 2;
         const int MESHTASTIC_PKC_OVERHEAD = 12;
-        private const int NoDupExpirationMinutes = 3;
+        private const int NoDupExpirationMinutes = 10;
         private const int LinkTraceExpirationMinutes = 6;
         private const int PkiKeyLength = 32;
         private const int PskKeyLengthShort = 16;
