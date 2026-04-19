@@ -1472,7 +1472,7 @@ namespace TBot
 
         // ── end TgChat ──────────────────────────────────────────────────────────
 
-        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs, string newCommunityUrl, bool? newDisableWelcomeMessage)
+        internal async Task UpdateNetworkAsync(int networkId, string newName, string newShortName, bool? newAnalytics, string newUrl, bool? newDisablePongs, string newCommunityUrl, string newWelcomeUrl, bool? newDisableWelcomeMessage)
         {
             var entity = await db.Networks.FirstOrDefaultAsync(n => n.Id == networkId);
             if (entity != null)
@@ -1500,6 +1500,10 @@ namespace TBot
                 if (newCommunityUrl != null)
                 {
                     entity.CommunityUrl = newCommunityUrl == "-" ? null : newCommunityUrl;
+                }
+                if (newWelcomeUrl != null)
+                {
+                    entity.WelcomeUrl = newWelcomeUrl == "-" ? null : newWelcomeUrl;
                 }
                 if (newDisableWelcomeMessage.HasValue)
                 {

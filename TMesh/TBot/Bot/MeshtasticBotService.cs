@@ -794,23 +794,33 @@ namespace TBot.Bot
                 if (network != null 
                       && !network.DisableWelcomeMessage
                       && (!string.IsNullOrEmpty(network.Url) 
-                            || !string.IsNullOrEmpty(network.CommunityUrl)))
+                            || !string.IsNullOrEmpty(network.CommunityUrl)
+                            || !string.IsNullOrEmpty(network.WelcomeUrl)))
                 {
-                    var template = _options.Texts.NewDeviceWelcomeMessage_Template ?? "Welcome!{settings}{community}";
-                    var settingsPart = _options.Texts.NewDeviceWelcomeMessage_Settings ?? " Settings: {url}.";
-                    var communityPart = _options.Texts.NewDeviceWelcomeMessage_Community ?? " Community: {url}";
+                    string messageText;
+                    if (string.IsNullOrEmpty(network.WelcomeUrl))
+                    {
+                        var template = _options.Texts.NewDeviceWelcomeMessage_Template ?? "Welcome!{settings}{community}";
+                        var settingsPart = _options.Texts.NewDeviceWelcomeMessage_Settings ?? " Settings: {url}.";
+                        var communityPart = _options.Texts.NewDeviceWelcomeMessage_Community ?? " Community: {url}";
 
-                    var msgText = new StringBuilder(template);
-                    msgText = msgText
-                      .Replace("{settings}", string.IsNullOrEmpty(network.Url) ? "" : settingsPart.Replace("{url}", network.Url))
-                      .Replace("{community}", string.IsNullOrEmpty(network.CommunityUrl) ? "" : communityPart.Replace("{url}", network.CommunityUrl));  
+                        var msgText = new StringBuilder(template);
+                        msgText = msgText
+                          .Replace("{settings}", string.IsNullOrEmpty(network.Url) ? "" : settingsPart.Replace("{url}", network.Url))
+                          .Replace("{community}", string.IsNullOrEmpty(network.CommunityUrl) ? "" : communityPart.Replace("{url}", network.CommunityUrl));
+                        messageText = msgText.ToString();
+                    }
+                    else
+                    {
+                        var welcomePart = _options.Texts.NewDeviceWelcomeMessage_WelcomeUrl ?? "Welcome! Setting and community: {url}";
+                        messageText = welcomePart.Replace("{url}", network.WelcomeUrl);
+                    }
 
                     var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
                     if (primaryChannel == null)
                     {
                         return;
                     }
-
 
                     meshtasticService.SendVirtualNodeInfo(
                          primaryChannel.Name,
@@ -823,7 +833,7 @@ namespace TBot.Bot
                         message.DeviceId,
                         message.NetworkId,
                         message.PublicKey,
-                        msgText.ToString(),
+                        messageText,
                         replyToMessageId: null,
                         relayGatewayId: message.GatewayId,
                         hopLimit: message.GetSuggestedReplyHopLimit());

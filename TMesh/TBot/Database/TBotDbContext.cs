@@ -134,6 +134,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                 .IsRequired();
             e.Property(p => p.Url);
             e.Property(p => p.CommunityUrl);
+            e.Property(p => p.WelcomeUrl);
             e.Property(p => p.DisablePongs)
                 .IsRequired()
                 .HasDefaultValue(false);

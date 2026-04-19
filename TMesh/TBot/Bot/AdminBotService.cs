@@ -177,6 +177,11 @@ namespace TBot.Bot
                 {
                     sb.AppendLine($"  {communityUrlPart.TrimStart(new char[] { ' ', '·' })}");
                 }
+                var welcomeUrlPart = network.WelcomeUrl != null ? $" · welcomeurl: `{StringHelper.EscapeMdV2(network.WelcomeUrl)}`" : "No Welcome URL";
+                if (!string.IsNullOrEmpty(welcomeUrlPart))
+                {
+                    sb.AppendLine($"  {welcomeUrlPart.TrimStart(new char[] { ' ', '·' })}");
+                }
 
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
@@ -216,7 +221,7 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddNetwork(long chatId, string[] segments)
         {
-            // Usage: add_network "<name>" (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [disablewelcomemessage=<true|false>".]
+            // Usage: add_network "<name>" (<shortname> or - for null)  [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [welcomeurl=<value>] [disablewelcomemessage=<true|false>".]
 
             // Reconstruct the full command from segments to properly parse quoted strings
             var fullCommand = string.Join(' ', segments);
@@ -225,14 +230,14 @@ namespace TBot.Bot
             var nameStartIdx = fullCommand.IndexOf('"');
             if (nameStartIdx == -1)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [disablewelcomemessage=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com disablewelcomemessage=false\nNote: Network name must be enclosed in double quotes.");
+                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [welcomeurl=<value>] [disablewelcomemessage=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com welcomeurl=https://welcome.com disablewelcomemessage=false\nNote: Network name must be enclosed in double quotes.");
                 return TgResult.Ok;
             }
 
             var nameEndIdx = fullCommand.IndexOf('"', nameStartIdx + 1);
             if (nameEndIdx == -1)
             {
-                await botClient.SendMessage(chatId, "Invalid command: Network name must be enclosed in double quotes.\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com disablewelcomemessage=false");
+                await botClient.SendMessage(chatId, "Invalid command: Network name must be enclosed in double quotes.\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com welcomeurl=https://welcome.com disablewelcomemessage=false");
                 return TgResult.Ok;
             }
 
@@ -244,7 +249,7 @@ namespace TBot.Bot
 
             if (remainingSegments.Length < 1)
             {
-                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [disablewelcomemessage=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com disablewelcomemessage=false\nNote: shortname is required.");
+                await botClient.SendMessage(chatId, "Usage: add_network \"<name>\" (<shortname> or - for null) [sortorder] [analytics] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [welcomeurl=<value>] [disablewelcomemessage=<true|false>]\nExample: add_network \"Your city name\" CTY 0 true url=https://example.com disablepongs=false communityurl=https://community.com welcomeurl=https://welcome.com disablewelcomemessage=false\nNote: shortname is required.");
                 return TgResult.Ok;
             }
 
@@ -255,6 +260,7 @@ namespace TBot.Bot
             string url = null;
             bool disablePongs = false;
             string communityUrl = null;
+            string welcomeUrl = null;
             bool disableWelcomeMessage = false;
 
             foreach (var seg in remainingSegments.Skip(3))
@@ -275,6 +281,9 @@ namespace TBot.Bot
                     case "communityurl":
                         communityUrl = value;
                         break;
+                    case "welcomeurl":
+                        welcomeUrl = value;
+                        break;
                     case "disablewelcomemessage":
                         if (bool.TryParse(value, out var dwm))
                             disableWelcomeMessage = dwm;
@@ -288,13 +297,14 @@ namespace TBot.Bot
                 ShortName = shortName == "-" ? null : shortName,
                 SortOrder = sortOrder,
                 SaveAnalytics = saveAnalytics,
-                Url = url,
+                Url = url == "-" ? null : url,
                 DisablePongs = disablePongs,
-                CommunityUrl = communityUrl,
+                CommunityUrl = communityUrl == "-" ? null : communityUrl,
+                WelcomeUrl = welcomeUrl == "-" ? null : welcomeUrl,
                 DisableWelcomeMessage = disableWelcomeMessage
             });
 
-            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}, url: {network.Url ?? "-"}, communityurl: {network.CommunityUrl ?? "-"}, disablewelcomemessage: {network.DisableWelcomeMessage})");
+            await botClient.SendMessage(chatId, $"Network added: [{network.Id}] {network.Name} (short: {network.ShortName}, analytics: {network.SaveAnalytics}, disablepongs: {network.DisablePongs}, url: {network.Url ?? "-"}, communityurl: {network.CommunityUrl ?? "-"}, welcomeurl: {network.WelcomeUrl ?? "-"}, disablewelcomemessage: {network.DisableWelcomeMessage})");
             return new TgResult
             {
                 Handled = true,
@@ -305,13 +315,13 @@ namespace TBot.Bot
 
         private async Task<TgResult> UpdateNetwork(long chatId, string[] segments)
         {
-            // Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [disablewelcomemessage=<true|false>]
+            // Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [welcomeurl=<value>] [disablewelcomemessage=<true|false>]
             if (segments.Length < 3)
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [disablewelcomemessage=<true|false>]\n" +
-                    "Example: update_network 1 name=NewName shortname=NN analytics=true url=https://example.com disablepongs=false communityurl=https://community.com disablewelcomemessage=false\n" +
-                    "To clear url or communityurl, use url=- or communityurl=-\n" +
+                    "Usage: update_network <id> [name=<value>] [shortname=<value>] [analytics=<true|false>] [url=<value>] [disablepongs=<true|false>] [communityurl=<value>] [welcomeurl=<value>] [disablewelcomemessage=<true|false>]\n" +
+                    "Example: update_network 1 name=NewName shortname=NN analytics=true url=https://example.com disablepongs=false communityurl=https://community.com welcomeurl=https://welcome.com disablewelcomemessage=false\n" +
+                    "To clear url, communityurl, or welcomeurl, use url=-, communityurl=-, or welcomeurl=-\n" +
                     "At least one field to update must be provided.");
                 return TgResult.Ok;
             }
@@ -335,6 +345,7 @@ namespace TBot.Bot
             string newUrl = null;
             bool? newDisablePongs = null;
             string newCommunityUrl = null;
+            string newWelcomeUrl = null;
             bool? newDisableWelcomeMessage = null;
 
             foreach (var seg in segments.Skip(2))
@@ -365,6 +376,9 @@ namespace TBot.Bot
                     case "communityurl":
                         newCommunityUrl = value;
                         break;
+                    case "welcomeurl":
+                        newWelcomeUrl = value;
+                        break;
                     case "disablewelcomemessage":
                         if (bool.TryParse(value, out var dwm))
                             newDisableWelcomeMessage = dwm;
@@ -372,18 +386,18 @@ namespace TBot.Bot
                 }
             }
 
-            if (newName == null && newShortName == null && newAnalytics == null && newUrl == null && newDisablePongs == null && newCommunityUrl == null && newDisableWelcomeMessage == null)
+            if (newName == null && newShortName == null && newAnalytics == null && newUrl == null && newDisablePongs == null && newCommunityUrl == null && newWelcomeUrl == null && newDisableWelcomeMessage == null)
             {
                 await botClient.SendMessage(chatId,
-                    "No valid fields provided. Use name=<value>, shortname=<value>, analytics=<true|false>, url=<value>, disablepongs=<true|false>, communityurl=<value>, or disablewelcomemessage=<true|false>.");
+                    "No valid fields provided. Use name=<value>, shortname=<value>, analytics=<true|false>, url=<value>, disablepongs=<true|false>, communityurl=<value>, welcomeurl=<value>, or disablewelcomemessage=<true|false>.");
                 return TgResult.Ok;
             }
 
-            await registrationService.UpdateNetworkAsync(networkId, newName, newShortName, newAnalytics, newUrl, newDisablePongs, newCommunityUrl, newDisableWelcomeMessage);
+            await registrationService.UpdateNetworkAsync(networkId, newName, newShortName, newAnalytics, newUrl, newDisablePongs, newCommunityUrl, newWelcomeUrl, newDisableWelcomeMessage);
 
             var updated = await registrationService.GetNetwork(networkId);
             await botClient.SendMessage(chatId,
-                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics}, disablepongs: {updated.DisablePongs}, url: {updated.Url ?? "-"}, communityurl: {updated.CommunityUrl ?? "-"}, disablewelcomemessage: {updated.DisableWelcomeMessage})");
+                $"Network updated: [{updated.Id}] {updated.Name} (short: {updated.ShortName}, sort: {updated.SortOrder}, analytics: {updated.SaveAnalytics}, disablepongs: {updated.DisablePongs}, url: {updated.Url ?? "-"}, communityurl: {updated.CommunityUrl ?? "-"}, welcomeurl: {updated.WelcomeUrl ?? "-"}, disablewelcomemessage: {updated.DisableWelcomeMessage})");
 
             return new TgResult
             {

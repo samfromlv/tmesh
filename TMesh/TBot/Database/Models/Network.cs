@@ -13,6 +13,7 @@ namespace TBot.Database.Models
 
         public string Url { get; set; }
         public string CommunityUrl { get; set; }
+        public string WelcomeUrl { get; set; }
         public int SortOrder { get; set; }
         public bool SaveAnalytics { get; set; }
         public string ShortName { get; set; }
