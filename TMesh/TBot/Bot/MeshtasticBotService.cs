@@ -363,6 +363,7 @@ namespace TBot.Bot
 
                 meshtasticService.AddStat(new Shared.Models.MeshStat
                 {
+                    NetworkId = channel.NetworkId,
                     PongSent = 1,
                 });
                 return;
@@ -607,6 +608,7 @@ namespace TBot.Bot
 
                 meshtasticService.AddStat(new Shared.Models.MeshStat
                 {
+                    NetworkId = deviceOrNull.NetworkId,
                     PongSent = 1,
                 });
                 return;
@@ -840,6 +842,7 @@ namespace TBot.Bot
 
                     meshtasticService.AddStat(new Shared.Models.MeshStat
                     {
+                        NetworkId = message.NetworkId,
                         WelcomeMessagesSent = 1,
                     });
                 }
