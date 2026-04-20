@@ -837,6 +837,11 @@ namespace TBot.Bot
                         replyToMessageId: null,
                         relayGatewayId: message.GatewayId,
                         hopLimit: message.GetSuggestedReplyHopLimit());
+
+                    meshtasticService.AddStat(new Shared.Models.MeshStat
+                    {
+                        WelcomeMessagesSent = 1,
+                    });
                 }
             }
             else if (res.res == SaveResult.SecurityError)
