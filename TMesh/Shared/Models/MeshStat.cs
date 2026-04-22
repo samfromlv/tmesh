@@ -18,6 +18,7 @@ namespace Shared.Models
         public int PublicTextMessagesRecieved { get; set; }
         public int PrivateChannelTextMessagesRecieved { get; set; }
         public int AckRecieved { get; set; }
+        public int NakRecieved { get; set; }
         public int TextMessagesSent { get; set; }
         public int WelcomeMessagesSent { get; set; }
         public int AckSent { get; set; }
@@ -35,6 +36,7 @@ namespace Shared.Models
             PublicTextMessagesRecieved += other.PublicTextMessagesRecieved;
             PrivateChannelTextMessagesRecieved += other.PrivateChannelTextMessagesRecieved;
             AckRecieved += other.AckRecieved;
+            NakRecieved += other.NakRecieved;
             TextMessagesSent += other.TextMessagesSent;
             WelcomeMessagesSent += other.WelcomeMessagesSent;
             AckSent += other.AckSent;

@@ -1097,16 +1097,17 @@ namespace TBot
             }
             else if (decodedPki.Portnum == PortNum.RoutingApp)
             {
-                AddStat(new MeshStat
-                {
-                    NetworkId = device.NetworkId,
-                    AckRecieved = 1,
-                });
                 var ack = DecodeAck(envelope, decodedPki, device);
                 if (ack == null)
                 {
                     return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decodedPki, device));
                 }
+                AddStat(new MeshStat
+                {
+                    NetworkId = device.NetworkId,
+                    AckRecieved = ack.Success ? 1 : 0,
+                    NakRecieved = ack.Success ? 0 : 1
+                });
                 return (true, ack);
             }
             else if (decodedPki.Portnum == PortNum.NodeinfoApp)
