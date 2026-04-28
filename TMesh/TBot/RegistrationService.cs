@@ -1084,6 +1084,11 @@ namespace TBot
             return await db.Devices.CountAsync(d => d.NetworkId == networkId && d.UpdatedUtc >= fromUtc);
         }
 
+        public async Task<int> GetActiveDevicesCountByNetworkAndPrefix(int networkId, DateTime fromUtc, string prefix)
+        {
+            return await db.Devices.CountAsync(d => d.NetworkId == networkId && d.UpdatedUtc >= fromUtc && d.NodeName.StartsWith(prefix));
+        }
+
         public async Task<Network> AddNetwork(Network network)
         {
             db.Networks.Add(network);

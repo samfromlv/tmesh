@@ -274,8 +274,14 @@ public class MessageLoopService(
                 ChannelChatRegistrations = await registrationService.GetChannelRegistrationsCountByNetwork(network.Id),
                 Devices = await registrationService.GetDevicesCountByNetwork(network.Id),
                 Devices24h = await registrationService.GetActiveDevicesCountByNetwork(network.Id, hours24ago),
+                MfVoteDevices24h = await registrationService.GetActiveDevicesCountByNetworkAndPrefix(network.Id, hours24ago, "[MF]"),
+                LfVoteDevices24h = await registrationService.GetActiveDevicesCountByNetworkAndPrefix(network.Id, hours24ago, "[LF]"),
                 GatewaysLastSeen = await GetGatewaysLastSeenStatByNetwork(now, registrationService, network.Id)
             };
+
+            networkStats.NoVoteDevices24h = networkStats.Devices24h
+                - networkStats.MfVoteDevices24h
+                - networkStats.LfVoteDevices24h;
 
             if (analyticsService != null && network.SaveAnalytics)
             {

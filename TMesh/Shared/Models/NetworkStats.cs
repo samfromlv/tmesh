@@ -15,6 +15,9 @@ namespace Shared.Models
         public int ChannelChatRegistrations { get; set; }
 
         public int Devices24h { get; set; }
+        public int MfVoteDevices24h { get; set; }
+        public int LfVoteDevices24h { get; set; }
+        public int NoVoteDevices24h { get; set; }
         public int Devices { get; set; }
 
         public int TelemetrySaved24H { get; set; }
