@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Cors;
 
 namespace TProxy.Controllers
 {
@@ -39,6 +40,28 @@ namespace TProxy.Controllers
                 return NotFound();
             }
             return Json(networkStatus, _jsonOptions);
+        }
+
+        [HttpGet("mfvote/{id}")]
+        [EnableCors("*")]
+        public IActionResult MfVote(int id)
+        {
+            var status = publisher.LastStatusPayload;
+            if (status == null)
+            {
+                return NotFound();
+            }
+            var networkStatus = status.Networks.FirstOrDefault(n => n.Id == id);
+            if (networkStatus == null)
+            {
+                return NotFound();
+            }
+            return Json(new 
+            {
+                ForMF24h = networkStatus.MfVoteDevices24h,
+                ForLF24h = networkStatus.LfVoteDevices24h,
+                NoResponse24h = networkStatus.NoVoteDevices24h
+            }, _jsonOptions);
         }
 
         [HttpGet("gateway/{id}")]
