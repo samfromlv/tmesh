@@ -1075,12 +1075,13 @@ namespace TBot.Bot
 
         private async Task<TgResult> AddScheduledMessage(long chatId, string noPrefix, string[] segments)
         {
-            // Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text> [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]
-            if (segments.Length < 4)
+            // Usage: add_scheduled_message <publicChannelId> <intervalMinutes> text="<message text>" [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]
+            if (segments.Length < 3 || !noPrefix.Contains("text=\""))
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: add_scheduled_message <publicChannelId> <intervalMinutes> <message text> [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]\n" +
-                    "Example: add_scheduled_message 1 60 Hello mesh! enable_at=2025-06-01T08:00:00 disable_at=2025-09-01T00:00:00\n" +
+                    "Usage: add_scheduled_message <publicChannelId> <intervalMinutes> text=\"<message text>\" [enable_at=yyyy-MM-ddTHH:mm:ss] [disable_at=yyyy-MM-ddTHH:mm:ss]\n" +
+                    "Example: add_scheduled_message 1 60 text=\"Hello mesh!\" enable_at=2025-06-01T08:00:00 disable_at=2025-09-01T00:00:00\n" +
+                    "Use \\\" to include double quotes in the message text.\n" +
                     "Dates are in local time. If enable_at is set the message starts disabled.");
                 return TgResult.Ok;
             }
@@ -1107,40 +1108,40 @@ namespace TBot.Bot
             // Everything after "add_scheduled_message <id> <interval> "
             var afterFixed = noPrefix[$"add_scheduled_message {segments[1]} {segments[2]} ".Length..].Trim();
 
-            // Peel off trailing key=value tokens (enable_at / disable_at) from the end
+            // Extract text="..." — supports \" escapes inside the quoted value
+            var textMatch = System.Text.RegularExpressions.Regex.Match(
+                afterFixed, @"text=""((?:[^""\\]|\\.)*)""");
+            if (!textMatch.Success)
+            {
+                await botClient.SendMessage(chatId,
+                    "Could not parse text parameter. Use: text=\"your message here\"");
+                return TgResult.Ok;
+            }
+            var text = textMatch.Groups[1].Value.Replace("\\\"", "\"");
+
+            // Remove the matched text="..." from afterFixed to parse remaining key=value tokens
+            var remainder = afterFixed.Remove(textMatch.Index, textMatch.Length).Trim();
+
+            // Parse enable_at / disable_at from remainder
             DateTime? enableAtUtc = null;
             DateTime? disableAtUtc = null;
-            var words = afterFixed.Split(' ');
-            int textWordCount = words.Length;
-
-            for (int i = words.Length - 1; i >= 1; i--)
+            foreach (var token in remainder.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                var word = words[i];
-                var eqIdx = word.IndexOf('=');
-                if (eqIdx <= 0) break;
-                var key = word[..eqIdx].ToLowerInvariant();
-                var val = word[(eqIdx + 1)..];
-
-                if (key == "enable_at" || key == "disable_at")
+                var eqIdx = token.IndexOf('=');
+                if (eqIdx <= 0) continue;
+                var key = token[..eqIdx].ToLowerInvariant();
+                var val = token[(eqIdx + 1)..];
+                if (key != "enable_at" && key != "disable_at") continue;
+                if (!TryParseLocalDate(val, out var localDt))
                 {
-                    if (!TryParseLocalDate(val, out var localDt))
-                    {
-                        await botClient.SendMessage(chatId,
-                            $"Invalid date format for {key}: '{val}'. Required format: {LocalDateFormat}");
-                        return TgResult.Ok;
-                    }
-                    var utcDt = timeZoneHelper.ConvertFromDefaultTimezoneToUtc(localDt);
-                    if (key == "enable_at") enableAtUtc = utcDt;
-                    else disableAtUtc = utcDt;
-                    textWordCount = i;
+                    await botClient.SendMessage(chatId,
+                        $"Invalid date format for {key}: '{val}'. Required format: {LocalDateFormat}");
+                    return TgResult.Ok;
                 }
-                else
-                {
-                    break;
-                }
+                var utcDt = timeZoneHelper.ConvertFromDefaultTimezoneToUtc(localDt);
+                if (key == "enable_at") enableAtUtc = utcDt;
+                else disableAtUtc = utcDt;
             }
-
-            var text = string.Join(' ', words[..textWordCount]).Trim();
 
             if (string.IsNullOrWhiteSpace(text))
             {
