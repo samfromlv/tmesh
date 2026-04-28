@@ -15,7 +15,7 @@ namespace TProxy
             // Add CORS
             builder.Services.AddCors(options =>
             {
-                options.AddDefaultPolicy(policyBuilder =>
+                options.AddPolicy("AllowAll", policyBuilder =>
                 {
                     policyBuilder.AllowAnyOrigin()
                                  .AllowAnyMethod()
@@ -32,8 +32,8 @@ namespace TProxy
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
+            app.UseCors("AllowAll");
             app.UseHttpsRedirection();
-            app.UseCors();
             app.UseAuthorization();
             app.MapControllers();
             app.Run();

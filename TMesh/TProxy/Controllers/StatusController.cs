@@ -43,7 +43,7 @@ namespace TProxy.Controllers
         }
 
         [HttpGet("mfvote/{id}")]
-        [EnableCors("*")]
+        [EnableCors("AllowAll")]
         public IActionResult MfVote(int id)
         {
             var status = publisher.LastStatusPayload;
