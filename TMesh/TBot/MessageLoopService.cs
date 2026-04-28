@@ -239,7 +239,8 @@ public class MessageLoopService(
             arg.Data.Message,
             relayThroughGatewayId);
 
-        if (mapMqttService.UplinkEnabled)
+        if (mapMqttService.UplinkEnabled 
+            && !arg.Data.Message.Packet.ViaMqtt)
         {
             await UplinkToMap(arg.Data.NetworkId, arg.Data.Message);
         }
@@ -525,7 +526,10 @@ public class MessageLoopService(
             }
             if (!res.success)
             {
-                await UplinkToMap(networkId, env);
+                if (!env.Packet.ViaMqtt)
+                {
+                    await UplinkToMap(networkId, env);
+                }
                 return;
             }
 
@@ -674,6 +678,12 @@ public class MessageLoopService(
 
         if (!msg.OkToMqtt)
         {
+            return;
+        }
+
+        if (msg.ViaMqtt)
+        {
+            //No uplink for messages that were already received via MQTT, to avoid loops and duplicates in the map service
             return;
         }
 

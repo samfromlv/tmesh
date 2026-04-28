@@ -31,6 +31,7 @@ namespace TBot.Models.MeshMessages
         public bool NeedAck { get; set; }
 
         public bool OkToMqtt { get; set; }
+        public bool ViaMqtt { get; set; }
 
         public long GatewayId { get; set; }
 
@@ -47,6 +48,7 @@ namespace TBot.Models.MeshMessages
             {
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
+                ViaMqtt = env.Packet.ViaMqtt,
                 EnvelopeChannelName = env.ChannelId,
                 ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,
