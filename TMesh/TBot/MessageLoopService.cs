@@ -465,6 +465,7 @@ public class MessageLoopService(
             UpdateGatewayLastSeen(gatewayId);
 
             if (mapMqttService.UplinkEnabled
+                && !env.Packet.ViaMqtt
                 && meshtasticService.IsUplinkPacket(env))
             {
                 await UplinkToMap(networkId, env);
@@ -696,6 +697,12 @@ public class MessageLoopService(
     private async ValueTask UplinkToMap(int networkId, ServiceEnvelope data)
     {
         meshtasticService.MarkUplinkPacket(data.Packet.Id);
+
+        if (data.Packet.ViaMqtt)
+        {
+            throw new Exception("Trying to uplink a packet that was received via MQTT, this should not happen");
+        }
+
         await mapMqttService.PublishMeshtasticMessage(networkId, data);
     }
 
