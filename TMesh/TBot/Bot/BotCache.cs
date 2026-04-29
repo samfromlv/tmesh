@@ -156,7 +156,10 @@ namespace TBot.Bot
 
         public void StoreDeviceGateway(MeshMessage msg)
         {
-            StoreDeviceGateway(msg.DeviceId, msg.GatewayId, msg.GetSuggestedReplyHopLimit());
+            if (msg.TMeshGatewayId.HasValue)
+            {
+                StoreDeviceGateway(msg.DeviceId, msg.TMeshGatewayId.Value, msg.GetSuggestedReplyHopLimit());
+            }
         }
 
         public void StoreDeviceGateway(long deviceId, long gatewayId, int replyHopLimit)

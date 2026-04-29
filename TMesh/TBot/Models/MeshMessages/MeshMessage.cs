@@ -34,6 +34,7 @@ namespace TBot.Models.MeshMessages
         public bool ViaMqtt { get; set; }
 
         public long GatewayId { get; set; }
+        public long? TMeshGatewayId { get; set; }
 
         public string EnvelopeChannelName { get; set; }
 

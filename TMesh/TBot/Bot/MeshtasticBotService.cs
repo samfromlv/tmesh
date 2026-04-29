@@ -1,4 +1,5 @@
-﻿using Google.Protobuf.Collections;
+﻿using Google.Protobuf;
+using Google.Protobuf.Collections;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -37,9 +38,9 @@ namespace TBot.Bot
         public async Task ProcessInboundMeshtasticMessage(MeshMessage message, Device deviceOrNull)
         {
             botCache.StoreDeviceGateway(message);
-            if (message.ChannelId.HasValue && message.IsSingleDeviceChannel)
+            if (message.ChannelId.HasValue && message.IsSingleDeviceChannel && message.TMeshGatewayId.HasValue)
             {
-                botCache.StoreChannelGateway((int)message.ChannelId.Value, message.GatewayId, message.DeviceId, message.GetSuggestedReplyHopLimit());
+                botCache.StoreChannelGateway((int)message.ChannelId.Value, message.TMeshGatewayId.Value, message.DeviceId, message.GetSuggestedReplyHopLimit());
             }
             switch (message.MessageType)
             {
@@ -73,7 +74,7 @@ namespace TBot.Bot
             var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
             if (primaryChannel != null)
             {
-                meshtasticService.NakNoPubKeyMeshtasticMessage(message, message.GatewayId, primaryChannel);
+                meshtasticService.NakNoPubKeyMeshtasticMessage(message, meshSender.GetReplyGatewayId(message), primaryChannel);
             }
             else
             {
@@ -88,7 +89,7 @@ namespace TBot.Bot
                 deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
                 if (deviceOrNull != null)
                 {
-                    meshtasticService.AckMeshtasticMessage(message, deviceOrNull, message.GatewayId);
+                    meshtasticService.AckMeshtasticMessage(message, deviceOrNull, meshSender.GetReplyGatewayId(message));
                 }
             }
             var analyticsService = services.GetService<AnalyticsService>();
@@ -136,7 +137,7 @@ namespace TBot.Bot
             }
             if (message.NeedAck)
             {
-                meshtasticService.AckMeshtasticMessage(message, deviceOrNull, message.GatewayId);
+                meshtasticService.AckMeshtasticMessage(message, deviceOrNull, meshSender.GetReplyGatewayId(message));
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
             deviceOrNull.LocationUpdatedUtc = DateTime.UtcNow;
@@ -245,7 +246,7 @@ namespace TBot.Bot
                         deviceOrNull.PublicKey,
                         GetPingReplyText(network),
                         replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
-                        relayGatewayId: message.GatewayId,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
                         hopLimit: message.GetSuggestedReplyHopLimit());
 
                     meshtasticService.AddStat(new Shared.Models.MeshStat
@@ -302,7 +303,7 @@ namespace TBot.Bot
                 recipient,
                 helpText,
                 replyToMessageId: msg.Id,
-                relayGatewayId: msg.GatewayId,
+                relayGatewayId: meshSender.GetReplyGatewayId(msg),
                 hopLimit: msg.GetSuggestedReplyHopLimit());
         }
 
@@ -365,7 +366,7 @@ namespace TBot.Bot
                             channel,
                             $"Invalid code. To approve reply with code {pendingRequest.Code}.",
                             replyToMessageId: message.Id,
-                            relayGatewayId: message.GatewayId,
+                            relayGatewayId: meshSender.GetReplyGatewayId(message),
                             hopLimit: message.GetSuggestedReplyHopLimit());
 
                         return;
@@ -384,7 +385,7 @@ namespace TBot.Bot
                     MeshtasticService.GetNextMeshtasticMessageId(),
                     GetPingReplyText(network),
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit(),
                     channel);
 
@@ -512,7 +513,7 @@ namespace TBot.Bot
                     MeshtasticService.GetNextMeshtasticMessageId(),
                     "✓",
                     message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit(),
                     channel,
                     isEmoji: true);
@@ -547,7 +548,7 @@ namespace TBot.Bot
                 meshtasticService.AckMeshtasticMessage(
                     message,
                     deviceOrNull,
-                    message.GatewayId);
+                    meshSender.GetReplyGatewayId(message));
             }
 
             string cmdText = null;
@@ -576,7 +577,7 @@ namespace TBot.Bot
                         deviceOrNull.PublicKey,
                         $"Use /chat @<tg_username> or /chat <tg_group_name>",
                         replyToMessageId: message.Id,
-                        relayGatewayId: message.GatewayId,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
                         hopLimit: message.GetSuggestedReplyHopLimit());
                 }
             }
@@ -612,7 +613,7 @@ namespace TBot.Bot
                             deviceOrNull.PublicKey,
                             $"Invalid code. To approve reply with code {pendingRequest.Code}, 'no' to reject.",
                             replyToMessageId: message.Id,
-                            relayGatewayId: message.GatewayId,
+                            relayGatewayId: meshSender.GetReplyGatewayId(message),
                             hopLimit: message.GetSuggestedReplyHopLimit());
                         return;
                     }
@@ -630,7 +631,7 @@ namespace TBot.Bot
                     deviceOrNull.PublicKey,
                     GetPingReplyText(network),
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
 
                 meshtasticService.AddStat(new Shared.Models.MeshStat
@@ -782,7 +783,7 @@ namespace TBot.Bot
         {
             if (message.WantsResponse)
             {
-                meshtasticService.SendTraceRouteToUsResponse(message, message.GatewayId, primaryChannel, primaryChannel.Name);
+                meshtasticService.SendTraceRouteToUsResponse(message, meshSender.GetReplyGatewayId(message), primaryChannel, primaryChannel.Name);
             }
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
             if (deviceOrNull == null)
@@ -814,7 +815,7 @@ namespace TBot.Bot
                 meshtasticService.AckMeshtasticMessage(
                   message,
                   res.device,
-                  message.GatewayId);
+                  meshSender.GetReplyGatewayId(message));
             }
 
             if (res.res == SaveResult.Inserted)
@@ -856,7 +857,7 @@ namespace TBot.Bot
                          primaryChannel,
                          message.GetSuggestedReplyHopLimit(),
                          destinationDeviceId: message.DeviceId,
-                         message.GatewayId);
+                         meshSender.GetReplyGatewayId(message));
 
                     meshtasticService.SendDirectTextMessage(
                         message.DeviceId,
@@ -864,7 +865,7 @@ namespace TBot.Bot
                         message.PublicKey,
                         messageText,
                         replyToMessageId: null,
-                        relayGatewayId: message.GatewayId,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
                         hopLimit: message.GetSuggestedReplyHopLimit());
 
                     meshtasticService.AddStat(new Shared.Models.MeshStat
@@ -921,7 +922,7 @@ namespace TBot.Bot
                 device.PublicKey,
                 text,
                 replyToMessageId: message.Id,
-                relayGatewayId: message.GatewayId,
+                relayGatewayId: meshSender.GetReplyGatewayId(message),
                 hopLimit: message.GetSuggestedReplyHopLimit());
         }
 
@@ -1036,7 +1037,7 @@ namespace TBot.Bot
                     recipient,
                     $"No active chat session found",
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
@@ -1051,7 +1052,7 @@ namespace TBot.Bot
                     recipient,
                     $"Chat with {chatName} is ended",
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
 
                 var recipientName = await GetRecipientName(recipient);
@@ -1084,7 +1085,7 @@ namespace TBot.Bot
                       ? "❌ Telegram user not found or not registered with TMesh."
                       : $"❌ Telegram group not found or not registered with TMesh.",
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
@@ -1097,7 +1098,7 @@ namespace TBot.Bot
                     recipient,
                     $"❌ Chat is disabled. Please reactivate the chat with /start command in Telegram.",
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
@@ -1150,7 +1151,7 @@ namespace TBot.Bot
                        recipient,
                        meshMsgText,
                        replyToMessageId: message.Id,
-                       relayGatewayId: message.GatewayId,
+                       relayGatewayId: meshSender.GetReplyGatewayId(message),
                        hopLimit: message.GetSuggestedReplyHopLimit());
 
                 return;
@@ -1185,7 +1186,7 @@ namespace TBot.Bot
                        recipient,
                        meshMsgText,
                        replyToMessageId: message.Id,
-                       relayGatewayId: message.GatewayId,
+                       relayGatewayId: meshSender.GetReplyGatewayId(message),
                        hopLimit: message.GetSuggestedReplyHopLimit());
             }
             else
@@ -1213,7 +1214,7 @@ namespace TBot.Bot
                     recipient,
                     meshMsgText,
                     replyToMessageId: message.Id,
-                    relayGatewayId: message.GatewayId,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
             }
         }
@@ -1300,7 +1301,7 @@ namespace TBot.Bot
                 recipient,
                 meshMsgText,
                 replyToMessageId: message.Id,
-                relayGatewayId: message.GatewayId,
+                relayGatewayId: meshSender.GetReplyGatewayId(message),
                 hopLimit: message.GetSuggestedReplyHopLimit());
         }
 

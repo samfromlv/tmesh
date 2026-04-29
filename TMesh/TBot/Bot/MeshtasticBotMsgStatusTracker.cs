@@ -356,7 +356,7 @@ namespace TBot.Bot
                             primaryChannel,
                             item.GetSuggestedReplyHopLimit(),
                             item.DeviceId,
-                            item.GatewayId);
+                            GetReplyGatewayId(item));
                     }
                 }
 
@@ -364,6 +364,28 @@ namespace TBot.Bot
                     status,
                     replyText);
             }
+        }
+
+        public long? GetReplyGatewayId(MeshMessage msg)
+        {
+            if (msg.TMeshGatewayId.HasValue)
+            {
+                return msg.TMeshGatewayId.Value;
+            }
+
+            if (msg.DecodedBy == null)
+            {
+                return null;
+            }
+            else if (msg.DecodedBy.RecipientDeviceId.HasValue)
+            {
+                return botCache.GetDeviceGateway(msg.DecodedBy.RecipientDeviceId.Value)?.GatewayId;
+            }
+            else if (msg.DecodedBy.IsSingleDeviceChannel == true)
+            {
+                return botCache.GetSingleDeviceChannelGateway(msg.DecodedBy.RecipientPrivateChannelId.Value)?.GatewayId;
+            }
+            return null;
         }
 
         private string GetRoutingErrorReply(Routing.Types.Error error)
