@@ -693,14 +693,14 @@ namespace TBot.Bot
             var json = JsonSerializer.Serialize(device, TgBotService.IdentedOptions);
 
             var sb = new StringBuilder();
-            sb.AppendLine($"📟 *{StringHelper.EscapeMd(device.NodeName)}* `{hexId}`");
+            sb.AppendLine($"📟 *{StringHelper.EscapeMdV2(device.NodeName)}* `{StringHelper.EscapeMdV2(hexId)}`");
             sb.AppendLine($"  Registrations: `{registrations.Count}`");
             sb.AppendLine();
             sb.AppendLine($"```");
-            sb.AppendLine(json);
+            sb.AppendLine(StringHelper.EscapeMdV2(json));
             sb.AppendLine($"```");
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.Markdown);
+            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
             return TgResult.Ok;
         }
 
