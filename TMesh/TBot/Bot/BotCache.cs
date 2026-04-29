@@ -520,6 +520,14 @@ namespace TBot.Bot
         private static string PendingDeviceTgToMeshKey(long deviceId) => $"PendingDeviceChatTgToMesh_{deviceId}";
         private static string PendingChannelTgToMeshKey(int channelId) => $"PendingChannelChatTgToMesh_{channelId}";
 
-        
+
+        public void StoreMessageSentByOurNode(long messageId)
+        {
+            memoryCache.Set($"SentByOurNode_{messageId}", true, TimeSpan.FromMinutes(30));
+        }
+        public bool IsMessageSentByOurNode(long messageId)
+        {
+            return memoryCache.TryGetValue<bool>($"SentByOurNode_{messageId}", out _);
+        }
     }
 }

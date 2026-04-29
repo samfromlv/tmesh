@@ -973,8 +973,11 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, $"Channel '{channelName}' is not found in network [{networkId}] \"{network.Name}\".");
                 return TgResult.Ok;
             }
+            var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+            botCache.StoreMessageSentByOurNode(newMsgId);
 
             meshtasticService.SendPublicTextMessage(
+                newMsgId,
                 announcement,
                 relayGatewayId: null,
                 hopLimit: int.MaxValue,
@@ -1027,8 +1030,11 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, $"No primary channel is configured in network [{networkId}] \"{network.Name}\".");
                 return TgResult.Ok;
             }
+            var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+            botCache.StoreMessageSentByOurNode(newMsgId);
 
             meshtasticService.SendPublicTextMessage(
+                newMsgId,
                 announcement,
                 relayGatewayId: null,
                 hopLimit: int.MaxValue,

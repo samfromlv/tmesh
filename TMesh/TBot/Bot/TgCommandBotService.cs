@@ -2066,7 +2066,7 @@ namespace TBot.Bot
                     var gatewayId = botCache.GetRecipientGateway(recipient);
                     var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
                     var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";
-                    meshtasticService.SendTextMessage(
+                    meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                          recipient,
                          $"Chat with {chatName} is ended",
                          replyToMessageId: null,
@@ -2351,7 +2351,7 @@ namespace TBot.Bot
 
             if (recipient != null)
             {
-                meshtasticService.SendTextMessage(recipient, $"Chat session with Telegram chat has been stopped", null, null, int.MaxValue);
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(recipient, $"Chat session with Telegram chat has been stopped", null, null, int.MaxValue);
             }
 
             return TgResult.Ok;

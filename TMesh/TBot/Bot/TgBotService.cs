@@ -324,7 +324,7 @@ namespace TBot.Bot
                 {
                     var gatewayId = botCache.GetRecipientGateway(recipient);
 
-                    meshtasticService.SendTextMessage(
+                    meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                         recipient,
                         $"❌ Chat with {chatName} is ended",
                         replyToMessageId: null,

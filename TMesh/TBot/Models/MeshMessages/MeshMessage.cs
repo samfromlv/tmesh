@@ -48,7 +48,7 @@ namespace TBot.Models.MeshMessages
             {
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
-                ViaMqtt = env.Packet.ViaMqtt,
+                ViaMqtt = env.Packet.ViaMqtt || env.Packet.TransportMechanism == MeshPacket.Types.TransportMechanism.TransportMqtt,
                 EnvelopeChannelName = env.ChannelId,
                 ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,

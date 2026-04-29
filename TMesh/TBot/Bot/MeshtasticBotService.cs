@@ -211,45 +211,72 @@ namespace TBot.Bot
 
         private async Task ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
         {
-            if (!_options.ReplyToPublicPingsViaDirectMessage
-                && _options.PingWords.Length == 0)
+            if (message.DeviceId == _options.MeshtasticNodeId)
             {
+                CheckPublicTextForFakeMessage(message);
                 return;
             }
 
-            var text = message.Text.Trim();
-            bool isPing = _options.PingWords.Any(pingWord => string.Equals(text, pingWord, StringComparison.OrdinalIgnoreCase));
-            if (!isPing || message.ReplyTo != 0)
+            if (_options.ReplyToPublicPingsViaDirectMessage
+                && _options.PingWords.Length > 0)
             {
-                return;
-            }
-
-            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-
-            if (deviceOrNull == null)
-            {
-                await SendNoPublicKeyNak(message);
-                return;
-            }
-
-            var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
-
-            if (!network.DisablePongs)
-            {
-                meshtasticService.SendDirectTextMessage(
-                    message.DeviceId,
-                    deviceOrNull.NetworkId,
-                    deviceOrNull.PublicKey,
-                    GetPingReplyText(network),
-                    replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
-                    relayGatewayId: message.GatewayId,
-                    hopLimit: message.GetSuggestedReplyHopLimit());
-
-                meshtasticService.AddStat(new Shared.Models.MeshStat
+                var text = message.Text.Trim();
+                bool isPing = _options.PingWords.Any(pingWord => string.Equals(text, pingWord, StringComparison.OrdinalIgnoreCase));
+                if (!isPing || message.ReplyTo != 0)
                 {
-                    NetworkId = deviceOrNull.NetworkId,
-                    PongSent = 1,
-                });
+                    return;
+                }
+
+                deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
+
+                if (deviceOrNull == null)
+                {
+                    await SendNoPublicKeyNak(message);
+                    return;
+                }
+
+                var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
+
+                if (!network.DisablePongs)
+                {
+                    meshtasticService.SendDirectTextMessage(
+                        message.DeviceId,
+                        deviceOrNull.NetworkId,
+                        deviceOrNull.PublicKey,
+                        GetPingReplyText(network),
+                        replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
+                        relayGatewayId: message.GatewayId,
+                        hopLimit: message.GetSuggestedReplyHopLimit());
+
+                    meshtasticService.AddStat(new Shared.Models.MeshStat
+                    {
+                        NetworkId = deviceOrNull.NetworkId,
+                        PongSent = 1,
+                    });
+                }
+            }
+        }
+
+        private void CheckPublicTextForFakeMessage(TextMessage message)
+        {
+            var isValidMessage = botCache.IsMessageSentByOurNode(message.Id);
+            if (!isValidMessage)
+            {
+                if (!string.IsNullOrEmpty(_options.Texts.FakeMessageWarningReply))
+                {
+                    var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+                    botCache.StoreMessageSentByOurNode(newMsgId);
+                    meshtasticService.SendPublicTextMessage(
+                        newMessageId: newMsgId,
+                        text: _options.Texts.FakeMessageWarningReply,
+                        relayGatewayId: null,
+                        hopLimit: int.MaxValue,
+                        publicChannelName: message.DecodedBy is PublicChannel pc
+                            ? pc.Name
+                            : MeshtasticService.UnknownChannelName,
+                        message.DecodedBy,
+                        replyToMessageId: message.Id);
+                }
             }
         }
 
@@ -271,7 +298,7 @@ namespace TBot.Bot
                 $"@{_options.TelegramBotUserName} - Telegram bot\n" +
                 "tmesh.ru - more help";
 
-            meshtasticService.SendTextMessage(
+            meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                 recipient,
                 helpText,
                 replyToMessageId: msg.Id,
@@ -334,7 +361,7 @@ namespace TBot.Bot
                     }
                     else
                     {
-                        meshtasticService.SendTextMessage(
+                        meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                             channel,
                             $"Invalid code. To approve reply with code {pendingRequest.Code}.",
                             replyToMessageId: message.Id,
@@ -793,9 +820,9 @@ namespace TBot.Bot
             if (res.res == SaveResult.Inserted)
             {
                 var network = await registrationService.GetNetwork(message.NetworkId);
-                if (network != null 
+                if (network != null
                       && !network.DisableWelcomeMessage
-                      && (!string.IsNullOrEmpty(network.Url) 
+                      && (!string.IsNullOrEmpty(network.Url)
                             || !string.IsNullOrEmpty(network.CommunityUrl)
                             || !string.IsNullOrEmpty(network.WelcomeUrl)))
                 {
@@ -935,9 +962,9 @@ namespace TBot.Bot
         }
 
         private async ValueTask<StringBuilder> AppendRouteDiscoveryInfo(
-            StringBuilder sb, 
-            long fromDeviceId, 
-            long toDeviceId,  
+            StringBuilder sb,
+            long fromDeviceId,
+            long toDeviceId,
             RepeatedField<uint> route,
             RepeatedField<int> snrSet)
         {
@@ -1005,7 +1032,7 @@ namespace TBot.Bot
 
             if (activeSessionTgChatId == null)
             {
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
                     $"No active chat session found",
                     replyToMessageId: message.Id,
@@ -1020,7 +1047,7 @@ namespace TBot.Bot
                 var tgChat = await registrationService.GetTgChatByChatIdAsync(activeSessionTgChatId.Value);
                 string chatName = tgChat != null ? tgChat.ChatName : "Unknown";
 
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
                     $"Chat with {chatName} is ended",
                     replyToMessageId: message.Id,
@@ -1051,7 +1078,7 @@ namespace TBot.Bot
             bool isPrivateChat = targetHandle.StartsWith('@');
             if (tgChat == null)
             {
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
                     isPrivateChat
                       ? "❌ Telegram user not found or not registered with TMesh."
@@ -1066,7 +1093,7 @@ namespace TBot.Bot
 
             if (!tgChat.IsActive && !isApproved)
             {
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
                     $"❌ Chat is disabled. Please reactivate the chat with /start command in Telegram.",
                     replyToMessageId: message.Id,
@@ -1119,7 +1146,7 @@ namespace TBot.Bot
                     ? $"{targetHandle} already has active chat with someone else. Waiting for approval..."
                     : $"❌ Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                        recipient,
                        meshMsgText,
                        replyToMessageId: message.Id,
@@ -1154,7 +1181,7 @@ namespace TBot.Bot
                     ? $"✅ Chat is started. You can send messages."
                     : $"❌ Failed to start chat. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                        recipient,
                        meshMsgText,
                        replyToMessageId: message.Id,
@@ -1182,7 +1209,7 @@ namespace TBot.Bot
                     ? $"Chat request is sent. Waiting for approval..."
                     : $"❌ Failed to send request. Please check if the bot is active and has permissions to send messages to {targetHandle}.";
 
-                meshtasticService.SendTextMessage(
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
                     meshMsgText,
                     replyToMessageId: message.Id,
@@ -1210,7 +1237,7 @@ namespace TBot.Bot
                 if (other != null)
                 {
                     var gatewayId = botCache.GetRecipientGateway(recipient);
-                    meshtasticService.SendTextMessage(
+                    meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                         other,
                         $"❌ Chat with {chatName} is ended",
                         replyToMessageId: null,
@@ -1269,7 +1296,7 @@ namespace TBot.Bot
                     ? $"✅ Chat approved. You can now send messages."
                     : $"❌ Failed to start chat. Please check if the bot is active and has permissions to send messages to this chat.";
 
-            meshtasticService.SendTextMessage(
+            meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                 recipient,
                 meshMsgText,
                 replyToMessageId: message.Id,

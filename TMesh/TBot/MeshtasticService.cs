@@ -47,16 +47,18 @@ namespace TBot
         private readonly TBotOptions _options = options.Value;
 
         public QueueResult SendPublicTextMessage(
+            long newMessageId,
             string text,
             long? relayGatewayId,
             int hopLimit,
             string publicChannelName,
-            IRecipient recipient)
+            IRecipient recipient,
+            long? replyToMessageId = null)
         {
             var envelope = PackPublicTextMessage(
-                GenerateNewMessageId(),
+                newMessageId,
                 text,
-                null,
+                replyToMessageId,
                 hopLimit,
                 recipient,
                 publicChannelName);
@@ -104,7 +106,7 @@ namespace TBot
             };
         }
 
-        public QueueResult SendTextMessage(
+        public QueueResult SendTextMessageToDeviceOrPrivateChannel(
             IRecipient recipient,
             string text,
             long? replyToMessageId,
@@ -131,14 +133,6 @@ namespace TBot
                     replyToMessageId,
                     relayGatewayId,
                     hopLimit,
-                    recipient);
-            }
-            else if (recipient.IsPublicChannel)
-            {
-                return SendPublicTextMessage(text,
-                    relayGatewayId,
-                    hopLimit,
-                    publicChannelName,
                     recipient);
             }
             else
@@ -313,9 +307,9 @@ namespace TBot
             IRecipient encodeBy;
             string channelName;
 
-            if (msg.DecodedBy == null 
-                 || (msg.DecodedBy.IsPublicChannel 
-                    && msg.DecodedBy.RecipientPublicChannelId == primaryChannel.RecipientPublicChannelId) )
+            if (msg.DecodedBy == null
+                 || (msg.DecodedBy.IsPublicChannel
+                    && msg.DecodedBy.RecipientPublicChannelId == primaryChannel.RecipientPublicChannelId))
             {
                 encodeBy = primaryChannel;
                 channelName = primaryChannelName;
@@ -1145,6 +1139,11 @@ namespace TBot
             List<IRecipient> recipients,
             long gatewayNodeId)
         {
+            if (recipients == null || recipients.Count == 0)
+            {
+                return default;
+            }
+
             var (decoded, recipient) = DecryptPacketWithPsk(envelope.Packet, recipients);
             if (decoded == null)
             {
@@ -1388,7 +1387,7 @@ namespace TBot
             }
             return (true, data);
         }
-        
+
         private static int RoundSnrForTrace(float snr)
         {
             return (int)Math.Round(snr * 4);

@@ -16,5 +16,6 @@ namespace TBot.Models
         public string PrivacyDisclaimer { get; set; }
         public string PingReplyWithNetworkUrl { get; set; }
         public string NotRegisteredDeviceReply { get; set; }
+        public string FakeMessageWarningReply { get; set; }
     }
 }

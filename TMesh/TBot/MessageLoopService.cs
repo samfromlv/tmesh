@@ -150,7 +150,10 @@ public class MessageLoopService(
 
                 try
                 {
+                    var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+                    botCache.StoreMessageSentByOurNode(newMsgId);
                     meshtasticService.SendPublicTextMessage(
+                        newMsgId,
                         msg.Text,
                         relayGatewayId: null,
                         hopLimit: int.MaxValue,
