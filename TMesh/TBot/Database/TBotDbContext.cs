@@ -49,6 +49,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
                .HasDefaultValue(1);
 
             e.Property(p => p.NodeName);
+            e.Property(p => p.HardwareModel);
+            e.Property(p => p.MacAddress);
             e.Property(p => p.CreatedUtc)
                 .IsRequired();
             e.Property(p => p.UpdatedUtc)

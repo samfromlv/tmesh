@@ -40,6 +40,8 @@ namespace TBot.Models.MeshMessages
 
         public IRecipient DecodedBy { get; set; }
 
+        public ServiceEnvelope RawPacketEnvelope { get; set; }
+
         public int GetSuggestedReplyHopLimit() => MeshtasticService.GetSuggestedReplyHopLimit(this);
     
         public static T FromEnvelope<T>(ServiceEnvelope env, Data decoded, IRecipient recipient)
@@ -47,6 +49,7 @@ namespace TBot.Models.MeshMessages
         {
             return new T
             {
+                RawPacketEnvelope = env,
                 DeviceId = env.Packet.From,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
                 ViaMqtt = env.Packet.ViaMqtt || env.Packet.TransportMechanism == MeshPacket.Types.TransportMechanism.TransportMqtt,

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using TBot.Analytics.Models;
 
 namespace TBot.Models.MeshMessages
 {
@@ -14,5 +15,8 @@ namespace TBot.Models.MeshMessages
         public byte[] PublicKey { get; set; }
         public string NodeName { get; set; }
 
+        public Packet Packet { get; set; }
+
+        public NodeInfo NodeInfo { get; set; }
     }
 }

@@ -10,6 +10,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using Shared.Models;
 using System.Text;
+using TBot.Analytics.Models;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
@@ -30,7 +31,7 @@ namespace TBot
         const int MESHTASTIC_PKC_OVERHEAD = 12;
         private const int NoDupExpirationMinutes = 10;
         private const int LinkTraceExpirationMinutes = 6;
-        private const int PkiKeyLength = 32;
+        public const int PkiKeyLength = 32;
         private const int PskKeyLengthShort = 16;
         private const int PskKeyLength = 32;
         private const int ReplyHopsMargin = 2;
@@ -42,6 +43,7 @@ namespace TBot
         internal const uint BroadcastDeviceId = uint.MaxValue;
         public const string PKIChannelName = "PKI";
         public const string UnknownChannelName = "UCH";
+        private const int MaxMacAddrLengthBytes = 8;
         private static readonly Dictionary<int, LinkedList<MeshStat>> meshStatsByNetwork = [];
         private readonly Dictionary<int, LinkedList<MeshStat>> _meshStatsQueueByNetwork = meshStatsByNetwork;
         private readonly TBotOptions _options = options.Value;
@@ -832,15 +834,27 @@ namespace TBot
 
 
 
-        public void StoreGatewayLinkTraceStepZero(long packetId)
+        public void MarkAsLinkTrace(long packetId)
         {
             var key = $"meshtastic:linktrace:{packetId:X}";
             memoryCache.Set(key, true, TimeSpan.FromMinutes(LinkTraceExpirationMinutes));
         }
 
-        public bool IsLinkTrace(ServiceEnvelope env)
+        public bool IsPreviouslySeenLinkTrace(ServiceEnvelope env)
         {
             var key = $"meshtastic:linktrace:{env.Packet.Id:X}";
+            return memoryCache.TryGetValue(key, out _);
+        }
+
+        public void MarkAsNodeInfo(long packetId)
+        {
+            var key = $"meshtastic:nodeinfo:{packetId:X}";
+            memoryCache.Set(key, true, TimeSpan.FromMinutes(LinkTraceExpirationMinutes));
+        }
+
+        public bool IsPreviouslySeenNodeInfo(ServiceEnvelope env)
+        {
+            var key = $"meshtastic:nodeinfo:{env.Packet.Id:X}";
             return memoryCache.TryGetValue(key, out _);
         }
 
@@ -1440,10 +1454,12 @@ namespace TBot
                 return default;
             }
             if (user?.PublicKey == null
-                || user.PublicKey.Length != PkiKeyLength)
+                || user.PublicKey.Length != PkiKeyLength
+                || user.PublicKey.All(x => x == 0))
             {
                 return default;
             }
+
             long deviceId = envelope.Packet.From;
             if (TryParseDeviceId(user.Id, out var parsedId))
             {
@@ -1458,7 +1474,70 @@ namespace TBot
             msg.DeviceId = deviceId;
             msg.NodeName = user.LongName ?? user.ShortName ?? user.Id;
             msg.PublicKey = user.PublicKey.ToByteArray();
+
+            msg.Packet = new Packet
+            {
+                Channel = (byte)envelope.Packet.Channel,
+                DecodedByPublicChannelId = recipient.RecipientPublicChannelId,
+                Dest = envelope.Packet.Decoded.Dest,
+                From = envelope.Packet.From,
+                HopLimit = (byte)envelope.Packet.HopLimit,
+                HopStart = (byte)envelope.Packet.HopStart,
+                IsEmoji = envelope.Packet.Decoded.Emoji != 0,
+                MqttChannel = envelope.ChannelId,
+                NeedReplyFlag = envelope.Packet.Decoded.HasBitfield && (envelope.Packet.Decoded.Bitfield & NeedReplyMask) != 0,
+                NextHop = (byte)envelope.Packet.NextHop,
+                OkToMqttFlag = envelope.Packet.Decoded.HasBitfield && (envelope.Packet.Decoded.Bitfield & OkToMqttMask) != 0,
+                PacketId = envelope.Packet.Id,
+                PkiEncrypted = recipient.RecipientDeviceId != null,
+                PortNum = (int)envelope.Packet.Decoded.Portnum,
+                Priority = (byte)envelope.Packet.Priority,
+                RelayNode = (byte)envelope.Packet.RelayNode,
+                ReplyId = envelope.Packet.Decoded.ReplyId,
+                RequestId = envelope.Packet.Decoded.RequestId,
+                RxRssi = envelope.Packet.RxRssi,
+                RxSnr = envelope.Packet.RxSnr,
+                RxTimestamp = envelope.Packet.RxTime,
+                Source = envelope.Packet.Decoded.Source,
+                To = envelope.Packet.To,
+                Transport = (byte)envelope.Packet.TransportMechanism,
+                TxAfter = envelope.Packet.TxAfter,
+                ViaMqtt = envelope.Packet.ViaMqtt,
+                WantAck = envelope.Packet.WantAck,
+                WantResponse = envelope.Packet.Decoded.WantResponse,
+            };
+
+            msg.NodeInfo = new Analytics.Models.NodeInfo
+            {
+                UserId = user.Id,
+                PublicKey = user.PublicKey?.ToByteArray(),
+                ShortName = user.ShortName,
+                LongName = user.LongName,
+                HardwareModel = user.HwModel != HardwareModel.Unset ? (int?)user.HwModel : null,
+                IsLicensed = user.IsLicensed,
+                IsUnmessagable = user.IsUnmessagable,
+                Role = (byte)user.Role,
+                MacAddr = user.Macaddr != null
+                        && user.Macaddr.Length > 0
+                        && user.Macaddr.Length <= MaxMacAddrLengthBytes
+                    ? MacBytesToUInt64(user.Macaddr)
+                    : null
+            };
+
             return (true, msg);
+        }
+
+        private static long MacBytesToUInt64(IEnumerable<byte> bytes)
+        {
+            if (bytes == null)
+                throw new ArgumentNullException(nameof(bytes));
+
+            long value = 0;
+            foreach (byte b in bytes)
+            {
+                value = (value << 8) | b;
+            }
+            return value;
         }
 
 

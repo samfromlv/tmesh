@@ -755,11 +755,13 @@ namespace TBot
             long deviceId,
             int networkId,
             string nodeName,
+            int? hardwareModel,
+            long? macAddress,
             byte[] publicKey)
         {
-            if (publicKey == null || publicKey.Length == 0 || publicKey.Length != 32)
+            if (publicKey == null || publicKey.Length == 0 || publicKey.Length != MeshtasticService.PkiKeyLength)
             {
-                throw new ArgumentException("Public key must be 32 bytes", nameof(publicKey));
+                throw new ArgumentException($"Public key must be {MeshtasticService.PkiKeyLength} bytes", nameof(publicKey));
             }
 
             var entity = await db.Devices.FirstOrDefaultAsync(p => p.DeviceId == deviceId);
@@ -773,17 +775,29 @@ namespace TBot
                     NetworkId = networkId,
                     NodeName = nodeName,
                     PublicKey = publicKey,
+                    HardwareModel = hardwareModel,
+                    MacAddress = macAddress,
                     CreatedUtc = now,
                     UpdatedUtc = now
                 };
                 db.Devices.Add(entity);
                 res = SaveResult.Inserted;
             }
+            else if (_options.SkipNodeUpdateIfHardwareNotMatch
+                && ((entity.HardwareModel != null 
+                    && entity.HardwareModel != hardwareModel)
+                || (entity.MacAddress != null
+                    && entity.MacAddress != macAddress)))
+            {
+                return (SaveResult.SecurityErrorHardwareNotMatching, entity);
+            }
             else if (!entity.HasRegistrations)
             {
                 entity.NetworkId = networkId;
                 entity.PublicKey = publicKey;
                 entity.NodeName = nodeName;
+                entity.HardwareModel = hardwareModel;
+                entity.MacAddress = macAddress;
                 entity.UpdatedUtc = now;
                 res = SaveResult.Updated;
             }
@@ -793,12 +807,14 @@ namespace TBot
             {
                 entity.NetworkId = networkId;
                 entity.NodeName = nodeName;
+                entity.HardwareModel = hardwareModel;
+                entity.MacAddress = macAddress;
                 entity.UpdatedUtc = now;
                 res = SaveResult.Updated;
             }
             else
             {
-                return (SaveResult.SecurityError, entity);
+                return (SaveResult.SecurityErrorKeyPinned, entity);
             }
 
             await db.SaveChangesAsync();

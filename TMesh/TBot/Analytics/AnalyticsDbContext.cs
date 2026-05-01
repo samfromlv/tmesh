@@ -8,6 +8,9 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
 {
     public DbSet<DeviceMetric> DeviceMetrics => Set<DeviceMetric>();
     public DbSet<LinkTrace> Traces => Set<LinkTrace>();
+    public DbSet<Packet> Packets => Set<Packet>();
+    public DbSet<NodeInfo> NodeInfos => Set<NodeInfo>();
+    public DbSet<PacketBody> RawPackets => Set<PacketBody>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceMetric>(e =>
@@ -59,6 +62,27 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
                     r.FromLongitude,
                     r.Timestamp
                 });
+        });
+
+        modelBuilder.Entity<Packet>(e =>
+        {
+            e.HasKey(r => r.RecordId);
+            e.Property(r => r.RecordId).ValueGeneratedOnAdd();
+            e.HasIndex(r => r.PacketId);
+        });
+
+        modelBuilder.Entity<PacketBody>(e =>
+        {
+            e.HasKey(r => r.RecordId);
+            e.Property(r => r.RecordId).ValueGeneratedNever();
+            e.Property(r => r.Body).IsRequired();
+
+        });
+
+        modelBuilder.Entity<NodeInfo>(e =>
+        {
+            e.HasKey(r => r.RecordId);
+            e.Property(r => r.RecordId).ValueGeneratedNever();
         });
     }
 }

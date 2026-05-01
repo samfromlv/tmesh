@@ -808,6 +808,8 @@ namespace TBot.Bot
                 message.DeviceId,
                 message.NetworkId,
                 message.NodeName,
+                message.NodeInfo.HardwareModel,
+                message.NodeInfo.MacAddr,
                 message.PublicKey);
 
             if (message.NeedAck && res.device != null && res.device.PublicKey != null)
@@ -875,7 +877,8 @@ namespace TBot.Bot
                     });
                 }
             }
-            else if (res.res == SaveResult.SecurityError)
+            else if (res.res == SaveResult.SecurityErrorKeyPinned
+                || res.res == SaveResult.SecurityErrorHardwareNotMatching)
             {
                 var device = res.device;
                 if (device == null)
@@ -886,11 +889,22 @@ namespace TBot.Bot
                 //Node public key do not match our records, delivery of messages to this node will not work
                 //we need to warn users that his public key was changed and he need to remove device and readded it
                 var chatIds = await registrationService.GetChatsByDeviceIdCached(message.DeviceId);
-                foreach (var chatId in chatIds)
+
+                if (chatIds.Count != 0)
                 {
-                    await TrySendMessage(
-                        chatId: chatId,
-                        text: $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.");
+                    var msgTxt = res.res switch
+                    {
+                        SaveResult.SecurityErrorKeyPinned => $"Warning: The new public key was detected for device {device.NodeName}. If you have recently reset your device or changed encryption keys, please remove the device (using /remove_device command) and add it back for messaging to work. Public keys are not updated automatically after device first registration due security reasons. If you haven't changed the keys or reset your device please take it as a warning, some node in the network is using your device id.",
+                        SaveResult.SecurityErrorHardwareNotMatching => $"Warning: The hardware model reported by device {device.NodeName} do not match the one we have in our records. If you have recently changed your device or its hardware model, please remove the device (using /remove_device command) and add it back for messaging to work. If you haven't changed the hardware model or reset your device please take it as a warning, some node in the network is using your device id.",
+                        _ => throw new NotImplementedException("Unknown security error result")
+                    };
+
+                    foreach (var chatId in chatIds)
+                    {
+                        await TrySendMessage(
+                                chatId: chatId,
+                                text: msgTxt);
+                    }
                 }
             }
         }

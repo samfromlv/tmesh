@@ -35,6 +35,21 @@ namespace TBot.Analytics
                 .CountAsync();
         }
 
+        public async Task SaveNodeInfo(Packet packet, NodeInfo nodeInfo, PacketBody body)
+        {
+            packet.Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow);
+            db.Packets.Add(packet);
+            await db.SaveChangesAsync();
+
+            nodeInfo.RecordId = packet.RecordId;
+            db.NodeInfos.Add(nodeInfo);
+
+            body.RecordId = packet.RecordId;
+            db.RawPackets.Add(body);
+
+            await db.SaveChangesAsync();
+        }
+
         public async Task RecordLinkTrace(
             int networkId,
             long packetId,

@@ -44,6 +44,7 @@ public class TBotOptions
     public bool BridgeDirectMessagesToGateways { get; set; }
     public long[] BridgeAllowedExtraNodeIds { get; set; }
     public bool ReplyToPublicPingsViaDirectMessage { get; set; }
+    public bool SkipNodeUpdateIfHardwareNotMatch { get; set; }
 
     public string[] PingWords { get; set; }
 

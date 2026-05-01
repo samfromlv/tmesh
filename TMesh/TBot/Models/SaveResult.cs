@@ -8,6 +8,6 @@ namespace TBot.Models
 {
     public enum SaveResult
     {
-        Inserted, Updated, SecurityError
+        Inserted, Updated, SecurityErrorKeyPinned, SecurityErrorHardwareNotMatching
     }
 }

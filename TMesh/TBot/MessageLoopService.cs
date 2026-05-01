@@ -488,10 +488,16 @@ public class MessageLoopService(
 
         try
         {
-            if (meshtasticService.IsLinkTrace(env))
+            if (meshtasticService.IsPreviouslySeenLinkTrace(env))
             {
                 scope ??= services.CreateScope();
                 await SaveLinkTrace(scope, networkId, tmeshOrMapGatewayId, env);
+                return;
+            }
+            else if (meshtasticService.IsPreviouslySeenNodeInfo(env))
+            {
+                scope ??= services.CreateScope();
+                await SaveNodeInfoFromEnvelope(scope, networkId, tmeshOrMapGatewayId, env);
                 return;
             }
 
@@ -561,14 +567,19 @@ public class MessageLoopService(
 
             if (res.msg != null
                 && res.msg.MessageType == MeshMessageType.NodeInfo
-                && res.msg is NodeInfoMessage nim
-                && nim.DeviceId == _options.MeshtasticNodeId)
+                && res.msg is NodeInfoMessage nim)
             {
-                var publicKeyBase64 = Convert.ToBase64String(nim.PublicKey);
-                if (publicKeyBase64 != _options.MeshtasticPublicKeyBase64
-                    || nim.NodeName != _options.MeshtasticNodeNameLong)
+                nim.Packet.GatewayId = (uint)tmeshOrMapGatewayId;
+                nim.Packet.IsTMeshGateway = isTMeshGateway;
+
+                if (nim.DeviceId == _options.MeshtasticNodeId)
                 {
-                    logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
+                    var publicKeyBase64 = Convert.ToBase64String(nim.PublicKey);
+                    if (publicKeyBase64 != _options.MeshtasticPublicKeyBase64
+                        || nim.NodeName != _options.MeshtasticNodeNameLong)
+                    {
+                        logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
+                    }
                 }
                 return;
             }
@@ -581,7 +592,7 @@ public class MessageLoopService(
 
             scope ??= services.CreateScope();
 
-            var t1 = PerhapsSaveLinkTrace(scope, tmeshOrMapGatewayId, res.msg);
+            var t1 = PerhapsSaveForAnalytics(scope, tmeshOrMapGatewayId, res.msg);
 
             var t2 = isTMeshGateway
                 ? PerhapsUplinkToMap(env, res.msg)
@@ -692,6 +703,9 @@ public class MessageLoopService(
         return false;
     }
 
+
+
+
     private async ValueTask PerhapsUplinkToMap(
         ServiceEnvelope data,
         MeshMessage msg)
@@ -727,27 +741,90 @@ public class MessageLoopService(
         await mapMqttService.PublishMeshtasticMessage(networkId, data);
     }
 
-    private async ValueTask PerhapsSaveLinkTrace(
+    private async ValueTask PerhapsSaveForAnalytics(
         IServiceScope scope,
         long gatewayId,
         MeshMessage msg)
     {
-        if (msg.MessageType == MeshMessageType.DeviceMetrics
-            && _gatewayNetworkIds.ContainsKey(msg.DeviceId))
+        try
         {
-            await SaveLinkTrace(
-                scope: scope,
-                packetId: msg.Id,
-                networkId: msg.NetworkId,
-                gatewayId: gatewayId,
-                deviceId: msg.DeviceId,
-                hopStart: (uint)msg.HopStart,
-                hopLimit: (uint)msg.HopLimit,
-                cachePacketId: true);
+            if (msg.MessageType == MeshMessageType.DeviceMetrics
+                && _gatewayNetworkIds.ContainsKey(msg.DeviceId))
+            {
+                await SaveLinkTrace(
+                    scope: scope,
+                    packetId: msg.Id,
+                    networkId: msg.NetworkId,
+                    gatewayId: gatewayId,
+                    deviceId: msg.DeviceId,
+                    hopStart: (uint)msg.HopStart,
+                    hopLimit: (uint)msg.HopLimit,
+                    cachePacketId: true);
+            }
+            else if (msg.MessageType == MeshMessageType.NodeInfo)
+            {
+                await SaveNodeInfo(scope, (NodeInfoMessage)msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error in PerhapsSaveForAnalytics");
         }
     }
 
+    private async Task SaveNodeInfoFromEnvelope(IServiceScope scope, int networkId, long gatewayId, ServiceEnvelope env)
+    {
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(networkId);
+        if (primaryChannel == null) {
+            logger.LogWarning("Primary channel not found for network ID {NetworkId}, cannot save node info", networkId);
+            return;
+        }
 
+        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel]);
+        if (!res.success || res.msg is not NodeInfoMessage nodeInfoMsg)
+            return;
+
+        await SaveNodeInfo(scope, nodeInfoMsg);
+    }
+
+    private async ValueTask SaveNodeInfo(IServiceScope scope, NodeInfoMessage msg)
+    {
+        var analyticsService = scope.ServiceProvider.GetService<AnalyticsService>();
+        if (analyticsService == null)
+        {
+            return;
+        }
+
+        if (msg.DecodedBy == null || !msg.DecodedBy.IsPublicChannel)
+        {
+            return;
+        }
+
+        var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+        var network = await registrationService.GetNetwork(msg.NetworkId);
+        if (network == null || !network.SaveAnalytics)
+        {
+            return;
+        }
+
+        var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(msg.NetworkId);
+        if (primaryChannel == null || primaryChannel.Id != msg.DecodedBy.RecipientPublicChannelId)
+        {
+            return;
+        }
+
+        meshtasticService.MarkAsNodeInfo(msg.Id);
+
+        await analyticsService.SaveNodeInfo(msg.Packet,
+            msg.NodeInfo,
+            new Analytics.Models.PacketBody
+            {
+                Body = msg.RawPacketEnvelope.ToByteArray(),
+            });
+
+        return;
+    }
 
     private async ValueTask SaveLinkTrace(
       IServiceScope scope,
@@ -771,7 +848,7 @@ public class MessageLoopService(
 
             if (cachePacketId)
             {
-                meshtasticService.StoreGatewayLinkTraceStepZero(packetId);
+                meshtasticService.MarkAsLinkTrace(packetId);
             }
             meshtasticService.AddStat(new MeshStat
             {
@@ -835,6 +912,8 @@ public class MessageLoopService(
             hopLimit: env.Packet.HopLimit,
             cachePacketId: false);
     }
+
+    
 
     private void UpdateGatewayLastSeen(long gatewayId)
     {
