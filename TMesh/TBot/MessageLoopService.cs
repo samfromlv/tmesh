@@ -580,8 +580,8 @@ public class MessageLoopService(
                     {
                         logger.LogError("Security warning: NodeInfo message from self - {nim}. Public key - {key}", JsonSerializer.Serialize(nim), Convert.ToBase64String(nim.PublicKey));
                     }
+                    return;
                 }
-                return;
             }
 
             if (res.msg.MessageType == MeshMessageType.AckMessage)
@@ -776,7 +776,8 @@ public class MessageLoopService(
     {
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(networkId);
-        if (primaryChannel == null) {
+        if (primaryChannel == null)
+        {
             logger.LogWarning("Primary channel not found for network ID {NetworkId}, cannot save node info", networkId);
             return;
         }
@@ -913,7 +914,7 @@ public class MessageLoopService(
             cachePacketId: false);
     }
 
-    
+
 
     private void UpdateGatewayLastSeen(long gatewayId)
     {
