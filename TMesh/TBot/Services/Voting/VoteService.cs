@@ -26,7 +26,7 @@ namespace TBot.Services.Voting
         //        NodeActiveHoursLimit = 24,
         //        Enabled = true,
         //        Description = "This is a test vote for Medium Fast network.",
-                
+
         //        Options = new List<VoteOption>
         //        {
         //            new VoteOption { OptionId = 1, Prefix = "[MF]", Name = "MediumFast" },
@@ -43,6 +43,7 @@ namespace TBot.Services.Voting
             var instantNow = Instant.FromDateTimeUtc(now);
             var votes = await analyticsService.GetVotesToProcessAsync();
 
+
             foreach (var vote in votes)
             {
                 if (!vote.Enabled || vote.EndsAt < instantNow)
@@ -54,7 +55,7 @@ namespace TBot.Services.Voting
                     // Not yet started — skip silently, do not deactivate
                     continue;
                 }
-                else if (vote.LastUpdate.HasValue && vote.LastUpdate.Value > instantNow.Plus(Duration.FromMinutes(-vote.UpdateIntervalMinutes)))
+                else if (vote.LastUpdate.HasValue && vote.LastUpdate.Value > instantNow.Plus(Duration.FromMinutes(-vote.UpdateIntervalMinutes - 10)))
                 {
                     // Updated recently — skip to avoid excessive processing
                     continue;
@@ -157,7 +158,7 @@ namespace TBot.Services.Voting
                             DeviceId = participant.DeviceId,
                             LogCreated = instantNow,
                             ChangeMade = Instant.FromDateTimeUtc(DateTime.SpecifyKind(device.UpdatedUtc, DateTimeKind.Utc)),
-                            MeshPacketId = device.LastNodeInfoPacketId.HasValue ? (uint)device.LastNodeInfoPacketId.Value : 0,
+                            MeshPacketId = (uint?)device.LastNodeInfoPacketId,
                             NewLongName = deviceName,
                             OldOptionId = participant.PreviousOptionId,
                             NewOptionId = currentVote,
@@ -194,7 +195,7 @@ namespace TBot.Services.Voting
                         DeviceId = participant.DeviceId,
                         LogCreated = instantNow,
                         ChangeMade = Instant.FromDateTimeUtc(DateTime.SpecifyKind(device.UpdatedUtc, DateTimeKind.Utc)),
-                        MeshPacketId = device.LastNodeInfoPacketId.HasValue ? (uint)device.LastNodeInfoPacketId.Value : 0,
+                        MeshPacketId = (uint?)device.LastNodeInfoPacketId,
                         NewLongName = deviceName,
                         OldOptionId = NoVote,
                         NewOptionId = currentVote,
