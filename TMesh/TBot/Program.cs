@@ -10,6 +10,7 @@ using TBot.Analytics;
 using MQTTnet;
 using TBot.Bot;
 using Serilog;
+using TBot.Services.Voting;
 
 namespace TBot
 {
@@ -55,6 +56,7 @@ namespace TBot
                             opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString, o => o.UseNodaTime());
                         });
                         services.AddScoped<AnalyticsService>();
+                        services.AddScoped<VoteService>();
                     }
                     services.AddMemoryCache();
                     services.AddSingleton<TimeZoneHelper>();

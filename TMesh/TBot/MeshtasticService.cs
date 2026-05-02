@@ -36,6 +36,7 @@ namespace TBot
         private const int PskKeyLength = 32;
         private const int ReplyHopsMargin = 2;
         private const int KeepStatsForMinutes = 60;
+        public const int MaxLongNodeNameLengthChars = 40;
         private const int MaxChannelNameBytes = 11;
         private const int OkToMqttMask = 1;
         private const int NeedReplyMask = 1 << 1;
@@ -1455,7 +1456,8 @@ namespace TBot
             }
             if (user?.PublicKey == null
                 || user.PublicKey.Length != PkiKeyLength
-                || user.PublicKey.All(x => x == 0))
+                || user.PublicKey.All(x => x == 0)
+                || (user.LongName != null && user.LongName.Length > MaxLongNodeNameLengthChars))
             {
                 return default;
             }

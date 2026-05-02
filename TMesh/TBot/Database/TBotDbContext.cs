@@ -65,6 +65,8 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
 
             e.HasIndex(r => r.NetworkId);
 
+            e.HasIndex(r => new { r.NetworkId, r.UpdatedUtc });
+
         });
 
         modelBuilder.Entity<GatewayRegistration>(e =>

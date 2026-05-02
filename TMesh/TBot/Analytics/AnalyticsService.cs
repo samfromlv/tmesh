@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NodaTime;
 using System;
@@ -79,6 +80,59 @@ namespace TBot.Analytics
             });
             await db.SaveChangesAsync();
         }
+
+        public async Task<List<Vote>> GetVotesToProcessAsync()
+        {
+            var now = Instant.FromDateTimeUtc(DateTime.UtcNow);
+
+            return await db.Votes
+                .Where(v => v.IsActive)
+                .Include(v => v.Options)
+                .ToListAsync();
+        }
+
+        public async Task DeactiveVote(int id)
+        {
+            await db.Votes
+                .Where(v => v.Id == id)
+                .ExecuteUpdateAsync(v => v.SetProperty(vote => vote.IsActive, false));
+        }
+
+        public async Task<List<VoteParticipant>> GetParticipants(int voteId)
+        {
+            return await db.VoteParticipants
+                .Where(p => p.VoteId == voteId)
+                .ToListAsync();
+        }
+
+        public async Task<List<VoteSnapshotStats>> GetVoteStats(int snapshotId)
+        {
+            return await db.VoteStats
+                .Where(p => p.SnapshotId == snapshotId)
+                .ToListAsync();
+        }
+
+        public void AddRange<T>(IEnumerable<T> rows)
+        {
+            db.AddRange(rows.Cast<object>());
+        }
+
+        public void RemoveRange<T>(IEnumerable<T> rows)
+        {
+            db.RemoveRange(rows.Cast<object>());
+        }
+
+        public void Add<T>(T row)
+        {
+            db.Add(row);
+        }
+
+
+        public async Task SaveChanges()
+        {
+            await db.SaveChangesAsync();
+        }
+
 
         public async Task EnsureMigratedAsync()
         {

@@ -757,7 +757,8 @@ namespace TBot
             string nodeName,
             int? hardwareModel,
             long? macAddress,
-            byte[] publicKey)
+            byte[] publicKey,
+            long meshPacketId)
         {
             if (publicKey == null || publicKey.Length == 0 || publicKey.Length != MeshtasticService.PkiKeyLength)
             {
@@ -778,7 +779,8 @@ namespace TBot
                     HardwareModel = hardwareModel,
                     MacAddress = macAddress,
                     CreatedUtc = now,
-                    UpdatedUtc = now
+                    UpdatedUtc = now,
+                    LastUpdatePacketId = meshPacketId
                 };
                 db.Devices.Add(entity);
                 res = SaveResult.Inserted;
@@ -799,6 +801,7 @@ namespace TBot
                 entity.HardwareModel = hardwareModel;
                 entity.MacAddress = macAddress;
                 entity.UpdatedUtc = now;
+                entity.LastUpdatePacketId = meshPacketId;
                 res = SaveResult.Updated;
             }
             else if (entity.HasRegistrations
@@ -810,6 +813,7 @@ namespace TBot
                 entity.HardwareModel = hardwareModel;
                 entity.MacAddress = macAddress;
                 entity.UpdatedUtc = now;
+                entity.LastUpdatePacketId = meshPacketId;
                 res = SaveResult.Updated;
             }
             else
@@ -1103,6 +1107,21 @@ namespace TBot
         public async Task<int> GetActiveDevicesCountByNetworkAndPrefix(int networkId, DateTime fromUtc, string prefix)
         {
             return await db.Devices.CountAsync(d => d.NetworkId == networkId && d.UpdatedUtc >= fromUtc && d.NodeName.StartsWith(prefix));
+        }
+
+        public async Task<List<DeviceNameForVote>> GetActiveDevicesNamesForVote(int networkId, DateTime fromUtc)
+        {
+            return await db.Devices.Where(d => d.NetworkId == networkId
+                && d.UpdatedUtc >= fromUtc)
+                .Select(x=> new DeviceNameForVote
+                {
+                     DeviceId = x.DeviceId,
+                     UpdatedUtc = x.UpdatedUtc,
+                     NodeCreatedUtc = x.CreatedUtc,
+                     LastNodeInfoPacketId = x.LastUpdatePacketId,
+                     NetworkId = x.NetworkId,
+                     NodeName = x.NodeName
+                }).ToListAsync();
         }
 
         public async Task<Network> AddNetwork(Network network)

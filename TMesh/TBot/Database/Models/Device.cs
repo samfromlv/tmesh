@@ -14,6 +14,8 @@ public class Device : IRecipient
     public int? HardwareModel { get; set; }
 
     public long? MacAddress { get; set; }
+
+    public long? LastUpdatePacketId { get; set; }
     public System.DateTime CreatedUtc { get; set; }
     public System.DateTime UpdatedUtc { get; set; }
     public bool HasRegistrations { get; set; }

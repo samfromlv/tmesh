@@ -810,7 +810,8 @@ namespace TBot.Bot
                 message.NodeName,
                 message.NodeInfo.HardwareModel,
                 message.NodeInfo.MacAddr,
-                message.PublicKey);
+                message.PublicKey,
+                message.Id);
 
             if (message.NeedAck && res.device != null && res.device.PublicKey != null)
             {

@@ -15,6 +15,7 @@ using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.MeshMessages;
 using TBot.Models.Queue;
+using TBot.Services.Voting;
 
 namespace TBot;
 
@@ -119,10 +120,29 @@ public class MessageLoopService(
             }
 
             await SendScheduledMessages(scope);
+
+            await ProcessVotes(scope);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error in ServiceInfo timer");
+        }
+    }
+
+    private async Task ProcessVotes(IServiceScope scope)
+    {
+        var voteService = scope.ServiceProvider.GetService<VoteService>();
+        if (voteService == null)
+        {
+            return;
+        }
+        try
+        {
+            await voteService.ProcessVotes();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error processing votes");
         }
     }
 
