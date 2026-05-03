@@ -531,7 +531,7 @@ public class MessageLoopService(
                 return;
             }
 
-            if (TryBridge(env, tmeshOrMapGatewayId))
+            if (TryBridge(env, tmeshOrMapGatewayId, isTMeshGateway))
             {
                 return;
             }
@@ -562,14 +562,9 @@ public class MessageLoopService(
                 recipients.AddRange(channelRecipients);
             }
 
-            var res = meshtasticService.TryDecryptMessage(env, recipients, networkId);
+            var res = meshtasticService.TryDecryptMessage(env, recipients, networkId, isTMeshGateway);
             if (res.msg != null)
             {
-                if (isTMeshGateway)
-                {
-                    res.msg.TMeshGatewayId = res.msg.GatewayId;
-                }
-
                 if (_options.DebugPacketsViaMqtt && isTMeshGateway)
                 {
                     mqttService.PublishMessageToDebug(res.msg);
@@ -588,9 +583,6 @@ public class MessageLoopService(
                 && res.msg.MessageType == MeshMessageType.NodeInfo
                 && res.msg is NodeInfoMessage nim)
             {
-                nim.Packet.GatewayId = (uint)tmeshOrMapGatewayId;
-                nim.Packet.IsTMeshGateway = isTMeshGateway;
-
                 if (nim.DeviceId == _options.MeshtasticNodeId)
                 {
                     var publicKeyBase64 = Convert.ToBase64String(nim.PublicKey);
@@ -637,7 +629,7 @@ public class MessageLoopService(
         }
     }
 
-    private bool TryBridge(ServiceEnvelope envelope, long gatewayId)
+    private bool TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway)
     {
         if (envelope.Packet == null || envelope.Packet.PayloadVariantCase != MeshPacket.PayloadVariantOneofCase.Encrypted)
         {
@@ -681,7 +673,7 @@ public class MessageLoopService(
                 return false;
             }
 
-            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId);
+            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
 
             meshtasticService.AddStat(new MeshStat
             {
@@ -806,11 +798,7 @@ public class MessageLoopService(
             return;
         }
 
-        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId);
-        if (res.msg != null && isTMeshGateway)
-        {
-            res.msg.TMeshGatewayId = gatewayId;
-        }
+        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId, isTMeshGateway);
         if (!res.success || res.msg is not NodeInfoMessage nodeInfoMsg)
             return;
 
