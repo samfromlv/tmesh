@@ -26,7 +26,6 @@ namespace TBot
         ILogger<MeshtasticService> logger)
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
-        public const int TextMessageProtobufOverheadBytes = 4;
         public const int MaxHops = 7;
         public const int WaitForAckStatusMaxMinutes = 2;
         const int MESHTASTIC_PKC_OVERHEAD = 12;
@@ -785,7 +784,7 @@ namespace TBot
         public static bool CanSendMessage(string text)
         {
             var byteCount = Encoding.UTF8.GetByteCount(text);
-            return (byteCount + TextMessageProtobufOverheadBytes) <= MaxTextMessageBytes;
+            return byteCount <= MaxTextMessageBytes;
         }
 
         public void SendVirtualNodeInfo(

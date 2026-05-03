@@ -473,7 +473,7 @@ namespace TBot.Bot
 
             var textToMesh = $"{TrimTelegramUserName(userName)}: {text}";
 
-            if (!MeshtasticService.CanSendMessage(text))
+            if (!MeshtasticService.CanSendMessage(textToMesh))
             {
                 await botClient.SendMessage(
                     chatId,
