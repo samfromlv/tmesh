@@ -44,7 +44,7 @@ namespace TBot.Models.MeshMessages
 
         public int GetSuggestedReplyHopLimit() => MeshtasticService.GetSuggestedReplyHopLimit(this);
     
-        public static T FromEnvelope<T>(ServiceEnvelope env, Data decoded, IRecipient recipient)
+        public static T FromEnvelope<T>(ServiceEnvelope env, Data decoded, IRecipient recipient, int networkId)
             where T : MeshMessage, new()
         {
             return new T
@@ -57,6 +57,7 @@ namespace TBot.Models.MeshMessages
                 ChannelId = recipient?.RecipientPrivateChannelId,
                 IsSingleDeviceChannel = recipient?.IsSingleDeviceChannel == true,
                 GatewayId = MeshtasticService.PraseDeviceHexId(env.GatewayId),
+                NetworkId = networkId,
                 NeedAck = env.Packet.WantAck
                              && env.Packet.From != MeshtasticService.BroadcastDeviceId
                              && env.Packet.To != MeshtasticService.BroadcastDeviceId,

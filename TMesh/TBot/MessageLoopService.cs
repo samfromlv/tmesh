@@ -517,7 +517,7 @@ public class MessageLoopService(
             else if (meshtasticService.IsPreviouslySeenNodeInfo(env))
             {
                 scope ??= services.CreateScope();
-                await SaveNodeInfoFromEnvelope(scope, networkId, tmeshOrMapGatewayId, env);
+                await SaveNodeInfoFromEnvelope(scope, networkId, tmeshOrMapGatewayId, env, isTMeshGateway: isTMeshGateway);
                 return;
             }
 
@@ -562,7 +562,7 @@ public class MessageLoopService(
                 recipients.AddRange(channelRecipients);
             }
 
-            var res = meshtasticService.TryDecryptMessage(env, recipients);
+            var res = meshtasticService.TryDecryptMessage(env, recipients, networkId);
             if (res.msg != null)
             {
                 if (isTMeshGateway)
@@ -570,7 +570,6 @@ public class MessageLoopService(
                     res.msg.TMeshGatewayId = res.msg.GatewayId;
                 }
 
-                res.msg.NetworkId = networkId;
                 if (_options.DebugPacketsViaMqtt && isTMeshGateway)
                 {
                     mqttService.PublishMessageToDebug(res.msg);
@@ -682,7 +681,7 @@ public class MessageLoopService(
                 return false;
             }
 
-            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel);
+            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId);
 
             meshtasticService.AddStat(new MeshStat
             {
@@ -792,7 +791,12 @@ public class MessageLoopService(
         }
     }
 
-    private async Task SaveNodeInfoFromEnvelope(IServiceScope scope, int networkId, long gatewayId, ServiceEnvelope env)
+    private async Task SaveNodeInfoFromEnvelope(
+        IServiceScope scope,
+        int networkId, 
+        long gatewayId, 
+        ServiceEnvelope env,
+        bool isTMeshGateway)
     {
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(networkId);
@@ -802,7 +806,11 @@ public class MessageLoopService(
             return;
         }
 
-        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel]);
+        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId);
+        if (res.msg != null && isTMeshGateway)
+        {
+            res.msg.TMeshGatewayId = gatewayId;
+        }
         if (!res.success || res.msg is not NodeInfoMessage nodeInfoMsg)
             return;
 
