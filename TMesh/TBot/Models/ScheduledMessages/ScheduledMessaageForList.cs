@@ -25,6 +25,10 @@ namespace TBot.Models.ScheduledMessages
 
         public DateTime? DisableAt { get; set; }
 
+        public int LastSentVariantIndex { get; set; }
+
+        public List<ScheduledMessageVariant> Variants { get; set; } = [];
+
         public PublicChannel Channel { get; set; }
 
         public Network Network { get; set; }

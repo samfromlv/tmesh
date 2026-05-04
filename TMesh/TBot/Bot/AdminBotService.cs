@@ -140,6 +140,14 @@ namespace TBot.Bot
                     {
                         return await ListScheduledMessages(chatId);
                     }
+                case "add_scheduled_message_variant":
+                    {
+                        return await AddScheduledMessageVariant(chatId, noPrefix);
+                    }
+                case "remove_scheduled_message_variant":
+                    {
+                        return await RemoveScheduledMessageVariant(chatId, segments);
+                    }
                 case "nodeinfo":
                     {
                         return await ShowNodeInfo(chatId, segments);
@@ -1240,11 +1248,88 @@ namespace TBot.Bot
                     sb.AppendLine($"  enable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.EnableAt.Value).ToString(LocalDateFormat))}`");
                 if (msg.DisableAt.HasValue)
                     sb.AppendLine($"  disable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.DisableAt.Value).ToString(LocalDateFormat))}`");
-                sb.AppendLine($"  _{StringHelper.EscapeMdV2(msg.Text)}_");
+                sb.AppendLine($"  `[0]` _{StringHelper.EscapeMdV2(msg.Text)}_");
+                for (int i = 0; i < msg.Variants.Count; i++)
+                {
+                    var v = msg.Variants[i];
+                    sb.AppendLine($"  `[{i + 1}]` id\\={v.Id} _{StringHelper.EscapeMdV2(v.Text)}_");
+                }
                 sb.AppendLine();
             }
 
             await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> AddScheduledMessageVariant(long chatId, string noPrefix)
+        {
+            // Usage: add_scheduled_message_variant <scheduled_message_id> text="<text>"
+            var cmd = noPrefix["add_scheduled_message_variant".Length..].Trim();
+            var firstSpace = cmd.IndexOf(' ');
+            if (firstSpace < 0 || !cmd.Contains("text=\""))
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: add_scheduled_message_variant <scheduled_message_id> text=\"<message text>\"\n" +
+                    "Example: add_scheduled_message_variant 3 text=\"Variant text here\"");
+                return TgResult.Ok;
+            }
+
+            var idStr = cmd[..firstSpace];
+            if (!int.TryParse(idStr, out var scheduledMessageId))
+            {
+                await botClient.SendMessage(chatId, "Invalid scheduled message ID.");
+                return TgResult.Ok;
+            }
+
+            var scheduled = await registrationService.GetScheduledMessageByIdAsync(scheduledMessageId);
+            if (scheduled == null)
+            {
+                await botClient.SendMessage(chatId, $"Scheduled message #{scheduledMessageId} not found.");
+                return TgResult.Ok;
+            }
+
+            var afterId = cmd[(firstSpace + 1)..].Trim();
+            var textMatch = System.Text.RegularExpressions.Regex.Match(
+                afterId, @"text=""((?:[^""\\]|\\.)*)""");
+            if (!textMatch.Success)
+            {
+                await botClient.SendMessage(chatId, "Could not parse text parameter. Use: text=\"your variant text here\"");
+                return TgResult.Ok;
+            }
+            var text = textMatch.Groups[1].Value.Replace("\\\"", "\"");
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Variant text cannot be empty.");
+                return TgResult.Ok;
+            }
+
+            if (!MeshtasticService.CanSendMessage(text))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Variant text is too long. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes.");
+                return TgResult.Ok;
+            }
+
+            var variant = await registrationService.AddScheduledMessageVariantAsync(scheduledMessageId, text);
+            await botClient.SendMessage(chatId,
+                $"Variant #{variant.Id} added to scheduled message #{scheduledMessageId}:\n{StringHelper.EscapeMd(text)}",
+                parseMode: ParseMode.Markdown);
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> RemoveScheduledMessageVariant(long chatId, string[] segments)
+        {
+            if (segments.Length < 2 || !int.TryParse(segments[1], out var variantId))
+            {
+                await botClient.SendMessage(chatId, "Usage: remove_scheduled_message_variant <variant_id>");
+                return TgResult.Ok;
+            }
+
+            var deleted = await registrationService.DeleteScheduledMessageVariantAsync(variantId);
+            await botClient.SendMessage(chatId, deleted
+                ? $"Scheduled message variant #{variantId} deleted."
+                : $"Scheduled message variant #{variantId} not found.");
             return TgResult.Ok;
         }
     }

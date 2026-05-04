@@ -10,4 +10,5 @@ public class ScheduledMessage
     public bool Enabled { get; set; }
     public DateTime? EnableAt { get; set; }
     public DateTime? DisableAt { get; set; }
+    public int LastSentVariantIndex { get; set; }
 }

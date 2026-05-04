@@ -161,7 +161,7 @@ public class MessageLoopService(
                 return;
 
             var sent = new List<ScheduledMessage>(due.Count);
-            foreach (var (msg, channel) in due)
+            foreach (var (msg, channel, variants) in due)
             {
                 if (channel == null)
                 {
@@ -171,18 +171,20 @@ public class MessageLoopService(
 
                 try
                 {
+                    var text = await registrationService.AdvanceScheduledMessageVariantAsync(msg, variants);
+
                     var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
                     botCache.StoreMessageSentByOurNode(newMsgId);
                     meshtasticService.SendPublicTextMessage(
                         newMsgId,
-                        msg.Text,
+                        text,
                         relayGatewayId: null,
                         hopLimit: int.MaxValue,
                         publicChannelName: channel.Name,
                         recipient: channel);
 
                     sent.Add(msg);
-                    logger.LogInformation("ScheduledMessage #{Id} sent to channel \"{Channel}\"", msg.Id, channel.Name);
+                    logger.LogInformation("ScheduledMessage #{Id} sent to channel \"{Channel}\" (variantIndex={VariantIndex})", msg.Id, channel.Name, msg.LastSentVariantIndex);
                 }
                 catch (Exception ex)
                 {

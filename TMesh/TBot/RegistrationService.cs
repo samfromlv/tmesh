@@ -1587,6 +1587,9 @@ namespace TBot
             return changed;
         }
 
+        public async Task<ScheduledMessage> GetScheduledMessageByIdAsync(int id)
+            => await db.ScheduledMessages.FindAsync(id);
+
         public async Task<ScheduledMessage> AddScheduledMessageAsync(int publicChannelId, int intervalMinutes, string text, DateTime? enableAtUtc = null, DateTime? disableAtUtc = null)
         {
             var msg = new ScheduledMessage
@@ -1636,6 +1639,7 @@ namespace TBot
                           LastSentUtc = m.LastSentUtc,
                           EnableAt = m.EnableAt,
                           DisableAt = m.DisableAt,
+                          LastSentVariantIndex = m.LastSentVariantIndex,
                           PublicChannelId = m.PublicChannelId,
                           Channel = c
                       }).ToListAsync();
@@ -1645,12 +1649,23 @@ namespace TBot
             {
                 msg.Network = networks.GetValueOrDefault(msg.Channel.NetworkId);
             }
+
+            var allVariants = await db.ScheduledMessageVariants
+                .OrderBy(v => v.Id)
+                .ToListAsync();
+            var variantsByMsg = allVariants.GroupBy(v => v.ScheduledMessageId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var msg in res)
+            {
+                if (variantsByMsg.TryGetValue(msg.Id, out var variants))
+                    msg.Variants = variants;
+            }
+
             return res;
         }
 
-        public async Task<List<(ScheduledMessage Message, PublicChannel Channel)>> GetDueScheduledMessagesAsync(DateTime now)
+        public async Task<List<(ScheduledMessage Message, PublicChannel Channel, List<ScheduledMessageVariant> Variants)>> GetDueScheduledMessagesAsync(DateTime now)
         {
-
             var due = await (from m in db.ScheduledMessages
                              join c in db.PublicChannels on m.PublicChannelId equals c.Id 
                              where 
@@ -1663,8 +1678,19 @@ namespace TBot
                                  Channel = c
                              }).ToListAsync();
 
+            if (due.Count == 0)
+                return [];
+
+            var msgIds = due.Select(d => d.Message.Id).ToList();
+            var variants = await db.ScheduledMessageVariants
+                .Where(v => msgIds.Contains(v.ScheduledMessageId))
+                .OrderBy(v => v.Id)
+                .ToListAsync();
+            var variantsByMsg = variants.GroupBy(v => v.ScheduledMessageId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             return due
-                .Select(m => (m.Message, m.Channel))
+                .Select(d => (d.Message, d.Channel, variantsByMsg.GetValueOrDefault(d.Message.Id) ?? []))
                 .ToList();
         }
 
@@ -1675,6 +1701,47 @@ namespace TBot
                 msg.LastSentUtc = sentUtc;
             }
             await db.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Determines the text to send for a scheduled message and advances LastSentVariantIndex.
+        /// Index 0 = default text from ScheduledMessage.Text; 1..N = variants ordered by Id.
+        /// After the last variant, wraps back to 0.
+        /// Call this before sending; persist changes via SaveChanges (handled inside).
+        /// </summary>
+        public async Task<string> AdvanceScheduledMessageVariantAsync(ScheduledMessage msg, List<ScheduledMessageVariant> variants)
+        {
+            if (variants.Count == 0)
+                return msg.Text;
+
+            // total slots: 0 (default) + variants.Count
+            var totalSlots = variants.Count + 1;
+            var nextIndex = (msg.LastSentVariantIndex + 1) % totalSlots;
+            msg.LastSentVariantIndex = nextIndex;
+            await db.SaveChangesAsync();
+
+            return nextIndex == 0 ? msg.Text : variants[nextIndex - 1].Text;
+        }
+
+        public async Task<ScheduledMessageVariant> AddScheduledMessageVariantAsync(int scheduledMessageId, string text)
+        {
+            var variant = new ScheduledMessageVariant
+            {
+                ScheduledMessageId = scheduledMessageId,
+                Text = text
+            };
+            db.ScheduledMessageVariants.Add(variant);
+            await db.SaveChangesAsync();
+            return variant;
+        }
+
+        public async Task<bool> DeleteScheduledMessageVariantAsync(int variantId)
+        {
+            var variant = await db.ScheduledMessageVariants.FindAsync(variantId);
+            if (variant == null) return false;
+            db.ScheduledMessageVariants.Remove(variant);
+            await db.SaveChangesAsync();
+            return true;
         }
 
         // ── end Scheduled Messages ──────────────────────────────────────────────
