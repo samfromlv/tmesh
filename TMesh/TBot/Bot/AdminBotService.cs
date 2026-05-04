@@ -171,59 +171,54 @@ namespace TBot.Bot
             }
 
             var gateways = await registrationService.GetGatewaysCached();
-            var sb = new StringBuilder();
-            sb.AppendLine("🌐 *Networks:*");
+
+            var lines = new List<string>();
+            lines.Add("🌐 *Networks:*");
 
             foreach (var network in networks)
             {
-                sb.AppendLine();
                 var urlPart = network.Url != null ? $" - {network.Url}" : " No URL";
-                sb.AppendLine($"*\\[{network.Id}\\] {StringHelper.EscapeMdV2(network.Name)}* \\(`{StringHelper.EscapeMdV2(network.ShortName)}`\\){StringHelper.EscapeMdV2(urlPart)}");
-                sb.AppendLine($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}` · disablewelcome: `{network.DisableWelcomeMessage}`");
-                var communityUrlPart = network.CommunityUrl != null ? $" · communityurl: `{StringHelper.EscapeMdV2(network.CommunityUrl)}`" : "No Community URL";
-                if (!string.IsNullOrEmpty(communityUrlPart))
-                {
-                    sb.AppendLine($"  {communityUrlPart.TrimStart(new char[] { ' ', '·' })}");
-                }
-                var welcomeUrlPart = network.WelcomeUrl != null ? $" · welcomeurl: `{StringHelper.EscapeMdV2(network.WelcomeUrl)}`" : "No Welcome URL";
-                if (!string.IsNullOrEmpty(welcomeUrlPart))
-                {
-                    sb.AppendLine($"  {welcomeUrlPart.TrimStart(new char[] { ' ', '·' })}");
-                }
+                lines.Add("");
+                lines.Add($"*\\[{network.Id}\\] {StringHelper.EscapeMdV2(network.Name)}* \\(`{StringHelper.EscapeMdV2(network.ShortName)}`\\){StringHelper.EscapeMdV2(urlPart)}");
+                lines.Add($"  sort: `{network.SortOrder}` · analytics: `{network.SaveAnalytics}` · disablepongs: `{network.DisablePongs}` · disablewelcome: `{network.DisableWelcomeMessage}`");
+                if (network.CommunityUrl != null)
+                    lines.Add($"  communityurl: `{StringHelper.EscapeMdV2(network.CommunityUrl)}`");
+                if (network.WelcomeUrl != null)
+                    lines.Add($"  welcomeurl: `{StringHelper.EscapeMdV2(network.WelcomeUrl)}`");
 
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
-                    sb.AppendLine("  _No public channels_");
+                    lines.Add("  _No public channels_");
                 }
                 else
                 {
                     foreach (var ch in publicChannels)
                     {
                         var primaryMark = ch.IsPrimary ? " ⭐" : "  ";
-                        sb.AppendLine($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMdV2(ch.Name)}`");
+                        lines.Add($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMdV2(ch.Name)}`");
                     }
                 }
 
                 var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
                 if (networkGateways.Count > 0)
                 {
-                    sb.AppendLine("  📡 _Gateways:_");
+                    lines.Add("  📡 _Gateways:_");
                     foreach (var gw in networkGateways)
                     {
                         var device = await registrationService.GetDeviceAsync(gw.DeviceId);
                         var hexId = MeshtasticService.GetMeshtasticNodeHexId(gw.DeviceId);
                         var lastSeen = gw.LastSeen.HasValue ? StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(gw.LastSeen.Value).ToString("yyyy-MM-dd HH:mm")) : "never";
-                        sb.AppendLine($"  • {StringHelper.EscapeMdV2(device?.NodeName ?? hexId)} `{StringHelper.EscapeMdV2(hexId)}` \\- seen: {lastSeen}");
+                        lines.Add($"  • {StringHelper.EscapeMdV2(device?.NodeName ?? hexId)} `{StringHelper.EscapeMdV2(hexId)}` \\- seen: {lastSeen}");
                     }
                 }
                 else
                 {
-                    sb.AppendLine("  📡 _No gateways_");
+                    lines.Add("  📡 _No gateways_");
                 }
             }
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
+            await botClient.SendLongMessage(chatId, lines, parseMode: ParseMode.MarkdownV2);
             return TgResult.Ok;
         }
 
@@ -1231,8 +1226,9 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var sb = new StringBuilder();
-            sb.AppendLine("🕐 *Scheduled messages:*");
+            // Build the full list as individual lines so we can split at any line boundary.
+            var lines = new List<string>();
+            lines.Add("🕐 *Scheduled messages:*");
 
             foreach (var msg in items)
             {
@@ -1242,22 +1238,22 @@ namespace TBot.Bot
                 var lastSent = msg.LastSentUtc.HasValue
                     ? StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.LastSentUtc.Value).ToString("yyyy-MM-dd HH:mm"))
                     : "never";
-                sb.AppendLine();
-                sb.AppendLine($"{statusIcon} *\\#{msg.Id}* → ch\\#{msg.PublicChannelId} {chLabel} \\({network}\\) every `{msg.IntervalMinutes}` min · last sent: `{lastSent}`");
+
+                lines.Add("");
+                lines.Add($"{statusIcon} *\\#{msg.Id}* → ch\\#{msg.PublicChannelId} {chLabel} \\({network}\\) every `{msg.IntervalMinutes}` min · last sent: `{lastSent}`");
                 if (msg.EnableAt.HasValue)
-                    sb.AppendLine($"  enable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.EnableAt.Value).ToString(LocalDateFormat))}`");
+                    lines.Add($"  enable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.EnableAt.Value).ToString(LocalDateFormat))}`");
                 if (msg.DisableAt.HasValue)
-                    sb.AppendLine($"  disable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.DisableAt.Value).ToString(LocalDateFormat))}`");
-                sb.AppendLine($"  `[0]` _{StringHelper.EscapeMdV2(msg.Text)}_");
+                    lines.Add($"  disable at: `{StringHelper.EscapeMdV2(timeZoneHelper.ConvertFromUtcToDefaultTimezone(msg.DisableAt.Value).ToString(LocalDateFormat))}`");
+                lines.Add($"  `[0]` _{StringHelper.EscapeMdV2(msg.Text)}_");
                 for (int i = 0; i < msg.Variants.Count; i++)
                 {
                     var v = msg.Variants[i];
-                    sb.AppendLine($"  `[{i + 1}]` id\\={v.Id} _{StringHelper.EscapeMdV2(v.Text)}_");
+                    lines.Add($"  `[{i + 1}]` id\\={v.Id} _{StringHelper.EscapeMdV2(v.Text)}_");
                 }
-                sb.AppendLine();
             }
 
-            await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
+            await botClient.SendLongMessage(chatId, lines, ParseMode.MarkdownV2);
             return TgResult.Ok;
         }
 

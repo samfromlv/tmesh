@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -9,6 +10,7 @@ namespace TBot.Helpers
     public static class TelegramApiExtensions
     {
         private const string MessageIdInvalid = "MESSAGE_ID_INVALID";
+        public const int TelegramMessageMaxLength = 4096;
 
         public static bool IsChatGoneError(this ApiRequestException ex)
         {
@@ -67,6 +69,32 @@ namespace TBot.Helpers
                 logger.LogDebug(ex, "Failed to send message to chat {ChatId}", chatId);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Sends <paramref name="lines"/> as one or more MarkdownV2 messages, splitting at line
+        /// boundaries so that no single Telegram message exceeds <see cref="TelegramMessageMaxLength"/>
+        /// characters.
+        /// </summary>
+        public static async Task SendLongMessage(
+            this ITelegramBotClient botClient,
+            long chatId,
+            IReadOnlyList<string> lines,
+            ParseMode parseMode = ParseMode.None)
+        {
+            var current = new StringBuilder();
+            foreach (var line in lines)
+            {
+                var needed = (current.Length > 0 ? 1 : 0) + line.Length;
+                if (current.Length > 0 && current.Length + needed > TelegramMessageMaxLength)
+                {
+                    await botClient.SendMessage(chatId, current.ToString().TrimEnd(), parseMode: parseMode);
+                    current.Clear();
+                }
+                current.AppendLine(line);
+            }
+            if (current.Length > 0)
+                await botClient.SendMessage(chatId, current.ToString().TrimEnd(), parseMode: parseMode);
         }
 
         public static string GetUserNameOrName(this User user)
