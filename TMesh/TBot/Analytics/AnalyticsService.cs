@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TBot.Analytics.Dto;
 using TBot.Analytics.Models;
 using TBot.Helpers;
 
@@ -110,6 +111,21 @@ namespace TBot.Analytics
             return await db.VoteStats
                 .Where(p => p.SnapshotId == snapshotId)
                 .ToListAsync();
+        }
+
+        public async Task<List<LatestVoteStat>> GetActiveNetworkVotesLatestStats(int networkId)
+        {
+            return await (from v in db.Votes
+                         join s in db.VoteSnapshots on v.LastSnapshotId equals s.Id
+                         join st in db.VoteStats on s.Id equals st.SnapshotId
+                         where v.NetworkId == networkId && v.IsActive
+                          select new LatestVoteStat
+                         {
+                              VoteId = v.Id,
+                              LastUpdate = v.LastUpdate,
+                              ActiveCount = st.ActiveCount,
+                              OptionId = st.OptionId
+                         }).ToListAsync();
         }
 
         public void AddRange<T>(IEnumerable<T> rows)

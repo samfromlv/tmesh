@@ -42,25 +42,30 @@ namespace TProxy.Controllers
             return Json(networkStatus, _jsonOptions);
         }
 
-        [HttpGet("mfvote/{id}")]
+        [HttpGet("votestat/{networkId}/{voteId}")]
         [EnableCors("AllowAll")]
-        public IActionResult MfVote(int id)
+        public IActionResult VoteStat(int networkId, int voteId)
         {
             var status = publisher.LastStatusPayload;
             if (status == null)
             {
                 return NotFound();
             }
-            var networkStatus = status.Networks.FirstOrDefault(n => n.Id == id);
+            var networkStatus = status.Networks.FirstOrDefault(n => n.Id == networkId);
             if (networkStatus == null)
+            {
+                return NotFound();
+            }
+            var voteStat = networkStatus.ActiveVotes.FirstOrDefault(v => v.VoteId == voteId);
+            if (voteStat == null)
             {
                 return NotFound();
             }
             return Json(new 
             {
-                ForMF24h = networkStatus.MfVoteDevices24h,
-                ForLF24h = networkStatus.LfVoteDevices24h,
-                NoResponse24h = networkStatus.NoVoteDevices24h
+                VoteId = voteId,
+                LastUpdateTs = voteStat.LastUpdateTimestampSec,
+                Stats = voteStat.Stats
             }, _jsonOptions);
         }
 
