@@ -139,6 +139,31 @@ namespace TBot.Services.Voting
                     newStats[currentVote] = stat;
                 }
 
+                int? deviceCityDistrict = null;
+                if (device.Latitude != null && device.Longitude != null && device.IsLocationPublic)
+                {
+                    var location = new Point(device.Longitude.Value, device.Latitude.Value) { SRID = 4326 };
+                    deviceCityDistrict = cityDistricts?.FirstOrDefault(cd => cd.Borders.Contains(location))?.Id; ;
+
+                    if (deviceCityDistrict != null)
+                    {
+                        var key = (CityDistrictId: deviceCityDistrict.Value, OptionId: currentVote);
+                        if (!newStatByDistrict.TryGetValue(key, out var districtStat))
+                        {
+                            districtStat = new VoteSnapshotStatsByDistrict
+                            {
+                                SnapshotId = newSnapshot.Id,
+                                CityDistrictId = deviceCityDistrict.Value,
+                                OptionId = currentVote,
+                                ActiveCount = 0,
+                                DeltaFromLastSnapshot = 0
+                            };
+                            newStatByDistrict[key] = districtStat;
+                        }
+                        districtStat.ActiveCount++;
+                    }
+                }
+
                 stat.ActiveCount++;
 
                 var newSnapshotRecord = new VoteSnapshotRecord
@@ -164,11 +189,6 @@ namespace TBot.Services.Voting
                 {
                     participant.LongName = deviceName;
                     participant.IsNoVote = currentVote == NoVote;
-                    if (device.IsLocationPublic)
-                    {
-                        participant.Latitude = device.Latitude;
-                        participant.Longitude = device.Longitude;
-                    }
 
                     if (updatedInstant > participant.LastVote)
                     {
@@ -226,12 +246,6 @@ namespace TBot.Services.Voting
                         PreviousOptionId = NoVote
                     };
 
-                    if (device.IsLocationPublic)
-                    {
-                        participant.Latitude = device.Latitude;
-                        participant.Longitude = device.Longitude;
-                    }
-
                     newParticipants.Add(participant);
 
                     var log = new VoteLog
@@ -251,30 +265,13 @@ namespace TBot.Services.Voting
                     newLogs.Add(log);
                 }
 
-                if (participant.Latitude != null && participant.Longitude != null)
+                if (device.IsLocationPublic)
                 {
-                    var location = new Point(participant.Longitude.Value, participant.Latitude.Value) { SRID = 4326 };
-                    var cityDistrictId = cityDistricts?.FirstOrDefault(cd => cd.Borders.Contains(location))?.Id;
-                    participant.CityDistrictId = cityDistrictId;
-
-                    if (cityDistrictId != null)
-                    {
-                        var key = (CityDistrictId: cityDistrictId.Value, OptionId: currentVote);
-                        if (!newStatByDistrict.TryGetValue(key, out var districtStat))
-                        {
-                            districtStat = new VoteSnapshotStatsByDistrict
-                            {
-                                SnapshotId = newSnapshot.Id,
-                                CityDistrictId = cityDistrictId.Value,
-                                OptionId = currentVote,
-                                ActiveCount = 0,
-                                DeltaFromLastSnapshot = 0
-                            };
-                            newStatByDistrict[key] = districtStat;
-                        }
-                        districtStat.ActiveCount++;
-                    }
+                    participant.Latitude = device.Latitude;
+                    participant.Longitude = device.Longitude;
                 }
+
+                participant.CityDistrictId = deviceCityDistrict;
             }
 
             foreach (var participant in participantLookup.Values.Where(x => !x.IsNoVote))
