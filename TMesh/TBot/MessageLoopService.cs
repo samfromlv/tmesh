@@ -900,7 +900,8 @@ public class MessageLoopService(
 
             if (toDevice == null
                 || toDevice.Latitude == null
-                || toDevice.Longitude == null)
+                || toDevice.Longitude == null
+                || !toDevice.IsLocationPublic)
             {
                 return;
             }
@@ -908,7 +909,8 @@ public class MessageLoopService(
             var fromDevice = await registrationService.GetDeviceAsync(deviceId);
             if (fromDevice == null
                 || fromDevice.Latitude == null
-                || fromDevice.Longitude == null)
+                || fromDevice.Longitude == null
+                || !fromDevice.IsLocationPublic)
             {
                 return;
             }

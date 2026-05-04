@@ -16,5 +16,9 @@ namespace TBot.Models
         public DateTime NodeCreatedUtc { get; set; }
 
         public long? LastNodeInfoPacketId { get; set; }
+        public bool IsLocationPublic { get; set; }
+
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
     }
 }

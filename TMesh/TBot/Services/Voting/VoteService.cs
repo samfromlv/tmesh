@@ -139,6 +139,11 @@ namespace TBot.Services.Voting
                 {
                     participant.LongName = deviceName;
                     participant.IsNoVote = currentVote == NoVote;
+                    if (device.IsLocationPublic)
+                    {
+                        participant.Latitude = device.Latitude;
+                        participant.Longitude = device.Longitude;
+                    }
 
                     if (updatedInstant > participant.LastVote)
                     {
@@ -195,6 +200,13 @@ namespace TBot.Services.Voting
                         NodeRegistered = Instant.FromDateTimeUtc(DateTime.SpecifyKind(device.NodeCreatedUtc, DateTimeKind.Utc)),
                         PreviousOptionId = NoVote
                     };
+
+                    if (device.IsLocationPublic)
+                    {
+                        participant.Latitude = device.Latitude;
+                        participant.Longitude = device.Longitude;
+                    }
+
                     newParticipants.Add(participant);
 
                     var log = new VoteLog

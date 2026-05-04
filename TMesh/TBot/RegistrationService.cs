@@ -1119,6 +1119,9 @@ namespace TBot
                      UpdatedUtc = x.UpdatedUtc,
                      NodeCreatedUtc = x.CreatedUtc,
                      LastNodeInfoPacketId = x.LastUpdatePacketId,
+                     IsLocationPublic = x.IsLocationPublic,
+                     Latitude = x.Latitude,
+                     Longitude = x.Longitude,
                      NetworkId = x.NetworkId,
                      NodeName = x.NodeName
                 }).ToListAsync();

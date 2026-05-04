@@ -31,6 +31,8 @@ namespace TBot.Analytics.Models
         public bool IsNoVote { get; set; }
 
         public int VoteCount { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
 
         public VoteChangeReason UpdateReason { get; set; }
 

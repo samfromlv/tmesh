@@ -106,7 +106,8 @@ namespace TBot.Bot
             }
 
             deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-            if (deviceOrNull?.LocationUpdatedUtc == null)
+            if (deviceOrNull?.LocationUpdatedUtc == null
+                || !deviceOrNull.IsLocationPublic)
             {
                 return;
             }
@@ -143,6 +144,7 @@ namespace TBot.Bot
             deviceOrNull.LocationUpdatedUtc = DateTime.UtcNow;
             deviceOrNull.Longitude = message.Longitude;
             deviceOrNull.Latitude = message.Latitude;
+            deviceOrNull.IsLocationPublic = message.DecodedBy.IsPublicChannel;
             deviceOrNull.AccuracyMeters = (int)Math.Round(message.AccuracyMeters);
             await registrationService.SaveAssumeChanged(deviceOrNull);
             if (!message.SentToOurNodeId)
