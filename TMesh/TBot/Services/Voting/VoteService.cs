@@ -1,4 +1,5 @@
-﻿using NodaTime;
+﻿using NetTopologySuite.Geometries;
+using NodaTime;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -43,6 +44,11 @@ namespace TBot.Services.Voting
             var instantNow = Instant.FromDateTimeUtc(now);
             var votes = await analyticsService.GetVotesToProcessAsync();
 
+            if (votes.Count == 0)
+                return;
+
+            Dictionary<int, List<CityDistrict>> cityDistrictsLookup = new Dictionary<int, List<CityDistrict>>();
+
 
             foreach (var vote in votes)
             {
@@ -62,12 +68,25 @@ namespace TBot.Services.Voting
                 }
                 else
                 {
-                    await ProcessVote(vote, now);
+                    List<CityDistrict> cityDistricts = null;
+
+                    if (vote.CityId != null)
+                    {
+                        cityDistricts = cityDistrictsLookup.GetValueOrDefault(vote.CityId.Value);
+                        if (cityDistricts == null)
+                        {
+                            cityDistricts = await analyticsService.GetCityDistrictsAsync(vote.CityId.Value);
+                            cityDistrictsLookup[vote.CityId.Value] = cityDistricts;
+                        }
+                    }
+
+
+                    await ProcessVote(vote, now, cityDistricts);
                 }
             }
         }
 
-        private async Task ProcessVote(Vote vote, DateTime utcNow)
+        private async Task ProcessVote(Vote vote, DateTime utcNow, List<CityDistrict> cityDistricts)
         {
             var instantNow = Instant.FromDateTimeUtc(utcNow);
 
@@ -82,7 +101,13 @@ namespace TBot.Services.Voting
                         .ToDictionary(s => s.OptionId)
                     : null;
 
+            var lastStatsByDistrict = vote.LastSnapshotId.HasValue && vote.CityId.HasValue && cityDistricts != null
+                    ? (await analyticsService.GetVoteStatsByDistrict(vote.LastSnapshotId.Value))
+                        .ToDictionary(s => (s.CityDistrictId, s.OptionId))
+                    : null;
+
             var newStats = new Dictionary<byte, VoteSnapshotStats>();
+            var newStatByDistrict = new Dictionary<(int CityDistrictId, byte OptionId), VoteSnapshotStatsByDistrict>();
             var newSnapshot = new VoteSnapshot
             {
                 VoteId = vote.Id,
@@ -225,6 +250,31 @@ namespace TBot.Services.Voting
 
                     newLogs.Add(log);
                 }
+
+                if (participant.Latitude != null && participant.Longitude != null)
+                {
+                    var location = new Point(participant.Longitude.Value, participant.Latitude.Value) { SRID = 4326 };
+                    var cityDistrictId = cityDistricts?.FirstOrDefault(cd => cd.Borders.Contains(location))?.Id;
+                    participant.CityDistrictId = cityDistrictId;
+
+                    if (cityDistrictId != null)
+                    {
+                        var key = (CityDistrictId: cityDistrictId.Value, OptionId: currentVote);
+                        if (!newStatByDistrict.TryGetValue(key, out var districtStat))
+                        {
+                            districtStat = new VoteSnapshotStatsByDistrict
+                            {
+                                SnapshotId = newSnapshot.Id,
+                                CityDistrictId = cityDistrictId.Value,
+                                OptionId = currentVote,
+                                ActiveCount = 0,
+                                DeltaFromLastSnapshot = 0
+                            };
+                            newStatByDistrict[key] = districtStat;
+                        }
+                        districtStat.ActiveCount++;
+                    }
+                }
             }
 
             foreach (var participant in participantLookup.Values.Where(x => !x.IsNoVote))
@@ -263,8 +313,15 @@ namespace TBot.Services.Voting
                 stat.DeltaFromLastSnapshot = stat.ActiveCount - lastCount;
             }
 
+            foreach (var statByDist in newStatByDistrict.Values)
+            {
+                var lastCount = lastStatsByDistrict?.GetValueOrDefault((statByDist.CityDistrictId, statByDist.OptionId))?.ActiveCount ?? 0;
+                statByDist.DeltaFromLastSnapshot = statByDist.ActiveCount - lastCount;
+            }
+
             analyticsService.AddRange(newParticipants);
             analyticsService.AddRange(newStats.Values);
+            analyticsService.AddRange(newStatByDistrict.Values);
             analyticsService.AddRange(newSnapshotRecords);
             analyticsService.AddRange(newLogs);
 

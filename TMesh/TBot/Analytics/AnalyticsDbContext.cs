@@ -15,12 +15,36 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
     public DbSet<VoteLog> VoteLogs => Set<VoteLog>();
     public DbSet<VoteSnapshot> VoteSnapshots => Set<VoteSnapshot>();
     public DbSet<VoteSnapshotStats> VoteStats => Set<VoteSnapshotStats>();
+    public DbSet<VoteSnapshotStatsByDistrict> VoteStatsByDistrict => Set<VoteSnapshotStatsByDistrict>();
     public DbSet<VoteSnapshotRecord> VoteSnapshotRecords => Set<VoteSnapshotRecord>();
     public DbSet<Vote> Votes => Set<Vote>();
     public DbSet<VoteOption> VoteOptions => Set<VoteOption>();
+    public DbSet<City> Cities => Set<City>();
+    public DbSet<CityDistrict> CityDistricts => Set<CityDistrict>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<City>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).IsRequired().ValueGeneratedOnAdd();
+            e.Property(r => r.Name).IsRequired().HasMaxLength(300);
+        });
+
+        modelBuilder.Entity<CityDistrict>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).IsRequired().ValueGeneratedOnAdd();
+            e.Property(r => r.Name).IsRequired().HasMaxLength(300);
+            e.Property(r => r.CityId).IsRequired();
+            e.Property(r => r.Borders).IsRequired().HasColumnType("geometry(Geometry, 4326)");
+
+            e.HasIndex(d => d.Borders)
+                .HasMethod("gist");
+
+            e.HasIndex(r => r.CityId);
+        });
+
         modelBuilder.Entity<Vote>(e =>
         {
             e.HasKey(r => r.Id);
@@ -31,6 +55,7 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.StartsAt).IsRequired();
             e.Property(r => r.EndsAt).IsRequired();
             e.Property(r => r.Enabled).IsRequired();
+            e.Property(r => r.CityId);
             e.Property(r => r.IsActive).IsRequired();
             e.Property(r => r.LastUpdate);
             e.HasMany(r => r.Options)
@@ -116,7 +141,15 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.ActiveCount).IsRequired();
         });
 
-
+        modelBuilder.Entity<VoteSnapshotStatsByDistrict>(e =>
+        {
+            e.HasKey(r => new { r.SnapshotId, r.CityDistrictId, r.OptionId });
+            e.Property(r => r.SnapshotId).IsRequired();
+            e.Property(r => r.CityDistrictId).IsRequired();
+            e.Property(r => r.OptionId).IsRequired();
+            e.Property(r => r.DeltaFromLastSnapshot).IsRequired();
+            e.Property(r => r.ActiveCount).IsRequired();
+        });
 
         modelBuilder.Entity<DeviceMetric>(e =>
         {

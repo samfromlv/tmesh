@@ -34,6 +34,8 @@ namespace TBot.Analytics.Models
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
 
+        public int? CityDistrictId { get; set; }
+
         public VoteChangeReason UpdateReason { get; set; }
 
 

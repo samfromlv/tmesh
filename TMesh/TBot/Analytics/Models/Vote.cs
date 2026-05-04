@@ -30,5 +30,7 @@ namespace TBot.Analytics.Models
         public int? LastSnapshotId { get; set; }
 
         public ICollection<VoteOption> Options { get; set; }
+
+        public int? CityId { get; set; }
     }
 }

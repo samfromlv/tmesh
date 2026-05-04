@@ -37,6 +37,13 @@ namespace TBot.Analytics
                 .CountAsync();
         }
 
+        public async Task<List<CityDistrict>> GetCityDistrictsAsync(int cityId)
+        {
+            return await db.CityDistricts
+                .Where(d => d.CityId == cityId)
+                .ToListAsync();
+        }
+
         public async Task SaveNodeInfo(Packet packet, NodeInfo nodeInfo, PacketBody body)
         {
             packet.Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow);
@@ -109,6 +116,13 @@ namespace TBot.Analytics
         public async Task<List<VoteSnapshotStats>> GetVoteStats(int snapshotId)
         {
             return await db.VoteStats
+                .Where(p => p.SnapshotId == snapshotId)
+                .ToListAsync();
+        }
+
+        public async Task<List<VoteSnapshotStatsByDistrict>> GetVoteStatsByDistrict(int snapshotId)
+        {
+            return await db.VoteStatsByDistrict
                 .Where(p => p.SnapshotId == snapshotId)
                 .ToListAsync();
         }

@@ -54,7 +54,7 @@ namespace TBot
                         services.AddDbContext<AnalyticsDbContext>((s, opt) =>
                         {
                             var options = s.GetRequiredService<IOptions<TBotOptions>>();
-                            opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString, o => o.UseNodaTime());
+                            opt.UseNpgsql(options.Value.AnalyticsPostgresConnectionString, o => o.UseNodaTime().UseNetTopologySuite());
                         });
                         services.AddScoped<AnalyticsService>();
                         services.AddScoped<VoteService>();

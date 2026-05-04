@@ -7,7 +7,7 @@
   -e POSTGRES_DB=TBot \
   -v ~/postgres/data:/var/lib/postgresql/data \
   -v ~/postgres/logs:/var/log/postgresql \
-  postgres:16 \
+  postgis/postgis:16-3.6 \
   postgres \
     -c listen_addresses='*' \
     -c shared_buffers=128MB \
