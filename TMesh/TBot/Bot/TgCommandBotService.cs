@@ -1635,7 +1635,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            return TgResult.Ok;
+            return null;
         }
 
         private async Task SendNeedChannelKeyTgMsg(long chatId)
