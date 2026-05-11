@@ -23,7 +23,7 @@ namespace TBot
         LocalMessageQueueService localMessageQueueService,
         IMemoryCache memoryCache,
         IOptions<TBotOptions> options,
-        ILogger<MeshtasticService> logger)
+        ILogger<MeshtasticService> logger): IDisposable
     {
         public const int MaxTextMessageBytes = 233 - MESHTASTIC_PKC_OVERHEAD;
         public const int MaxHops = 7;
@@ -48,6 +48,7 @@ namespace TBot
         private static readonly Dictionary<int, LinkedList<MeshStat>> meshStatsByNetwork = [];
         private readonly Dictionary<int, LinkedList<MeshStat>> _meshStatsQueueByNetwork = meshStatsByNetwork;
         private readonly TBotOptions _options = options.Value;
+        private readonly CancellationTokenSource _cancellationTokenSource = new();
 
         public QueueResult SendPublicTextMessage(
             long newMessageId,
@@ -151,7 +152,8 @@ namespace TBot
             string text,
             long? replyToMessageId,
             long? relayGatewayId,
-            int hopLimit)
+            int hopLimit,
+            TimeSpan sendDelay = default)
         {
             return SendDirectTextMessage(GenerateNewMessageId(),
                 deviceId,
@@ -172,7 +174,8 @@ namespace TBot
             long? replyToMessageId,
             long? relayGatewayId,
             int hopLimit,
-            bool isEmoji = false)
+            bool isEmoji = false,
+            TimeSpan sendDelay = default)
         {
             logger.LogInformation("Sending text message to device {DeviceId}", deviceId);
             var envelope = PackDirectTextMessage(
@@ -188,12 +191,54 @@ namespace TBot
                 NetworkId = networkId,
                 TextMessagesSent = 1,
             });
-            var delay = QueueMessage(envelope, networkId, MessagePriority.Normal, relayGatewayId);
-            return new QueueResult
+
+            return QueueMaybeWithDelay(envelope,
+                networkId,
+                MessagePriority.Normal,
+                relayGatewayId,
+                sendDelay);
+        }
+
+        public void Stop()
+        {
+            _cancellationTokenSource.Cancel();
+        }
+
+        private QueueResult QueueMaybeWithDelay(ServiceEnvelope envelope, int networkId, MessagePriority priority, long? relayGatewayId, TimeSpan delay)
+        {
+            if (delay > TimeSpan.Zero)
             {
-                MessageId = envelope.Packet.Id,
-                EstimatedSendDelay = delay
-            };
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(delay, _cancellationTokenSource.Token);
+                        QueueMessage(envelope, networkId, priority, relayGatewayId);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        //swallow
+                    }
+                    catch (Exception ex) 
+                    {
+                        logger.LogError(ex, "Error while delaying message {MessageId} to network {NetworkId}", envelope.Packet.Id, networkId);
+                    }
+                });
+                return new QueueResult
+                {
+                    MessageId = envelope.Packet.Id,
+                    EstimatedSendDelay = delay
+                };
+            }
+            else
+            {
+                var actualDelay = QueueMessage(envelope, networkId, priority, relayGatewayId);
+                return new QueueResult
+                {
+                    MessageId = envelope.Packet.Id,
+                    EstimatedSendDelay = actualDelay
+                };
+            }
         }
 
         public static byte? TryGetUsedHops(uint hopStart, uint hopLimit)
@@ -1435,8 +1480,8 @@ namespace TBot
 
         private static AckMessage DecodeAck(
             ServiceEnvelope envelope,
-            Data decoded, 
-            IRecipient recipient, 
+            Data decoded,
+            IRecipient recipient,
             int networkId,
             bool isTMeshGateway)
         {
@@ -1461,7 +1506,7 @@ namespace TBot
 
         private (bool success, MeshMessage msg) DecodeNodeInfo(
             ServiceEnvelope envelope,
-            Data decoded, 
+            Data decoded,
             IRecipient recipient,
             int networkId,
             bool isTMeshGateway)
@@ -1661,5 +1706,9 @@ namespace TBot
             }
         }
 
+        public void Dispose()
+        {
+            _cancellationTokenSource.Dispose();
+        }
     }
 }

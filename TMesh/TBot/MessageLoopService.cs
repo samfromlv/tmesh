@@ -368,6 +368,7 @@ public class MessageLoopService(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        meshtasticService.Stop();
         scheduler.Dispose();
         _ackQueue.CompleteAdding();
         _ackQueueSemaphore.Release();

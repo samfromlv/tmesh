@@ -891,7 +891,8 @@ namespace TBot.Bot
                         messageText,
                         replyToMessageId: null,
                         relayGatewayId: meshSender.GetReplyGatewayId(message),
-                        hopLimit: message.GetSuggestedReplyHopLimit());
+                        hopLimit: message.GetSuggestedReplyHopLimit(),
+                        sendDelay: TimeSpan.FromSeconds(10));
 
                     meshtasticService.AddStat(new Shared.Models.MeshStat
                     {
