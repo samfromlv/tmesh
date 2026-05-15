@@ -103,10 +103,19 @@ public class MessageLoopService(
         _serviceInfoTimer.Enabled = true;
     }
 
+    private bool _isHandlingServiceInfoTimer = false;
     private async void ServiceInfoTimer_Elapsed(object sender, ElapsedEventArgs e)
     {
         try
         {
+            if (_isHandlingServiceInfoTimer)
+            {
+                return;
+            }
+            _isHandlingServiceInfoTimer = true;
+
+            var start = DateTime.UtcNow;
+
             var scope = services.CreateScope();
             if ((DateTime.UtcNow - _lastVirtualNodeInfoSent).TotalSeconds >= _options.SentTBotNodeInfoEverySeconds)
             {
@@ -124,16 +133,22 @@ public class MessageLoopService(
 
             await SendScheduledMessages(scope);
 
-            await ProcessVotes(scope);
+            var nextUpdate = start.AddMilliseconds(_serviceInfoTimer.Interval);
+            await ProcessVotes(scope, nextUpdate);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error in ServiceInfo timer");
         }
+        finally
+        {
+            _isHandlingServiceInfoTimer = false;
+        }
     }
 
-    private async Task ProcessVotes(IServiceScope scope)
+    private async Task ProcessVotes(IServiceScope scope, DateTime nextUpdate)
     {
+        
         var voteService = scope.ServiceProvider.GetService<VoteService>();
         if (voteService == null)
         {
@@ -141,7 +156,7 @@ public class MessageLoopService(
         }
         try
         {
-            await voteService.ProcessVotes();
+            await voteService.ProcessVotes(nextUpdate);
         }
         catch (Exception ex)
         {

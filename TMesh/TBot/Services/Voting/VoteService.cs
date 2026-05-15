@@ -16,6 +16,7 @@ namespace TBot.Services.Voting
     {
 
         const byte NoVote = 0;
+        const int MinMinutesBetweenVoteUpdates = 10;
 
         //private async Task CreateTest()
         //{
@@ -40,10 +41,11 @@ namespace TBot.Services.Voting
         //}
 
 
-        public async Task ProcessVotes()
+        public async Task ProcessVotes(DateTime nextUpdate)
         {
             var now = DateTime.UtcNow;
             var instantNow = Instant.FromDateTimeUtc(now);
+            var instantNextUpdate = Instant.FromDateTimeUtc(nextUpdate);
             var votes = await analyticsService.GetVotesToProcessAsync();
 
             if (votes.Count == 0)
@@ -52,7 +54,7 @@ namespace TBot.Services.Voting
             Dictionary<int, List<CityDistrict>> cityDistrictsLookup = new Dictionary<int, List<CityDistrict>>();
 
 
-            foreach (var vote in votes)
+            foreach (var vote in votes.OrderBy(x => x.EndsAt))
             {
                 if (!vote.Enabled || vote.EndsAt < instantNow)
                 {
@@ -63,7 +65,15 @@ namespace TBot.Services.Voting
                     // Not yet started — skip silently, do not deactivate
                     continue;
                 }
-                else if (vote.LastUpdate.HasValue && vote.LastUpdate.Value > instantNow.Plus(Duration.FromMinutes(-vote.UpdateIntervalMinutes - 10)))
+                else if (
+                    vote.LastUpdate.HasValue
+                    && vote.LastUpdate.Value
+                        > instantNow.Plus(Duration.FromMinutes(
+                            -Math.Max(
+                                Math.Abs(vote.UpdateIntervalMinutes),
+                                MinMinutesBetweenVoteUpdates)))
+                    && vote.EndsAt > instantNextUpdate)
+
                 {
                     // Updated recently — skip to avoid excessive processing
                     continue;
@@ -82,8 +92,22 @@ namespace TBot.Services.Voting
                         }
                     }
 
+                    var voteUpdateNow = now;
 
-                    await ProcessVote(vote, now, cityDistricts);
+                    if (vote.EndsAt < instantNextUpdate)
+                    {
+                        var tillVoteEnd = vote.EndsAt - instantNow;
+
+                        if (tillVoteEnd.TotalMilliseconds > 50)
+                        {
+                            //Wait until near the end of the vote to process it, to ensure we have all the votes in
+                            await Task.Delay(tillVoteEnd.ToTimeSpan());
+                        }
+                        voteUpdateNow = vote.EndsAt.ToDateTimeUtc();
+                    }
+
+
+                    await ProcessVote(vote, voteUpdateNow, cityDistricts);
                 }
             }
         }
