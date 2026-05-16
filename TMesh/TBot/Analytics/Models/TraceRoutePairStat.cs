@@ -19,6 +19,8 @@ namespace TBot.Analytics.Models
         public float AvgHops { get; set; }
         public int? AvgDirectDistance { get; set; }
         public int? AvgLinkLength { get; set; }
+        public int WithDistanceCount { get; set; }
+        public int WithLinkLengthCount { get; set; }
 
     }
 }

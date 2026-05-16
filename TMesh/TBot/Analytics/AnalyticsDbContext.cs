@@ -51,6 +51,8 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.ToDeviceId).IsRequired();
             e.Property(r => r.FromDeviceId).IsRequired();
             e.Property(r => r.Count).IsRequired().HasDefaultValue(0);
+            e.Property(r => r.WithDistanceCount).IsRequired().HasDefaultValue(0);
+            e.Property(r => r.WithLinkLengthCount).IsRequired().HasDefaultValue(0);
             e.Property(r => r.DirectCount).IsRequired().HasDefaultValue(0);
             e.Property(r => r.AvgDirectSnr);
             e.Property(r => r.AvgHops).IsRequired().HasDefaultValue(0);
