@@ -133,28 +133,36 @@ namespace TBot.Analytics
                 }
                 cache.Set($"TraceRoutePair_{packetId}_{pair.ToDeviceId}", true, TimeSpan.FromMinutes(MeshtasticService.LinkTraceExpirationMinutes));
 
-                yield return new TraceRoutePair
+                if (pair.ToDeviceId != MeshtasticService.BroadcastDeviceId
+                    && pair.FromDeviceId != MeshtasticService.BroadcastDeviceId)
                 {
-                    NetworkId = networkId,
-                    ToDeviceId = (uint)pair.ToDeviceId,
-                    FromDeviceId = (uint)pair.FromDeviceId,
-                    Hops = 0,
-                    DirectSnr = pair.Snr,
-                    RecDate = localDate
-                };
-
-                for (int j = i - 1; j >= 0; j--)
-                {
-                    var previousPair = route[j];
                     yield return new TraceRoutePair
                     {
                         NetworkId = networkId,
                         ToDeviceId = (uint)pair.ToDeviceId,
-                        FromDeviceId = (uint)previousPair.FromDeviceId,
-                        Hops = (byte)(i - j),
-                        DirectSnr = null,
+                        FromDeviceId = (uint)pair.FromDeviceId,
+                        Hops = 0,
+                        DirectSnr = pair.Snr,
                         RecDate = localDate
                     };
+                }
+
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    var previousPair = route[j];
+                    if (previousPair.FromDeviceId != MeshtasticService.BroadcastDeviceId
+                        && pair.ToDeviceId != MeshtasticService.BroadcastDeviceId)
+                    {
+                        yield return new TraceRoutePair
+                        {
+                            NetworkId = networkId,
+                            ToDeviceId = (uint)pair.ToDeviceId,
+                            FromDeviceId = (uint)previousPair.FromDeviceId,
+                            Hops = (byte)(i - j),
+                            DirectSnr = null,
+                            RecDate = localDate
+                        };
+                    }
                 }
             }
         }
@@ -174,11 +182,17 @@ namespace TBot.Analytics
                 for (int i = 0; i < msg.RouteDiscovery.Route.Count; i++)
                 {
                     var to = msg.RouteDiscovery.Route[i];
+                    float? snr = msg.RouteDiscovery.SnrTowards != null
+                        && msg.RouteDiscovery.SnrTowards.Count > i
+                        && msg.RouteDiscovery.SnrTowards[i] != MeshtasticService.TraceRouteSNRDefault
+                        ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrTowards[i])
+                        : null;
+
                     res.Route.Add(new TraceRoutePairInfo
                     {
                         FromDeviceId = from,
                         ToDeviceId = to,
-                        Snr = msg.RouteDiscovery.SnrTowards != null && msg.RouteDiscovery.SnrTowards.Count > i ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrTowards[i]) : null
+                        Snr = snr
                     });
                     from = to;
                 }
@@ -186,28 +200,39 @@ namespace TBot.Analytics
 
             if (!msg.IsTowards)
             {
+                float? snr = msg.RouteDiscovery.SnrTowards != null
+                        && msg.RouteDiscovery.SnrTowards.Count == msg.RouteDiscovery.Route.Count - 1
+                        && msg.RouteDiscovery.SnrTowards.Last() != MeshtasticService.TraceRouteSNRDefault
+                    ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrTowards.Last())
+                    : null;
+
                 res.Route.Add(new TraceRoutePairInfo
                 {
                     FromDeviceId = from,
                     ToDeviceId = msg.DeviceId,
-                    Snr = msg.RouteDiscovery.Route != null 
-                        && msg.RouteDiscovery.SnrTowards != null
-                        && msg.RouteDiscovery.Route.Count == msg.RouteDiscovery.SnrTowards.Count - 1 ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrTowards.Last()) : null
+                    Snr = snr
                 });
 
                 from = msg.ToDeviceId;
-            
+
 
                 if (msg.RouteDiscovery.RouteBack != null)
                 {
                     for (int i = 0; i < msg.RouteDiscovery.RouteBack.Count; i++)
                     {
                         var to = msg.RouteDiscovery.RouteBack[i];
+
+                        float? snr = msg.RouteDiscovery.SnrBack != null
+                            && msg.RouteDiscovery.SnrBack.Count > i
+                            && msg.RouteDiscovery.SnrBack[i] != MeshtasticService.TraceRouteSNRDefault
+                            ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack[i])
+                            : null;
+
                         res.RouteBack.Add(new TraceRoutePairInfo
                         {
                             FromDeviceId = from,
                             ToDeviceId = to,
-                            Snr = msg.RouteDiscovery.SnrBack != null && msg.RouteDiscovery.SnrBack.Count > i ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack[i]) : null
+                            Snr = snr
                         });
                         from = to;
                     }
@@ -216,11 +241,16 @@ namespace TBot.Analytics
                     {
                         if (msg.RouteDiscovery.RouteBack.Count == msg.RouteDiscovery.SnrBack.Count - 1)
                         {
+
+                            float? snr = msg.RouteDiscovery.SnrBack.Last() != MeshtasticService.TraceRouteSNRDefault
+                                ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack.Last())
+                                : null;
+
                             res.RouteBack.Add(new TraceRoutePairInfo
                             {
                                 FromDeviceId = from,
                                 ToDeviceId = msg.ToDeviceId,
-                                Snr = MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack.Last())
+                                Snr = snr
                             });
                         }
                     }
