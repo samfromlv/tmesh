@@ -79,7 +79,9 @@ namespace TBot.Analytics
             }
 
             db.TraceRoutePairs.AddRange(newPairs);
-            var deviceIds = newPairs.Select(p => p.ToDeviceId).Distinct();
+            var deviceIds = newPairs.Select(p => p.ToDeviceId)
+                .Concat(newPairs.Select(x => x.FromDeviceId))
+                .Distinct();
             foreach (var deviceId in deviceIds)
             {
                 await MaybeSaveTraceDevice(deviceId, msg.NetworkId, localDate);
