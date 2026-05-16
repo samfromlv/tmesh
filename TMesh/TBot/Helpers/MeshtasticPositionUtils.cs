@@ -62,5 +62,39 @@ namespace TBot.Helpers
                 if (acc > worst) worst = acc;
             return worst;
         }
+
+        public static int DistanceMetersRound(
+               (double lat, double lon) from,
+               (double lat, double lon) to) => (int) Math.Round(DistanceMeters(from, to));
+
+
+        public static double DistanceMeters(
+                (double lat, double lon) from,
+                (double lat, double lon) to) => DistanceMeters(from.lat, from.lon, to.lat, to.lon);
+
+
+
+        public static double DistanceMeters(
+                double lat1, double lon1,
+                double lat2, double lon2)
+        {
+            const double earthRadiusMeters = 6371008.8; // mean Earth radius
+
+            static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
+
+            double phi1 = ToRadians(lat1);
+            double phi2 = ToRadians(lat2);
+            double dPhi = ToRadians(lat2 - lat1);
+            double dLambda = ToRadians(lon2 - lon1);
+
+            double a =
+                Math.Sin(dPhi / 2) * Math.Sin(dPhi / 2) +
+                Math.Cos(phi1) * Math.Cos(phi2) *
+                Math.Sin(dLambda / 2) * Math.Sin(dLambda / 2);
+
+            double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+
+            return earthRadiusMeters * c;
+        }
     }
 }

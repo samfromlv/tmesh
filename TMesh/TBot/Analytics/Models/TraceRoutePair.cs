@@ -16,5 +16,7 @@ namespace TBot.Analytics.Models
         public uint FromDeviceId { get; set; }
         public byte Hops { get; set; }
         public float? DirectSnr { get; set; }
+        public int? LinkLengthMeters { get; set; }
+        public int? DistanceBetweenDevices { get; set; }
     }
 }

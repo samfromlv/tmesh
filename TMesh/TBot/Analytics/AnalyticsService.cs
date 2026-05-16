@@ -1,13 +1,6 @@
-﻿using Meshtastic.Protobufs;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 using NodaTime;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using TBot.Analytics.Dto;
 using TBot.Analytics.Models;
 using TBot.Helpers;
@@ -17,6 +10,9 @@ namespace TBot.Analytics
 {
     public class AnalyticsService(AnalyticsDbContext db, RegistrationService registrationService, TimeZoneHelper tz, IMemoryCache cache)
     {
+
+        public const int MinAccuracyMetersForTraceDistances = 750;
+
         public async Task RecordEventAsync(DeviceMetric metrics)
         {
             db.DeviceMetrics.Add(metrics);
@@ -67,8 +63,21 @@ namespace TBot.Analytics
             var localDate = LocalDate.FromDateTime(tz.ConvertFromUtcToDefaultTimezone(now));
             var route = ConvertTraceRouteToPairs(msg);
             var newPairs = new List<TraceRoutePair>();
-            newPairs.AddRange(GetPairsFromRoute(msg.NetworkId, msg.IsTowards ? msg.Id : msg.RequestId, route.Route, localDate));
-            newPairs.AddRange(GetPairsFromRoute(msg.NetworkId, msg.Id, route.RouteBack, localDate));
+
+            await foreach (var pair in GetPairsFromRoute(
+                msg.NetworkId,
+                msg.IsTowards ? msg.Id : msg.RequestId, route.Route, localDate))
+            {
+                newPairs.Add(pair);
+            }
+
+            await foreach (var pair in GetPairsFromRoute(
+                msg.NetworkId,
+                msg.Id, route.RouteBack, localDate))
+            {
+                newPairs.Add(pair);
+            }
+
             db.TraceRoutePairs.AddRange(newPairs);
             var deviceIds = newPairs.Select(p => p.ToDeviceId).Distinct();
             foreach (var deviceId in deviceIds)
@@ -121,7 +130,34 @@ namespace TBot.Analytics
             }
         }
 
-        private IEnumerable<TraceRoutePair> GetPairsFromRoute(int networkId, long packetId, List<TraceRoutePairInfo> route, LocalDate localDate)
+
+        private async ValueTask<(double lat, double lng)?> GetDeviceLocation(long deviceId)
+        {
+            if (deviceId == MeshtasticService.BroadcastDeviceId)
+            {
+                return null;
+            }
+
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            if (device == null)
+                return null;
+
+            if (device.IsLocationPublic
+                && device.Latitude.HasValue
+                && device.Longitude.HasValue
+                && device.AccuracyMeters <= MinAccuracyMetersForTraceDistances)
+            {
+                return (lat: device.Latitude.Value, lng: device.Longitude.Value);
+            }
+
+            return null;
+        }
+
+        private async IAsyncEnumerable<TraceRoutePair> GetPairsFromRoute(
+            int networkId,
+            long packetId,
+            List<TraceRoutePairInfo> route,
+            LocalDate localDate)
         {
             for (int i = 0; i < route.Count; i++)
             {
@@ -133,9 +169,21 @@ namespace TBot.Analytics
                 }
                 cache.Set($"TraceRoutePair_{packetId}_{pair.ToDeviceId}", true, TimeSpan.FromMinutes(MeshtasticService.LinkTraceExpirationMinutes));
 
+                var toDeviceLocation = await GetDeviceLocation(pair.ToDeviceId);
+                var currentDeviceLocation = await GetDeviceLocation(pair.FromDeviceId);
+
+                int? linkLength = null;
+
                 if (pair.ToDeviceId != MeshtasticService.BroadcastDeviceId
                     && pair.FromDeviceId != MeshtasticService.BroadcastDeviceId)
                 {
+                    if (currentDeviceLocation != null && toDeviceLocation != null)
+                    {
+                        linkLength = MeshtasticPositionUtils.DistanceMetersRound(
+                            currentDeviceLocation.Value,
+                            toDeviceLocation.Value);
+                    }
+
                     yield return new TraceRoutePair
                     {
                         NetworkId = networkId,
@@ -143,16 +191,41 @@ namespace TBot.Analytics
                         FromDeviceId = (uint)pair.FromDeviceId,
                         Hops = 0,
                         DirectSnr = pair.Snr,
-                        RecDate = localDate
+                        RecDate = localDate,
+                        LinkLengthMeters = linkLength,
+                        DistanceBetweenDevices = linkLength,
                     };
                 }
 
                 for (int j = i - 1; j >= 0; j--)
                 {
                     var previousPair = route[j];
+                    var nextDeviceLocation = await GetDeviceLocation(previousPair.FromDeviceId);
                     if (previousPair.FromDeviceId != MeshtasticService.BroadcastDeviceId
                         && pair.ToDeviceId != MeshtasticService.BroadcastDeviceId)
                     {
+                        int? distanceBetweenDevices = null;
+                        if (nextDeviceLocation != null && toDeviceLocation != null)
+                        {
+                            distanceBetweenDevices = MeshtasticPositionUtils.DistanceMetersRound(
+                                nextDeviceLocation.Value,
+                                toDeviceLocation.Value);
+                        }
+
+                        if (linkLength != null)
+                        {
+                            if (nextDeviceLocation != null && currentDeviceLocation != null)
+                            {
+                                linkLength += MeshtasticPositionUtils.DistanceMetersRound(
+                                    nextDeviceLocation.Value,
+                                    currentDeviceLocation.Value);
+                            }
+                            else
+                            {
+                                linkLength = null;
+                            }
+                        }
+
                         yield return new TraceRoutePair
                         {
                             NetworkId = networkId,
@@ -160,9 +233,13 @@ namespace TBot.Analytics
                             FromDeviceId = (uint)previousPair.FromDeviceId,
                             Hops = (byte)(i - j),
                             DirectSnr = null,
-                            RecDate = localDate
+                            RecDate = localDate,
+                            DistanceBetweenDevices = distanceBetweenDevices,
+                            LinkLengthMeters = linkLength
                         };
+
                     }
+                    currentDeviceLocation = nextDeviceLocation;
                 }
             }
         }
