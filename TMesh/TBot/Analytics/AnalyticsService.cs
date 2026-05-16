@@ -222,7 +222,7 @@ namespace TBot.Analytics
                     {
                         var to = msg.RouteDiscovery.RouteBack[i];
 
-                        float? snr = msg.RouteDiscovery.SnrBack != null
+                        float? snr2 = msg.RouteDiscovery.SnrBack != null
                             && msg.RouteDiscovery.SnrBack.Count > i
                             && msg.RouteDiscovery.SnrBack[i] != MeshtasticService.TraceRouteSNRDefault
                             ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack[i])
@@ -232,7 +232,7 @@ namespace TBot.Analytics
                         {
                             FromDeviceId = from,
                             ToDeviceId = to,
-                            Snr = snr
+                            Snr = snr2
                         });
                         from = to;
                     }
@@ -242,7 +242,7 @@ namespace TBot.Analytics
                         if (msg.RouteDiscovery.RouteBack.Count == msg.RouteDiscovery.SnrBack.Count - 1)
                         {
 
-                            float? snr = msg.RouteDiscovery.SnrBack.Last() != MeshtasticService.TraceRouteSNRDefault
+                            float? snr2 = msg.RouteDiscovery.SnrBack.Last() != MeshtasticService.TraceRouteSNRDefault
                                 ? MeshtasticService.UnroundSnrFromTrace(msg.RouteDiscovery.SnrBack.Last())
                                 : null;
 
@@ -250,7 +250,7 @@ namespace TBot.Analytics
                             {
                                 FromDeviceId = from,
                                 ToDeviceId = msg.ToDeviceId,
-                                Snr = snr
+                                Snr = snr2
                             });
                         }
                     }
