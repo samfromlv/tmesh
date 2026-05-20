@@ -309,7 +309,7 @@ namespace TBot.Bot
 
         private string GetPingReplyText(Network network)
         {
-            var reply = network?.Url == null ?
+            var reply = String.IsNullOrEmpty(network?.Url) ?
                 _options.Texts.PingReply ?? "pong"
                 : (_options.Texts.PingReplyWithNetworkUrl ?? "pong") + $" {network.Url}";
             return reply ?? "pong";
