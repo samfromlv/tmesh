@@ -1683,6 +1683,29 @@ namespace TBot
             return true;
         }
 
+        /// <summary>
+        /// Updates one or more fields of a scheduled message. Pass null to skip updating that field.
+        /// </summary>
+        public async Task<bool> UpdateScheduledMessageAsync(int messageId, string text, int? intervalMinutes, int? publicChannelId)
+        {
+            var msg = await db.ScheduledMessages.FindAsync(messageId);
+            if (msg == null) return false;
+            if (text != null) msg.Text = text;
+            if (intervalMinutes.HasValue) msg.IntervalMinutes = intervalMinutes.Value;
+            if (publicChannelId.HasValue) msg.PublicChannelId = publicChannelId.Value;
+            await db.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> UpdateScheduledMessageVariantAsync(int variantId, string text)
+        {
+            var variant = await db.ScheduledMessageVariants.FindAsync(variantId);
+            if (variant == null) return false;
+            variant.Text = text;
+            await db.SaveChangesAsync();
+            return true;
+        }
+
         public async Task<ScheduledMessage> AddScheduledMessageAsync(int publicChannelId, int intervalMinutes, string text, DateTime? enableAtUtc = null, DateTime? disableAtUtc = null)
         {
             var msg = new ScheduledMessage

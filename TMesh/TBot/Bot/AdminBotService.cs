@@ -147,8 +147,9 @@ namespace TBot.Bot
                         return await ToggleScheduledMessage(chatId, segments);
                     }
                 case "change_scheduled_message_channel":
+                case "update_scheduled_message":
                     {
-                        return await ChangeScheduledMessageChannel(chatId, segments);
+                        return await UpdateScheduledMessage(chatId, noPrefix);
                     }
                 case "list_scheduled_messages":
                     {
@@ -157,6 +158,10 @@ namespace TBot.Bot
                 case "add_scheduled_message_variant":
                     {
                         return await AddScheduledMessageVariant(chatId, noPrefix);
+                    }
+                case "update_scheduled_message_variant":
+                    {
+                        return await UpdateScheduledMessageVariant(chatId, noPrefix);
                     }
                 case "remove_scheduled_message_variant":
                     {
@@ -205,9 +210,10 @@ namespace TBot.Bot
                             "add_scheduled_message - Add a scheduled message to send to public channel",
                             "delete_scheduled_message - Delete a scheduled message",
                             "toggle_scheduled_message - Enable/disable scheduled message",
-                            "change_scheduled_message_channel - Move scheduled message to different public channel",
+                            "update_scheduled_message - Update scheduled message text, interval and/or channel",
                             "list_scheduled_messages - Show all scheduled messages",
                             "add_scheduled_message_variant - Adds scheduled message text variant",
+                            "update_scheduled_message_variant - Updates scheduled message text variant",
                             "remove_scheduled_message_variant - Removes scheduled message text variant",
                             "send_mass_direct_message - Prepares mass direct message",
                             "confirm_mass_direct_message - Sends prepared mass direct text message",
@@ -1498,13 +1504,49 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
-        private async Task<TgResult> ChangeScheduledMessageChannel(long chatId, string[] segments)
+        private async Task<TgResult> UpdateScheduledMessage(long chatId, string noPrefix)
         {
-            if (segments.Length < 3
-                || !int.TryParse(segments[1], out var messageId)
-                || !int.TryParse(segments[2], out var publicChannelId))
+            // Usage: update_scheduled_message <message_id> [text="<text>"] [interval="<minutes>"] [channel="<channel_id>"]
+            var cmd = noPrefix["update_scheduled_message".Length..].Trim();
+            var firstSpace = cmd.IndexOf(' ');
+            if (firstSpace < 0)
             {
-                await botClient.SendMessage(chatId, "Usage: change_scheduled_message_channel <message_id> <public_channel_id>");
+                await botClient.SendMessage(chatId,
+                    "Usage: update_scheduled_message <message_id> [text=\"<text>\"] [interval=\"<minutes>\"] [channel=\"<channel_id>\"]\n" +
+                    "At least one of text, interval, or channel must be provided.\n" +
+                    "Example: update_scheduled_message 3 text=\"New text\" interval=\"60\"");
+                return TgResult.Ok;
+            }
+
+            var idStr = cmd[..firstSpace];
+            if (!int.TryParse(idStr, out var messageId))
+            {
+                await botClient.SendMessage(chatId, "Invalid scheduled message ID.");
+                return TgResult.Ok;
+            }
+
+            var argsStr = cmd[(firstSpace + 1)..].Trim();
+
+            string newText = null;
+            int? newInterval = null;
+            int? newChannelId = null;
+
+            var textMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"text=""((?:[^""\\]|\\.)*)""");
+            if (textMatch.Success)
+                newText = textMatch.Groups[1].Value.Replace("\\\"", "\"");
+
+            var intervalMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"interval=""(\d+)""");
+            if (intervalMatch.Success && int.TryParse(intervalMatch.Groups[1].Value, out var parsedInterval))
+                newInterval = parsedInterval;
+
+            var channelMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"channel=""(\d+)""");
+            if (channelMatch.Success && int.TryParse(channelMatch.Groups[1].Value, out var parsedChannelId))
+                newChannelId = parsedChannelId;
+
+            if (newText == null && newInterval == null && newChannelId == null)
+            {
+                await botClient.SendMessage(chatId,
+                    "Nothing to update. Provide at least one of: text=\"...\", interval=\"...\", channel=\"...\"");
                 return TgResult.Ok;
             }
 
@@ -1515,16 +1557,44 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var channel = await registrationService.GetPublicChannelByIdAsync(publicChannelId);
-            if (channel == null)
+            if (newText != null && string.IsNullOrWhiteSpace(newText))
             {
-                await botClient.SendMessage(chatId, $"Public channel #{publicChannelId} not found.");
+                await botClient.SendMessage(chatId, "Text cannot be empty.");
                 return TgResult.Ok;
             }
 
-            await registrationService.ChangeScheduledMessageChannelAsync(messageId, publicChannelId);
+            if (newText != null && !MeshtasticService.CanSendMessage(newText))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Text is too long. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes.");
+                return TgResult.Ok;
+            }
+
+            if (newInterval is <= 0)
+            {
+                await botClient.SendMessage(chatId, "Interval must be a positive number of minutes.");
+                return TgResult.Ok;
+            }
+
+            if (newChannelId.HasValue)
+            {
+                var channel = await registrationService.GetPublicChannelByIdAsync(newChannelId.Value);
+                if (channel == null)
+                {
+                    await botClient.SendMessage(chatId, $"Public channel #{newChannelId.Value} not found.");
+                    return TgResult.Ok;
+                }
+            }
+
+            await registrationService.UpdateScheduledMessageAsync(messageId, newText, newInterval, newChannelId);
+
+            var parts = new List<string>();
+            if (newText != null) parts.Add($"text → _{StringHelper.EscapeMd(newText)}_");
+            if (newInterval.HasValue) parts.Add($"interval → *{newInterval}* min");
+            if (newChannelId.HasValue) parts.Add($"channel → *#{newChannelId}*");
+
             await botClient.SendMessage(chatId,
-                $"Scheduled message #{messageId} moved to channel #{publicChannelId} \"{StringHelper.EscapeMd(channel.Name)}\".",
+                $"Scheduled message *#{messageId}* updated: {string.Join(", ", parts)}.",
                 parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
@@ -1624,6 +1694,62 @@ namespace TBot.Bot
             var variant = await registrationService.AddScheduledMessageVariantAsync(scheduledMessageId, text);
             await botClient.SendMessage(chatId,
                 $"Variant #{variant.Id} added to scheduled message #{scheduledMessageId}:\n{StringHelper.EscapeMd(text)}",
+                parseMode: ParseMode.Markdown);
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> UpdateScheduledMessageVariant(long chatId, string noPrefix)
+        {
+            // Usage: update_scheduled_message_variant <variant_id> text="<text>"
+            var cmd = noPrefix["update_scheduled_message_variant".Length..].Trim();
+            var firstSpace = cmd.IndexOf(' ');
+            if (firstSpace < 0 || !cmd.Contains("text=\""))
+            {
+                await botClient.SendMessage(chatId,
+                    "Usage: update_scheduled_message_variant <variant_id> text=\"<new text>\"\n" +
+                    "Example: update_scheduled_message_variant 5 text=\"Updated variant text\"");
+                return TgResult.Ok;
+            }
+
+            var idStr = cmd[..firstSpace];
+            if (!int.TryParse(idStr, out var variantId))
+            {
+                await botClient.SendMessage(chatId, "Invalid variant ID.");
+                return TgResult.Ok;
+            }
+
+            var afterId = cmd[(firstSpace + 1)..].Trim();
+            var textMatch = System.Text.RegularExpressions.Regex.Match(
+                afterId, @"text=""((?:[^""\\]|\\.)*)""");
+            if (!textMatch.Success)
+            {
+                await botClient.SendMessage(chatId, "Could not parse text parameter. Use: text=\"your new text here\"");
+                return TgResult.Ok;
+            }
+            var text = textMatch.Groups[1].Value.Replace("\\\"", "\"");
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await botClient.SendMessage(chatId, "Variant text cannot be empty.");
+                return TgResult.Ok;
+            }
+
+            if (!MeshtasticService.CanSendMessage(text))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Variant text is too long. Please keep it under {MeshtasticService.MaxTextMessageBytes} bytes.");
+                return TgResult.Ok;
+            }
+
+            var updated = await registrationService.UpdateScheduledMessageVariantAsync(variantId, text);
+            if (!updated)
+            {
+                await botClient.SendMessage(chatId, $"Scheduled message variant #{variantId} not found.");
+                return TgResult.Ok;
+            }
+
+            await botClient.SendMessage(chatId,
+                $"Variant *#{variantId}* updated:\n_{StringHelper.EscapeMd(text)}_",
                 parseMode: ParseMode.Markdown);
             return TgResult.Ok;
         }
