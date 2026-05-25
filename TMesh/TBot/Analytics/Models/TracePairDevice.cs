@@ -17,5 +17,6 @@ namespace TBot.Analytics.Models
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
         public DeviceRole? Role { get; set; }
+        public string PresetName { get; set; }
     }
 }

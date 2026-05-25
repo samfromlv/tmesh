@@ -109,13 +109,22 @@ namespace TBot.Analytics
                 longitude = device.Longitude;
             }
 
+            string presetName = null;
+            if (device.NodeInfoOnPublicChannelId != null)
+            {
+                var channel = await registrationService.GetPublicChannelByIdCachedAsync(device.NodeInfoOnPublicChannelId.Value);
+                presetName = channel?.Name;
+            }
+
+
             var updated = await db.TracePairDevices
                 .Where(x => x.RecDate == localToday && x.Id == id && x.NetworkId == networkId)
                 .ExecuteUpdateAsync(x => x
                     .SetProperty(d => d.Name, device.NodeName)
                     .SetProperty(d => d.Latitude, latitude)
                     .SetProperty(d => d.Longitude, longitude)
-                    .SetProperty(d => d.Role, device.Role));
+                    .SetProperty(d => d.Role, device.Role)
+                    .SetProperty(d => d.PresetName, presetName));
 
             if (updated == 0)
             {
@@ -127,7 +136,8 @@ namespace TBot.Analytics
                     Name = device.NodeName,
                     Latitude = latitude,
                     Longitude = longitude,
-                    Role = device.Role
+                    Role = device.Role,
+                    PresetName = presetName
                 });
             }
         }

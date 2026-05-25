@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Org.BouncyCastle.Cms;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -8,6 +9,7 @@ using TBot.Models;
 using TBot.Models.Admin;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace TBot.Bot
 {
@@ -17,7 +19,8 @@ namespace TBot.Bot
         BotCache botCache,
         RegistrationService registrationService,
         MeshtasticService meshtasticService,
-        TimeZoneHelper timeZoneHelper)
+        TimeZoneHelper timeZoneHelper,
+        MapMqttService mapMqttService)
     {
 
         private readonly TBotOptions _options = options.Value;
@@ -79,6 +82,10 @@ namespace TBot.Bot
                 case "public_text":
                     {
                         return await PublicText(chatId, noPrefix);
+                    }
+                case "mqtt_uplink_text":
+                    {
+                        return await MqttText(chatId, noPrefix);
                     }
                 case "trace":
                     {
@@ -623,7 +630,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var ch = await registrationService.GetPublicChannelByIdAsync(channelId);
+            var ch = await registrationService.GetPublicChannelByIdCachedAsync(channelId);
             if (ch == null)
             {
                 await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
@@ -661,7 +668,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var ch = await registrationService.GetPublicChannelByIdAsync(channelId);
+            var ch = await registrationService.GetPublicChannelByIdCachedAsync(channelId);
             if (ch == null)
             {
                 await botClient.SendMessage(chatId, $"Public channel with ID {channelId} not found.");
@@ -1086,6 +1093,79 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
+
+        private async Task<TgResult> MqttText(long chatId, string noPrefix)
+        {
+            var cmd = noPrefix["mqtt_uplink_text".Length..].Trim();
+            var publicChannelIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            var channelNameEndIndex = cmd.IndexOf(' ');
+
+            if (channelNameEndIndex == -1)
+            {
+                await botClient.SendMessage(chatId, "Usage: mqtt_uplink_text <publicChannelId> <fromNodeId> <text>\nPlease specify the public channel ID and announcement text.");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(publicChannelIdStr, out var publicChannelId))
+            {
+                await botClient.SendMessage(chatId, "Invalid public channel ID. Please specify a valid integer public channel ID.");
+                return TgResult.Ok;
+            }
+
+            var publicChannel = await registrationService.GetPublicChannelByIdCachedAsync(publicChannelId);
+            if (publicChannel == null)
+            {
+                await botClient.SendMessage(chatId, $"Public channel with ID {publicChannelId} not found.");
+                return TgResult.Ok;
+            }
+
+            var remainingCmd = cmd[(publicChannelIdStr.Length + 1)..].Trim();
+
+            var fromNodeIdStr = remainingCmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(fromNodeIdStr))
+            {
+                await botClient.SendMessage(chatId, "Please specify the fromNodeId and announcement text.");
+                return TgResult.Ok;
+            }
+            if (!MeshtasticService.TryParseDeviceId(fromNodeIdStr, out var fromNodeId))
+            {
+                await botClient.SendMessage(chatId, $"Invalid fromNodeId format: '{fromNodeIdStr}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                return TgResult.Ok;
+            }
+
+            var announcement = remainingCmd[(fromNodeIdStr.Length + 1)..].Trim();
+
+            if (string.IsNullOrWhiteSpace(announcement))
+            {
+                await botClient.SendMessage(chatId, "Announcement text cannot be empty.");
+                return TgResult.Ok;
+            }
+
+            var newMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+            botCache.StoreMessageSentByOurNode(newMsgId);
+
+            var envelope = meshtasticService.PackPublicTextMessage(
+                newMsgId,
+                announcement,
+                replyToMessageId: null,
+                hopLimit: _options.OutgoingMessageHopLimit,
+                recipient: publicChannel,
+                channelName: publicChannel.Name,
+                fromNodeId: fromNodeId);
+
+            envelope.Packet.RxSnr = 1;
+            envelope.Packet.RxRssi = -30;
+            envelope.Packet.HopLimit = envelope.Packet.HopStart - 1;
+            envelope.Packet.TransportMechanism = Meshtastic.Protobufs.MeshPacket.Types.TransportMechanism.TransportLora;
+            envelope.Packet.RelayNode = 35;
+            envelope.Packet.RxTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            await mapMqttService.PublishMeshtasticMessage(publicChannel.NetworkId, envelope);
+
+            await botClient.SendMessage(chatId, $"Announcement sent to channel '{publicChannel.Name}' in network [{publicChannel.NetworkId}] \"{publicChannel.Name}\".\n\nMessage ID:\n{newMsgId}, ChannelXor: {envelope.Packet.Channel}");
+            return TgResult.Ok;
+        }
+
         private async Task<TgResult> PublicTextPrimary(long chatId, string noPrefix)
         {
             var cmd = noPrefix["public_text_primary".Length..].Trim();
@@ -1395,7 +1475,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var channel = await registrationService.GetPublicChannelByIdAsync(publicChannelId);
+            var channel = await registrationService.GetPublicChannelByIdCachedAsync(publicChannelId);
             if (channel == null)
             {
                 await botClient.SendMessage(chatId, $"Public channel with ID {publicChannelId} not found.");
@@ -1578,7 +1658,7 @@ namespace TBot.Bot
 
             if (newChannelId.HasValue)
             {
-                var channel = await registrationService.GetPublicChannelByIdAsync(newChannelId.Value);
+                var channel = await registrationService.GetPublicChannelByIdCachedAsync(newChannelId.Value);
                 if (channel == null)
                 {
                     await botClient.SendMessage(chatId, $"Public channel #{newChannelId.Value} not found.");

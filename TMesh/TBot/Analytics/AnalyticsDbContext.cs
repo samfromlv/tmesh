@@ -34,6 +34,7 @@ public class AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : 
             e.Property(r => r.RecDate).IsRequired();
             e.Property(r => r.Id).IsRequired();
             e.Property(r => r.Name).HasMaxLength(200);
+            e.Property(r => r.PresetName).HasMaxLength(30);
         });
 
         modelBuilder.Entity<TraceRoutePair>(e =>

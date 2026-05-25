@@ -452,14 +452,15 @@ namespace TBot
             return envelope;
         }
 
-        private ServiceEnvelope PackPublicTextMessage(
+        public ServiceEnvelope PackPublicTextMessage(
             long newMessageId,
             string text,
             long? replyToMessageId,
             int hopLimit,
             IRecipient recipient,
             string channelName,
-            bool isEmoji = false)
+            bool isEmoji = false,
+            long? fromNodeId = null)
         {
             var packet = CreateTextMessagePacket(
                 newMessageId,
@@ -468,10 +469,11 @@ namespace TBot
                 text,
                 replyToMessageId,
                 hopLimit,
-                isEmoji);
+                isEmoji,
+                fromNodeId);
 
             packet = EncryptPacketWithPsk(packet, recipient);
-            var envelope = CreateMeshtasticEnvelope(packet, channelName);
+            var envelope = CreateMeshtasticEnvelope(packet, channelName, fromNodeId);
             return envelope;
         }
 
@@ -528,13 +530,13 @@ namespace TBot
             return envelope;
         }
 
-        public ServiceEnvelope CreateMeshtasticEnvelope(MeshPacket packet, string channelName)
+        public ServiceEnvelope CreateMeshtasticEnvelope(MeshPacket packet, string channelName, long? gatewayId = null)
         {
             return new ServiceEnvelope()
             {
                 Packet = packet,
                 ChannelId = channelName ?? PKIChannelName,
-                GatewayId = GetMeshtasticNodeHexId(_options.MeshtasticNodeId),
+                GatewayId = GetMeshtasticNodeHexId(gatewayId ?? _options.MeshtasticNodeId),
             };
         }
 
@@ -552,7 +554,8 @@ namespace TBot
             string text,
             long? replyToMessageId,
             int hopLimit,
-            bool isEmoji)
+            bool isEmoji,
+            long? fromNodeId = null)
         {
             var bytes = ByteString.CopyFromUtf8(text);
             if (bytes.Length > MaxTextMessageBytes)
@@ -565,7 +568,7 @@ namespace TBot
                 Channel = 0,
                 WantAck = true,
                 To = (uint)deviceId,
-                From = (uint)_options.MeshtasticNodeId,
+                From = (uint)(fromNodeId ?? _options.MeshtasticNodeId),
                 Priority = MeshPacket.Types.Priority.Default,
                 Id = (uint)newMessageId,
                 HopLimit = (uint)hopLimitToUse,

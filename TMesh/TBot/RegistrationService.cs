@@ -1314,11 +1314,20 @@ namespace TBot
             return networks.GetValueOrDefault(networkId);
         }
 
-        public void InvalidatePublicChannelsCache(int networkId)
+        public void InvalidatePublicChannelsCache(int networkId, int? id)
         {
             memoryCache.Remove($"GetPublicChannelKeysLookupByHash#{networkId}");
             memoryCache.Remove("PrimaryPublicChannels");
             memoryCache.Remove("NodeInfoPublicChannels");
+            if (id.HasValue)
+            {
+                InvalidatePublicChannelCache(id.Value);
+            }
+        }
+
+        public void InvalidatePublicChannelCache(int publicChannelId)
+        {
+            memoryCache.Remove($"PublicChannelById#{publicChannelId}");
         }
 
         public async Task<PublicChannel> AddPublicChannelAsync(int networkId, string name, byte[] key, bool isPrimary, bool sendNodeInfoOnSecondary = false)
@@ -1337,7 +1346,7 @@ namespace TBot
             };
             db.PublicChannels.Add(entity);
             await db.SaveChangesAsync();
-            InvalidatePublicChannelsCache(networkId);
+            InvalidatePublicChannelsCache(networkId, null);
             return entity;
         }
 
@@ -1370,7 +1379,7 @@ namespace TBot
             entity.IsPrimary = isPrimary;
             entity.SendNodeInfoOnSecondary = sendNodeInfoOnSecondary && !isPrimary;
             await db.SaveChangesAsync();
-            InvalidatePublicChannelsCache(entity.NetworkId);
+            InvalidatePublicChannelsCache(entity.NetworkId, id);
             return (true, entity);
         }
 
@@ -1381,7 +1390,7 @@ namespace TBot
             var networkId = entity.NetworkId;
             db.PublicChannels.Remove(entity);
             await db.SaveChangesAsync();
-            InvalidatePublicChannelsCache(networkId);
+            InvalidatePublicChannelsCache(networkId, id);
             return (true, networkId);
         }
 
@@ -1395,9 +1404,19 @@ namespace TBot
                 .ToListAsync();
         }
 
-        public async Task<PublicChannel> GetPublicChannelByIdAsync(int id)
+
+        public async Task<PublicChannel> GetPublicChannelByIdCachedAsync(int id)
         {
-            return await db.PublicChannels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            if (memoryCache.TryGetValue<PublicChannel>($"PublicChannelById#{id}", out var cached))
+            {
+                return cached;
+            }
+            var entity = await db.PublicChannels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            if (entity != null)
+            {
+                memoryCache.Set($"PublicChannelById#{id}", entity, TimeSpan.FromMinutes(10));
+            }
+            return entity;
         }
 
         public string DeriveMqttPasswordForDevice(long deviceId)
