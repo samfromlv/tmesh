@@ -316,11 +316,9 @@ namespace TBot.Bot
                 var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";
 
                 await botCache.StopChatSession(chatId, db);
-                IRecipient recipient = otherMeshSession.DeviceId != null
-                    ? await registrationService.GetDeviceAsync(otherMeshSession.DeviceId.Value)
-                    : await registrationService.GetChannelAsync(otherMeshSession.ChannelId.Value);
+                IRecipient recipient = await registrationService.GetRecipientForChatSession(otherMeshSession);
 
-                if (recipient != null)
+                if (recipient != null && !recipient.IsPublicChannel)
                 {
                     var gatewayId = botCache.GetRecipientGateway(recipient);
 
@@ -336,9 +334,7 @@ namespace TBot.Bot
             var otherTgChatId = botCache.GetActiveChatSessionForRequest(request);
             if (otherTgChatId != null && otherTgChatId != chatId)
             {
-                IRecipient recipient = request.DeviceId != null
-                    ? await registrationService.GetDeviceAsync(request.DeviceId.Value)
-                    : await registrationService.GetChannelAsync(request.ChannelId.Value);
+                IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);
                 await botCache.StopChatSession(otherTgChatId.Value, db);
                 var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
                 await botClient.TrySendMessage(
@@ -471,7 +467,11 @@ namespace TBot.Bot
                 return;
             }
 
-            var textToMesh = $"{TrimTelegramUserName(userName)}: {text}";
+            var activeSession = botCache.GetActiveChatSession(chatId);
+
+            var textToMesh = activeSession?.PublicChannelId != null
+                ? text
+                : $"{TrimTelegramUserName(userName)}: {text}";
 
             if (!MeshtasticService.CanSendMessage(textToMesh))
             {
@@ -486,8 +486,7 @@ namespace TBot.Bot
                     });
                 return;
             }
-
-            var activeSession = botCache.GetActiveChatSession(chatId);
+            
             if (activeSession != null)
             {
                 var recipient = await GetChatSessionRecipient(activeSession);
@@ -497,7 +496,9 @@ namespace TBot.Bot
                     chatId,
                     msgId,
                     replyToTelegramMessageId,
-                    textToMesh);
+                    textToMesh,
+                    activeSession.ImpersonateDeviceId,
+                    activeSession.ForceGatewayId);
 
                 return;
             }
@@ -526,11 +527,9 @@ namespace TBot.Bot
                 textToMesh);
         }
 
-        private async Task<IRecipient> GetChatSessionRecipient(DeviceOrChannelId activeSession)
+        private Task<IRecipient> GetChatSessionRecipient(DeviceOrChannelId activeSession)
         {
-            return activeSession.DeviceId != null
-                ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
-                : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
+            return registrationService.GetRecipientForChatSession(activeSession);
         }
 
         private static string TrimTelegramUserName(string userName)

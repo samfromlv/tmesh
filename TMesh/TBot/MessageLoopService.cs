@@ -557,7 +557,7 @@ public class MessageLoopService(
         }
     }
 
-    public async Task ProcessPacket(
+    private async Task ProcessPacket(
         ServiceEnvelope env,
         int networkId,
         long tmeshOrMapGatewayId,
@@ -602,14 +602,13 @@ public class MessageLoopService(
             }
 
             var packetFromTo = MeshtasticService.GetPacketAddresses(env);
-            Device device = null;
             RegistrationService registrationService = null;
             var recipients = new List<IRecipient>(8);
             if (packetFromTo.IsPkiEncrypted && packetFromTo.To == _options.MeshtasticNodeId)
             {
                 scope ??= services.CreateScope();
                 registrationService ??= scope.ServiceProvider.GetRequiredService<RegistrationService>();
-                device = await registrationService.GetDeviceAsync(packetFromTo.From);
+                var device = await registrationService.GetDeviceAsync(packetFromTo.From);
                 if (device != null)
                 {
                     recipients.Add(device);
@@ -689,7 +688,7 @@ public class MessageLoopService(
             }
 
             var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotService>();
-            await botService.ProcessInboundMeshtasticMessage(res.msg, device);
+            await botService.ProcessInboundMeshtasticMessage(res.msg);
             if (botService.TrackedMessages != null)
             {
                 ScheduleStatusResolve(botService.TrackedMessages);

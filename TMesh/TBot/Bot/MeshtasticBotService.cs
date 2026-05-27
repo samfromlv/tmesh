@@ -1,5 +1,4 @@
-﻿using Google.Protobuf;
-using Google.Protobuf.Collections;
+﻿using Google.Protobuf.Collections;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -38,7 +37,7 @@ namespace TBot.Bot
         public List<MeshtasticMessageStatus> TrackedMessages => meshSender.TrackedMessages;
 
 
-        public async Task ProcessInboundMeshtasticMessage(MeshMessage message, Device deviceOrNull)
+        public async Task ProcessInboundMeshtasticMessage(MeshMessage message)
         {
             botCache.StoreDeviceGateway(message);
             if (message.ChannelId.HasValue && message.IsSingleDeviceChannel && message.TMeshGatewayId.HasValue)
@@ -51,19 +50,19 @@ namespace TBot.Bot
                     await ProcessInboundNodeInfo((NodeInfoMessage)message);
                     break;
                 case MeshMessageType.Text:
-                    await ProcessInboundMeshTextMessage((TextMessage)message, deviceOrNull);
+                    await ProcessInboundMeshTextMessage((TextMessage)message);
                     break;
                 case MeshMessageType.EncryptedDirectMessage:
                     await SendNoPublicKeyNak(message);
                     break;
                 case MeshMessageType.TraceRoute:
-                    await ProcessInboundTraceRoute((TraceRouteMessage)message, deviceOrNull);
+                    await ProcessInboundTraceRoute((TraceRouteMessage)message);
                     break;
                 case MeshMessageType.Position:
-                    await ProcessInboundPositionMessage((PositionMessage)message, deviceOrNull);
+                    await ProcessInboundPositionMessage((PositionMessage)message);
                     break;
                 case MeshMessageType.DeviceMetrics:
-                    await ProcessInboundDeviceMetricsMessage((DeviceMetricsMessage)message, deviceOrNull);
+                    await ProcessInboundDeviceMetricsMessage((DeviceMetricsMessage)message);
                     break;
                 case MeshMessageType.AckMessage:
                 default:
@@ -89,14 +88,15 @@ namespace TBot.Bot
             meshtasticService.NakNoPubKeyMeshtasticMessage(message, meshSender.GetReplyGatewayId(message), primaryChannel);
         }
 
-        private async Task ProcessInboundDeviceMetricsMessage(DeviceMetricsMessage message, Device deviceOrNull)
+        private async Task ProcessInboundDeviceMetricsMessage(DeviceMetricsMessage message)
         {
+            Device device = null;
             if (message.NeedAck)
             {
-                deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-                if (deviceOrNull != null)
+                device = (message.DecodedBy as Device) ?? await registrationService.GetDeviceAsync(message.DeviceId);
+                if (device != null)
                 {
-                    meshtasticService.AckMeshtasticMessage(message, deviceOrNull, meshSender.GetReplyGatewayId(message));
+                    meshtasticService.AckMeshtasticMessage(message, device, meshSender.GetReplyGatewayId(message));
                 }
             }
             var analyticsService = services.GetService<AnalyticsService>();
@@ -112,9 +112,9 @@ namespace TBot.Bot
                 return;
             }
 
-            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-            if (deviceOrNull?.LocationUpdatedUtc == null
-                || !deviceOrNull.IsLocationPublic)
+            device ??= await registrationService.GetDeviceAsync(message.DeviceId);
+            if (device?.LocationUpdatedUtc == null
+                || !device.IsLocationPublic)
             {
                 return;
             }
@@ -122,13 +122,13 @@ namespace TBot.Bot
 
             var metrics = new DeviceMetric
             {
-                NetworkId = deviceOrNull.NetworkId,
+                NetworkId = device.NetworkId,
                 DeviceId = (uint)message.DeviceId,
                 Timestamp = Instant.FromDateTimeUtc(DateTime.UtcNow),
-                Latitude = deviceOrNull.Latitude ?? 0,
-                Longitude = deviceOrNull.Longitude ?? 0,
-                LocationUpdatedUtc = Instant.FromDateTimeUtc(DateTime.SpecifyKind(deviceOrNull.LocationUpdatedUtc.Value, DateTimeKind.Utc)),
-                AccuracyMeters = deviceOrNull.AccuracyMeters,
+                Latitude = device.Latitude ?? 0,
+                Longitude = device.Longitude ?? 0,
+                LocationUpdatedUtc = Instant.FromDateTimeUtc(DateTime.SpecifyKind(device.LocationUpdatedUtc.Value, DateTimeKind.Utc)),
+                AccuracyMeters = device.AccuracyMeters,
                 ChannelUtil = message.ChannelUtilization,
                 AirUtil = message.AirUtilization,
             };
@@ -136,24 +136,24 @@ namespace TBot.Bot
             await analyticsService.RecordEventAsync(metrics);
         }
 
-        private async Task ProcessInboundPositionMessage(PositionMessage message, Device deviceOrNull)
+        private async Task ProcessInboundPositionMessage(PositionMessage message)
         {
-            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-            if (deviceOrNull == null)
+            var device = (message.DecodedBy as Device) ?? await registrationService.GetDeviceAsync(message.DeviceId);
+            if (device == null)
             {
                 return;
             }
             if (message.NeedAck)
             {
-                meshtasticService.AckMeshtasticMessage(message, deviceOrNull, meshSender.GetReplyGatewayId(message));
+                meshtasticService.AckMeshtasticMessage(message, device, meshSender.GetReplyGatewayId(message));
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
-            deviceOrNull.LocationUpdatedUtc = DateTime.UtcNow;
-            deviceOrNull.Longitude = message.Longitude;
-            deviceOrNull.Latitude = message.Latitude;
-            deviceOrNull.IsLocationPublic = message.DecodedBy.IsPublicChannel;
-            deviceOrNull.AccuracyMeters = (int)Math.Round(message.AccuracyMeters);
-            await registrationService.SaveAssumeChanged(deviceOrNull);
+            device.LocationUpdatedUtc = DateTime.UtcNow;
+            device.Longitude = message.Longitude;
+            device.Latitude = message.Latitude;
+            device.IsLocationPublic = message.DecodedBy.IsPublicChannel;
+            device.AccuracyMeters = (int)Math.Round(message.AccuracyMeters);
+            await registrationService.SaveAssumeChanged(device);
             if (!message.SentToOurNodeId)
             {
                 return;
@@ -163,7 +163,7 @@ namespace TBot.Bot
 
             if (chatIds.Count == 0)
             {
-                MaybeSendNotRegisteredResponse(message, deviceOrNull);
+                MaybeSendNotRegisteredResponse(message, device);
                 return;
             }
 
@@ -171,7 +171,7 @@ namespace TBot.Bot
             {
                 var msg = await TrySendMessage(
                     chatId,
-                    $"{deviceOrNull.NodeName} sent a location:");
+                    $"{device.NodeName} sent a location:");
                 if (msg == null) continue;
 
                 await botClient.SendLocation(
@@ -201,26 +201,128 @@ namespace TBot.Bot
             return chatIds;
         }
 
-        private async Task ProcessInboundMeshTextMessage(TextMessage message, Device deviceOrNull)
+        private async Task ProcessInboundMeshTextMessage(TextMessage message)
         {
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
             if (message.IsDirectMessage)
             {
-                await ProcessInboundDirectMeshTextMessage(message, deviceOrNull);
+                await ProcessInboundDirectMeshTextMessage(message);
             }
             else if (message.ChannelId != null)
             {
-                await ProcessInboundPrivateChannelMeshTextMessage(message, deviceOrNull);
+                await ProcessInboundPrivateChannelMeshTextMessage(message);
             }
             else
             {
-                await ProcessInboundPublicMeshTextMessage(message, deviceOrNull);
+                await ProcessInboundPublicMeshTextMessage(message);
             }
 
         }
 
-        private async Task ProcessInboundPublicMeshTextMessage(TextMessage message, Device deviceOrNull)
+
+
+        private async ValueTask ProcessPublicTextForChatSession(TextMessage message)
         {
+            if (!message.DecodedBy.IsPublicChannel)
+                return;
+
+            var activeChatId = botCache.GetActiveChatSessionForPublicChannel(message.DecodedBy.RecipientPublicChannelId.Value);
+            if (activeChatId == null)
+            {
+                return;
+            }
+            var text = message.Text;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+            var channel = (PublicChannel)message.DecodedBy;
+            var channelName = channel.Name;
+
+            bool sentReply = false;
+
+            var device = await registrationService.GetDeviceAsync(message.DeviceId);
+            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
+
+            if (message.ReplyTo != 0)
+            {
+                var replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
+                if (replyToStatus?.TelegramChatId == activeChatId.Value)
+                {
+                    var msg = await TrySendMessage(
+                        chatId: replyToStatus.TelegramChatId,
+                        text: $"{deviceName} [#{channel.Name}]: {text}",
+                        replyParameters: new ReplyParameters
+                        {
+                            AllowSendingWithoutReply = true,
+                            ChatId = replyToStatus.TelegramChatId,
+                            MessageId = replyToStatus.TelegramMessageId,
+                        });
+
+                    if (msg == null)
+                        return;
+
+                    var status = new MeshtasticMessageStatus
+                    {
+                        TelegramChatId = replyToStatus.TelegramChatId,
+                        TelegramMessageId = msg.Id,
+                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
+                            {
+                                { message.Id, new DeliveryStatusWithRecipientId
+                                    {
+                                        RecipientId = channel.Id,
+                                        Type = RecipientType.Channel,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                        BotReplyId = null,
+                    };
+
+                    meshSender.StoreTelegramMessageStatus(channel.NetworkId, replyToStatus.TelegramChatId,
+                        msg.Id,
+                        status);
+
+                    botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
+                    sentReply = true;
+                }
+            }
+
+            if (!sentReply)
+            {
+                var msg = await TrySendMessage(
+                    chatId: activeChatId.Value,
+                    text: $"{deviceName} [#{channel.Name}]: {text}");
+
+                if (msg == null) return;
+
+                var status = new MeshtasticMessageStatus
+                {
+                    TelegramChatId = activeChatId.Value,
+                    TelegramMessageId = msg.Id,
+                    MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
+                            {
+                                { message.Id, new DeliveryStatusWithRecipientId
+                                    {
+                                        RecipientId = channel.Id,
+                                        Type = RecipientType.Channel,
+                                        Status = DeliveryStatus.Delivered,
+                                    }
+                                }
+                            },
+                    BotReplyId = null
+                };
+
+                meshSender.StoreTelegramMessageStatus(channel.NetworkId, activeChatId.Value, msg.Id, status);
+                botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
+            }
+        }
+
+
+        private async Task ProcessInboundPublicMeshTextMessage(TextMessage message)
+        {
+            await ProcessPublicTextForChatSession(message);
+
             if (message.DeviceId == _options.MeshtasticNodeId)
             {
                 CheckPublicTextForFakeMessage(message);
@@ -237,22 +339,22 @@ namespace TBot.Bot
                     return;
                 }
 
-                deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
 
-                if (deviceOrNull == null)
+                if (device == null)
                 {
                     await SendNoPublicKeyNak(message);
                     return;
                 }
 
-                var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
+                var network = await registrationService.GetNetwork(device.NetworkId);
 
                 if (!network.DisablePongs)
                 {
                     meshtasticService.SendDirectTextMessage(
                         message.DeviceId,
-                        deviceOrNull.NetworkId,
-                        deviceOrNull.PublicKey,
+                        device.NetworkId,
+                        device.PublicKey,
                         GetPingReplyText(network),
                         replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
                         relayGatewayId: meshSender.GetReplyGatewayId(message),
@@ -260,7 +362,7 @@ namespace TBot.Bot
 
                     meshtasticService.AddStat(new Shared.Models.MeshStat
                     {
-                        NetworkId = deviceOrNull.NetworkId,
+                        NetworkId = device.NetworkId,
                         PongSent = 1,
                     });
                 }
@@ -270,13 +372,13 @@ namespace TBot.Bot
         private void CheckPublicTextForFakeMessage(TextMessage message)
         {
             var isValidMessage = botCache.IsMessageSentByOurNode(message.Id);
-            if (!isValidMessage 
+            if (!isValidMessage
                 && uptimeService.Uptime.TotalMinutes > 10 /*If restarted can hear own message from map mqtt downlink*/)
             {
                 var fakeMsgReplyLast5Min = meshtasticService.AggregateStartFrom<int>(
-                    message.NetworkId, 
+                    message.NetworkId,
                     DateTime.UtcNow.AddMinutes(-5),
-                    (stat, sum) => 
+                    (stat, sum) =>
                         {
                             sum += stat.FakeMsgReply;
                             return sum;
@@ -334,7 +436,7 @@ namespace TBot.Bot
         }
 
 
-        private async Task ProcessInboundPrivateChannelMeshTextMessage(TextMessage message, Device deviceOrNull)
+        private async Task ProcessInboundPrivateChannelMeshTextMessage(TextMessage message)
         {
             var channel = await registrationService.GetChannelAsync((int)message.ChannelId.Value);
             if (channel == null)
@@ -343,9 +445,9 @@ namespace TBot.Bot
                 return;
             }
 
-            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
+            var device = await registrationService.GetDeviceAsync(message.DeviceId);
 
-            var deviceName = deviceOrNull != null ? deviceOrNull.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
+            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
 
             string cmdText = null;
             if (message.Text != null
@@ -362,13 +464,13 @@ namespace TBot.Bot
                 if (parts.Length >= 2)
                 {
                     var targetHandle = parts[1];
-                    await HandleChatRequestFromMesh(message, deviceOrNull, channel, targetHandle);
+                    await HandleChatRequestFromMesh(message, device, channel, targetHandle);
                     return;
                 }
             }
             else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
             {
-                await HandleEndChatRequstFromMesh(message, deviceOrNull, channel);
+                await HandleEndChatRequstFromMesh(message, device, channel);
                 return;
             }
 
@@ -383,7 +485,7 @@ namespace TBot.Bot
                 {
                     if (trimmedText.Equals(pendingRequest.Code, StringComparison.InvariantCultureIgnoreCase))
                     {
-                        await HandleChatApprovalFromMesh(message, deviceOrNull, channel, pendingRequest.ChatId);
+                        await HandleChatApprovalFromMesh(message, device, channel, pendingRequest.ChatId);
                         return;
                     }
                     else
@@ -563,17 +665,19 @@ namespace TBot.Bot
                  parseMode);
         }
 
-        private async Task ProcessInboundDirectMeshTextMessage(TextMessage message, Device deviceOrNull)
+        private async Task ProcessInboundDirectMeshTextMessage(TextMessage message)
         {
-            if (deviceOrNull == null)
+            var device = message.DecodedBy as Device;
+
+            if (device == null)
             {
-                throw new ArgumentNullException(nameof(deviceOrNull), "Device cannot be null for Text messages");
+                throw new ArgumentNullException(nameof(device), "Device cannot be null for Text messages");
             }
             if (message.NeedAck)
             {
                 meshtasticService.AckMeshtasticMessage(
                     message,
-                    deviceOrNull,
+                    device,
                     meshSender.GetReplyGatewayId(message));
             }
 
@@ -592,15 +696,15 @@ namespace TBot.Bot
                 if (firstSpaceIndex > 0)
                 {
                     var targetHandle = cmdText[(firstSpaceIndex + 1)..].Trim();
-                    await HandleChatRequestFromMesh(message, deviceOrNull, deviceOrNull, targetHandle);
+                    await HandleChatRequestFromMesh(message, device, device, targetHandle);
                     return;
                 }
                 else
                 {
                     meshtasticService.SendDirectTextMessage(
                         message.DeviceId,
-                        deviceOrNull.NetworkId,
-                        deviceOrNull.PublicKey,
+                        device.NetworkId,
+                        device.PublicKey,
                         $"Use /chat @<tg_username> or /chat <tg_group_name>",
                         replyToMessageId: message.Id,
                         relayGatewayId: meshSender.GetReplyGatewayId(message),
@@ -609,12 +713,12 @@ namespace TBot.Bot
             }
             else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
             {
-                await HandleEndChatRequstFromMesh(message, deviceOrNull, deviceOrNull);
+                await HandleEndChatRequstFromMesh(message, device, device);
                 return;
             }
             else if (cmdText != null && cmdText.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
-                HandleHelpCommand(message, deviceOrNull);
+                HandleHelpCommand(message, device);
                 return;
             }
 
@@ -628,15 +732,15 @@ namespace TBot.Bot
                 {
                     if (trimmedText.Equals(pendingRequest.Code, StringComparison.InvariantCultureIgnoreCase))
                     {
-                        await HandleChatApprovalFromMesh(message, deviceOrNull, deviceOrNull, pendingRequest.ChatId);
+                        await HandleChatApprovalFromMesh(message, device, device, pendingRequest.ChatId);
                         return;
                     }
                     else
                     {
                         meshtasticService.SendDirectTextMessage(
                             message.DeviceId,
-                            deviceOrNull.NetworkId,
-                            deviceOrNull.PublicKey,
+                            device.NetworkId,
+                            device.PublicKey,
                             $"Invalid code. To approve reply with code {pendingRequest.Code}, 'no' to reject.",
                             replyToMessageId: message.Id,
                             relayGatewayId: meshSender.GetReplyGatewayId(message),
@@ -649,12 +753,12 @@ namespace TBot.Bot
             if (cmdText != null &&
                 _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
-                var network = await registrationService.GetNetwork(deviceOrNull.NetworkId);
+                var network = await registrationService.GetNetwork(device.NetworkId);
 
                 meshtasticService.SendDirectTextMessage(
                     message.DeviceId,
-                    deviceOrNull.NetworkId,
-                    deviceOrNull.PublicKey,
+                    device.NetworkId,
+                    device.PublicKey,
                     GetPingReplyText(network),
                     replyToMessageId: message.Id,
                     relayGatewayId: meshSender.GetReplyGatewayId(message),
@@ -662,7 +766,7 @@ namespace TBot.Bot
 
                 meshtasticService.AddStat(new Shared.Models.MeshStat
                 {
-                    NetworkId = deviceOrNull.NetworkId,
+                    NetworkId = device.NetworkId,
                     PongSent = 1,
                 });
                 return;
@@ -673,7 +777,7 @@ namespace TBot.Bot
             {
                 if (message.ReplyTo == 0)
                 {
-                    MaybeSendNotRegisteredResponse(message, deviceOrNull);
+                    MaybeSendNotRegisteredResponse(message, device);
                 }
                 return;
             }
@@ -695,7 +799,7 @@ namespace TBot.Bot
                 {
                     var msg = await TrySendMessage(
                         chatId: replyToStatus.TelegramChatId,
-                        text: $"{deviceOrNull.NodeName}: {text}",
+                        text: $"{device.NodeName}: {text}",
                         replyParameters: new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
@@ -724,11 +828,11 @@ namespace TBot.Bot
                         BotReplyId = null,
                     };
 
-                    meshSender.StoreTelegramMessageStatus(deviceOrNull.NetworkId, replyToStatus.TelegramChatId,
+                    meshSender.StoreTelegramMessageStatus(device.NetworkId, replyToStatus.TelegramChatId,
                         msg.Id,
                         status);
 
-                    botCache.StoreMeshMessageStatus(deviceOrNull.NetworkId, message.Id, status);
+                    botCache.StoreMeshMessageStatus(device.NetworkId, message.Id, status);
 
                     sentReply = true;
                 }
@@ -738,7 +842,7 @@ namespace TBot.Bot
             {
                 if (chatIds.Count == 0)
                 {
-                    MaybeSendNotRegisteredResponse(message, deviceOrNull);
+                    MaybeSendNotRegisteredResponse(message, device);
                     return;
                 }
 
@@ -746,7 +850,7 @@ namespace TBot.Bot
                 {
                     var msg = await TrySendMessage(
                         chatId: chatId,
-                        text: $"{deviceOrNull.NodeName}: {text}");
+                        text: $"{device.NodeName}: {text}");
 
                     if (msg == null) continue;
 
@@ -767,14 +871,14 @@ namespace TBot.Bot
                         BotReplyId = null
                     };
 
-                    meshSender.StoreTelegramMessageStatus(deviceOrNull.NetworkId, chatId, msg.Id, status);
-                    botCache.StoreMeshMessageStatus(deviceOrNull.NetworkId, message.Id, status);
+                    meshSender.StoreTelegramMessageStatus(device.NetworkId, chatId, msg.Id, status);
+                    botCache.StoreMeshMessageStatus(device.NetworkId, message.Id, status);
                 }
             }
         }
 
 
-        private async Task ProcessInboundTraceRoute(TraceRouteMessage message, Device deviceOrNull)
+        private async Task ProcessInboundTraceRoute(TraceRouteMessage message)
         {
             var primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
             if (primaryChannel == null)
@@ -785,7 +889,7 @@ namespace TBot.Bot
 
             if (message.IsTowards)
             {
-                await ProcessTowardsTrace(message, deviceOrNull, primaryChannel);
+                await ProcessTowardsTrace(message, primaryChannel);
             }
             else
             {
@@ -805,14 +909,14 @@ namespace TBot.Bot
             }
         }
 
-        private async Task ProcessTowardsTrace(TraceRouteMessage message, Device deviceOrNull, PublicChannel primaryChannel)
+        private async Task ProcessTowardsTrace(TraceRouteMessage message, PublicChannel primaryChannel)
         {
             if (message.WantsResponse)
             {
                 meshtasticService.SendTraceRouteToUsResponse(message, meshSender.GetReplyGatewayId(message), primaryChannel, primaryChannel.Name);
             }
-            deviceOrNull ??= await registrationService.GetDeviceAsync(message.DeviceId);
-            if (deviceOrNull == null)
+            var device = await registrationService.GetDeviceAsync(message.DeviceId);
+            if (device == null)
             {
                 return;
             }
@@ -1122,6 +1226,8 @@ namespace TBot.Bot
             }
         }
 
+
+
         private async Task HandleChatRequestFromMesh(TextMessage message, Device fromDevice, IRecipient recipient, string targetHandle)
         {
             var tgChat = await registrationService.GetTgChatByNameAsync(targetHandle);
@@ -1167,7 +1273,8 @@ namespace TBot.Bot
             var activeSession = botCache.GetActiveChatSession(tgChat.ChatId);
             if (activeSession != null
                 && (activeSession.DeviceId != recipient.RecipientDeviceId
-                || activeSession.ChannelId != recipient.RecipientPrivateChannelId))
+                || activeSession.ChannelId != recipient.RecipientPrivateChannelId
+                || activeSession.PublicChannelId != recipient.RecipientPublicChannelId))
             {
                 var pendingRequest = new DeviceOrChannelRequestCode
                 {
@@ -1177,9 +1284,7 @@ namespace TBot.Bot
                 };
                 botCache.StorePendingChatRequest_MeshToTg(tgChat.ChatId, pendingRequest);
 
-                IRecipient otherRecipient = activeSession.DeviceId != null
-                   ? await registrationService.GetDeviceAsync(activeSession.DeviceId.Value)
-                   : await registrationService.GetChannelAsync(activeSession.ChannelId.Value);
+                IRecipient otherRecipient = await registrationService.GetRecipientForChatSession(activeSession);
 
                 var otherName = await GetRecipientName(otherRecipient);
 
@@ -1275,16 +1380,15 @@ namespace TBot.Bot
             var otherMeshSession = botCache.GetActiveChatSession(tgChatId);
             if (otherMeshSession != null
                 && (otherMeshSession.DeviceId != recipient.RecipientDeviceId
-                || otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId))
+                || otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId
+                || otherMeshSession.PublicChannelId != recipient.RecipientPublicChannelId))
             {
                 var chatName = tgChat != null ? tgChat.ChatName : "Telegram";
                 await botCache.StopChatSession(tgChatId, db);
 
-                IRecipient other = otherMeshSession.DeviceId != null
-                   ? await registrationService.GetDeviceAsync(otherMeshSession.DeviceId.Value)
-                   : await registrationService.GetChannelAsync(otherMeshSession.ChannelId.Value);
+                IRecipient other = await registrationService.GetRecipientForChatSession(otherMeshSession);
 
-                if (other != null)
+                if (other != null && !other.IsPublicChannel)
                 {
                     var gatewayId = botCache.GetRecipientGateway(recipient);
                     meshtasticService.SendTextMessageToDeviceOrPrivateChannel(

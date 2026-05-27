@@ -265,6 +265,12 @@ namespace TBot.Bot
                         var networkName = networks.GetValueOrDefault(channel.NetworkId)?.Name ?? "Unknown";
                         response.AppendLine($"• Channel: {StringHelper.EscapeMdV2(channel.Name)} \\(ID `{channel.Id}`\\), network: {StringHelper.EscapeMdV2(networkName)}");
                     }
+                    else if (chatSession.PublicChannelId != null)
+                    {
+                        var channel = await registrationService.GetPublicChannelByIdCachedAsync(chatSession.PublicChannelId.Value);
+                        var networkName = networks.GetValueOrDefault(channel.NetworkId)?.Name ?? "Unknown";
+                        response.AppendLine($"• Public channel: {StringHelper.EscapeMdV2(channel.Name)} \\(ID `{channel.Id}`\\), network: {StringHelper.EscapeMdV2(networkName)}");
+                    }
                     response.AppendLine();
                 }
 
@@ -2053,22 +2059,21 @@ namespace TBot.Bot
             var existingSession = botCache.GetActiveChatSession(chatId);
             if (existingSession != null
                 && (existingSession.DeviceId != id.DeviceId
-                || existingSession.ChannelId != id.ChannelId))
+                || existingSession.ChannelId != id.ChannelId
+                || existingSession.PublicChannelId != id.PublicChannelId))
             {
                 await botCache.StopChatSession(chatId, db);
 
-                IRecipient recipient = existingSession.DeviceId != null
-                    ? await registrationService.GetDeviceAsync(existingSession.DeviceId.Value)
-                    : await registrationService.GetChannelAsync(existingSession.ChannelId.Value);
+                IRecipient recipient = await registrationService.GetRecipientForChatSession(existingSession);
 
-                if (recipient != null)
+                if (recipient != null && !recipient.IsPublicChannel)
                 {
                     var gatewayId = botCache.GetRecipientGateway(recipient);
                     var tgChat = await registrationService.GetTgChatByChatIdAsync(chatId);
                     var chatName = tgChat != null ? tgChat.ChatName : $"@{username}";
                     meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                          recipient,
-                         $"Chat with {chatName} is ended",
+                         $"❌ Chat with {chatName} is ended",
                          replyToMessageId: null,
                          relayGatewayId: gatewayId,
                          hopLimit: int.MaxValue);
@@ -2325,31 +2330,14 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, "There is no active chat session to stop.");
                 return TgResult.Ok;
             }
-            string recipientName;
-            IRecipient recipient;
-            if (activeSessions.DeviceId.HasValue)
-            {
-                var device = await registrationService.GetDeviceAsync(activeSessions.DeviceId.Value);
-                recipient = device;
-                recipientName = device != null ? $"{device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)})" : $"device {MeshtasticService.GetMeshtasticNodeHexId(activeSessions.DeviceId.Value)}";
-            }
-            else if (activeSessions.ChannelId.HasValue)
-            {
-                var channel = await registrationService.GetChannelAsync(activeSessions.ChannelId.Value);
-                recipient = channel;
-                recipientName = channel != null ? $"{channel.Name} (ID {channel.Id})" : $"Channel ID {activeSessions.ChannelId.Value}";
-            }
-            else
-            {
-                recipient = null;
-                recipientName = "Unknown";
-            }
+            IRecipient recipient = await registrationService.GetRecipientForChatSession(activeSessions);
+            string recipientName = await registrationService.GetRecipientName(recipient);
 
             await botCache.StopChatSession(chatId, db);
             await botClient.SendMessage(chatId,
                 $"✅ Chat session with {recipientName} has been stopped");
 
-            if (recipient != null)
+            if (recipient != null && !recipient.IsPublicChannel)
             {
                 meshtasticService.SendTextMessageToDeviceOrPrivateChannel(recipient, $"Chat session with Telegram chat has been stopped", null, null, int.MaxValue);
             }

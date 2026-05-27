@@ -8,6 +8,7 @@ using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
 using TBot.Models;
+using TBot.Models.ChatSession;
 using TBot.Models.ScheduledMessages;
 
 namespace TBot
@@ -1472,6 +1473,42 @@ namespace TBot
                 memoryCache.Set($"TgChatByName#{normalizedKey}", entity, TimeSpan.FromMinutes(10));
             }
             return entity;
+        }
+
+        public async Task<IRecipient> GetRecipientForChatSession(DeviceOrChannelId deviceOrChannelId)
+        {
+            if (deviceOrChannelId.DeviceId != null)
+            {
+                return await GetDeviceAsync(deviceOrChannelId.DeviceId.Value);
+            }
+            else if (deviceOrChannelId.ChannelId != null)
+            {
+                return await GetChannelAsync(deviceOrChannelId.ChannelId.Value);
+            }
+            else if (deviceOrChannelId.PublicChannelId != null)
+            {
+                return await GetPublicChannelByIdCachedAsync(deviceOrChannelId.PublicChannelId.Value);
+            }
+            else
+            {
+                throw new InvalidOperationException("Invalid DeviceOrChannelId with no DeviceId and no ChannelId");
+            }
+        }
+
+        public async Task<IRecipient> GetRecipientForChatRequest(DeviceOrChannelRequestCode request)
+        {
+            if (request.DeviceId != null)
+            {
+                return await GetDeviceAsync(request.DeviceId.Value);
+            }
+            else if (request.ChannelId != null)
+            {
+                return await GetChannelAsync(request.ChannelId.Value);
+            }
+            else
+            {
+                throw new InvalidOperationException("Invalid DeviceOrChannelRequestCode with no DeviceId and no ChannelId");
+            }
         }
 
         public async ValueTask<string> GetRecipientName(IRecipient recipient)

@@ -13,6 +13,10 @@ namespace TBot.Database.Models
         public long? DeviceId { get; set; }
 
         public int? ChannelId { get; set; }
+        public int? PublicChannelId { get; set; }
+
+        public long? ImpersonateDeviceId { get; set; }
+        public long? ForceGatewayId { get; set; }
 
         public DateTime ExpirationDate { get; set; }
     }

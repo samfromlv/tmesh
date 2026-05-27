@@ -42,7 +42,9 @@ namespace TBot.Bot
            long chatId,
            int tgMessageId,
            int? replyToTelegramMsgId,
-           string text)
+           string text,
+           long? impersonateDeviceId = null,
+           long? forceRelayGatewayId = null)
         {
             var networkId = recipients.First().NetworkId;
             var status = new MeshtasticMessageStatus
@@ -114,18 +116,34 @@ namespace TBot.Bot
                             recipient.RecipientKey,
                             text,
                             replyToMeshMessageId,
-                            deviceAndGatewayId?.GatewayId,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue);
                 }
-                else
+                else if (recipient.RecipientPrivateChannelId != null)
                 {
                     meshtasticService.SendPrivateChannelTextMessage(
                             newMeshMessageId,
                             text,
                             replyToMeshMessageId,
-                            relayGatewayId: deviceAndGatewayId?.GatewayId,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
                             recipient);
+                }
+                else if (recipient.RecipientPublicChannelId != null)
+                {
+                    meshtasticService.SendPublicTextMessage(
+                            newMeshMessageId,
+                            text,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
+                            hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
+                            recipient:recipient,
+                            publicChannelName: (recipient as PublicChannel)?.Name ?? MeshtasticService.UnknownChannelName,
+                            replyToMessageId: replyToMeshMessageId,
+                            impersonateDeviceId: impersonateDeviceId);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Recipient must have either DeviceId or PrivateChannelId or PublicChannelId");
                 }
             }
         }

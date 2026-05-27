@@ -56,7 +56,10 @@ namespace TBot.Bot
                 var id = new DeviceOrChannelId
                 {
                     DeviceId = session.DeviceId,
-                    ChannelId = session.ChannelId
+                    ChannelId = session.ChannelId,
+                    PublicChannelId = session.PublicChannelId,
+                    ForceGatewayId = session.ForceGatewayId,
+                    ImpersonateDeviceId = session.ImpersonateDeviceId
                 };
                 StoreChatSessionInCache(session.ChatId, id);
                 session.ExpirationDate = now.Add(ChatSessionTtl);
@@ -196,6 +199,10 @@ namespace TBot.Bot
                 {
                     memoryCache.Remove(ChatSessionActive_Channel_Key(session.ChannelId.Value));
                 }
+                else if (session.PublicChannelId != null)
+                {
+                    memoryCache.Remove(ChatSessionActive_PublicChannel_Key(session.PublicChannelId.Value));
+                }
                 await db.ChatSessions.Where(x => x.ChatId == chatId)
                     .ExecuteDeleteAsync();
             }
@@ -243,6 +250,10 @@ namespace TBot.Bot
                 {
                     key = ChatSessionActive_Channel_Key(id.ChannelId.Value);
                 }
+                else if (id.PublicChannelId != null)
+                {
+                    key = ChatSessionActive_PublicChannel_Key(id.PublicChannelId.Value);
+                }
                 var storedChatId = memoryCache.Get<long?>(key);
                 if (storedChatId == chatId)
                 {
@@ -258,10 +269,15 @@ namespace TBot.Bot
                     var device = await regService.GetDeviceAsync(id.DeviceId.Value);
                     await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with device {device?.NodeName ?? MeshtasticService.GetMeshtasticNodeHexId(id.DeviceId.Value)} has ended.");
                 }
-                else
+                else if (id.ChannelId != null)
                 {
                     var channel = await regService.GetChannelAsync(id.ChannelId.Value);
                     await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with channel {channel?.Name ?? "ID:" + id.ChannelId.Value.ToString()} has ended.");
+                }
+                else if (id.PublicChannelId != null)
+                {
+                    var channel = await regService.GetPublicChannelByIdCachedAsync(id.PublicChannelId.Value);
+                    await botClient.TrySendMessage(regService, logger, chatId, $"Your chat session with public channel {channel?.Name ?? "ID:" + id.PublicChannelId.Value.ToString()} has ended.");
                 }
 
                 using var db = scope.ServiceProvider.GetRequiredService<TBotDbContext>();
@@ -314,6 +330,9 @@ namespace TBot.Bot
             chatSession.ExpirationDate = DateTime.UtcNow.Add(ChatSessionTtl);
             chatSession.DeviceId = id.DeviceId;
             chatSession.ChannelId = id.ChannelId;
+            chatSession.PublicChannelId = id.PublicChannelId;
+            chatSession.ImpersonateDeviceId = id.ImpersonateDeviceId;
+            chatSession.ForceGatewayId = id.ForceGatewayId;
             await db.SaveChangesAsync();
         }
 
@@ -347,6 +366,10 @@ namespace TBot.Bot
             else if (id.ChannelId != null)
             {
                 memoryCache.Set(ChatSessionActive_Channel_Key(id.ChannelId.Value), chatId, expiration);
+            }
+            else if (id.PublicChannelId != null)
+            {
+                memoryCache.Set(ChatSessionActive_PublicChannel_Key(id.PublicChannelId.Value), chatId, expiration);
             }
         }
 
@@ -395,6 +418,15 @@ namespace TBot.Bot
             return null;
         }
 
+        public long? GetActiveChatSessionForPublicChannel(int publicChannelId)
+        {
+            if (memoryCache.TryGetValue<long?>(ChatSessionActive_PublicChannel_Key(publicChannelId), out var tgChatId))
+            {
+                return tgChatId;
+            }
+            return null;
+        }
+
         public long? GetActiveChatSessionForRequest(DeviceOrChannelRequestCode requestCode)
         {
             if (requestCode.DeviceId != null)
@@ -405,6 +437,7 @@ namespace TBot.Bot
             {
                 return GetActiveChatSessionForChannel(requestCode.ChannelId.Value);
             }
+
             return null;
         }
 
@@ -417,6 +450,10 @@ namespace TBot.Bot
             else if (id.ChannelId != null)
             {
                 return GetActiveChatSessionForChannel(id.ChannelId.Value);
+            }
+            else if (id.PublicChannelId != null)
+            {
+                return GetActiveChatSessionForPublicChannel(id.PublicChannelId.Value);
             }
             return null;
         }
@@ -486,6 +523,10 @@ namespace TBot.Bot
             {
                 RemovePendingChannelChatRequest_TgToMesh(id.ChannelId.Value);
             }
+            //else if (id.PublicChannelId != null)
+            //{
+            //    // No separate pending request for public channels, so nothing to remove
+            //}
         }
 
         public void RemovePendingDeviceChatRequest_TgToMesh(long deviceId)
@@ -520,6 +561,7 @@ namespace TBot.Bot
         private static string ChatSessionActive_TgChat_Key(long chatId) => $"ChatSession_TgChat_{chatId}";
         private static string ChatSessionActive_Device_Key(long deviceId) => $"ChatSession_Device_{deviceId}";
         private static string ChatSessionActive_Channel_Key(long channelId) => $"ChatSession_Channel_{channelId}";
+        private static string ChatSessionActive_PublicChannel_Key(long channelId) => $"ChatSession_PublicChannel_{channelId}";
         private static string PendingMeshToTgKey(long tgChatId) => $"PendingChatMeshToTg_{tgChatId}";
         private static string PendingDeviceTgToMeshKey(long deviceId) => $"PendingDeviceChatTgToMesh_{deviceId}";
         private static string PendingChannelTgToMeshKey(int channelId) => $"PendingChannelChatTgToMesh_{channelId}";

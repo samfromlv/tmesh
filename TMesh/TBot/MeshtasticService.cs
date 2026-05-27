@@ -57,7 +57,8 @@ namespace TBot
             int hopLimit,
             string publicChannelName,
             IRecipient recipient,
-            long? replyToMessageId = null)
+            long? replyToMessageId = null,
+            long? impersonateDeviceId = null)
         {
             var envelope = PackPublicTextMessage(
                 newMessageId,
@@ -65,7 +66,8 @@ namespace TBot
                 replyToMessageId,
                 hopLimit,
                 recipient,
-                publicChannelName);
+                publicChannelName,
+                fromNodeId: impersonateDeviceId);
 
             AddStat(new MeshStat
             {
@@ -563,10 +565,16 @@ namespace TBot
 
             var hopLimitToUse = Math.Max(Math.Min(hopLimit, _options.OutgoingMessageHopLimit), 0);
 
+            //last byte of node id
+            var relayNode = fromNodeId.HasValue
+                ? (uint)(fromNodeId.Value & 0xFF)
+                : (uint)(_options.MeshtasticNodeId & 0xFF);
+
             var packet = new MeshPacket()
             {
                 Channel = 0,
                 WantAck = true,
+                RelayNode = relayNode,
                 To = (uint)deviceId,
                 From = (uint)(fromNodeId ?? _options.MeshtasticNodeId),
                 Priority = MeshPacket.Types.Priority.Default,
@@ -625,6 +633,7 @@ namespace TBot
             {
                 Channel = 0,
                 WantAck = false,
+                RelayNode = (uint)(_options.MeshtasticNodeId & 0xFF),
                 To = (uint)deviceId,
                 From = (uint)_options.MeshtasticNodeId,
                 Priority = MeshPacket.Types.Priority.Ack,
@@ -673,6 +682,7 @@ namespace TBot
             {
                 Channel = 0,
                 WantAck = wantAck,
+                RelayNode = (uint)(_options.MeshtasticNodeId & 0xFF),
                 To = (uint)deviceId,
                 From = (uint)fromDeviceId,
                 Priority = MeshPacket.Types.Priority.Reliable,
@@ -716,6 +726,7 @@ namespace TBot
                 WantAck = false,
                 To = (uint)deviceId,
                 From = (uint)_options.MeshtasticNodeId,
+                RelayNode = (uint)(_options.MeshtasticNodeId & 0xFF),
                 Priority = MeshPacket.Types.Priority.Ack,
                 Id = GenerateNewMessageId(),
                 HopLimit = hopLimit,
@@ -975,6 +986,7 @@ namespace TBot
                 WantAck = false,
                 To = (uint)destinationDeviceId,
                 From = (uint)_options.MeshtasticNodeId,
+                RelayNode = (uint)(_options.MeshtasticNodeId & 0xFF),
                 Priority = MeshPacket.Types.Priority.Background,
                 Id = GenerateNewMessageId(),
                 HopLimit = (uint)hopLimit,
