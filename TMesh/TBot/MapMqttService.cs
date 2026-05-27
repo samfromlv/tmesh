@@ -8,6 +8,7 @@ using MQTTnet.Packets;
 using Shared.Models;
 using System.Text;
 using TBot.Models;
+using TBot.Models.Uplink;
 
 namespace TBot
 {
@@ -26,7 +27,7 @@ namespace TBot
         const string NetworkShortNameToken = "{{NetworkShortName}}";
         private CancellationTokenSource _connectionCts = new();
         private readonly TBotOptions _options = options.Value;
-        private Dictionary<int, (string NetworkShortName, string ChannelName, bool SaveAnalytics)> _networks;
+        private Dictionary<int, NetworkShortInfo> _networks;
         private ILookup<string, int> _networkByShortName;
 
         private readonly List<(IMqttClient mqttClient, MapMqttServerOptions server)> _clients = [];
@@ -85,22 +86,22 @@ namespace TBot
         {
             var regService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
             var networks = await regService.GetNetworksCached();
-            var primaryChannels = await regService.GetAllPrimaryChannelsCached();
+            var publicChannels = await regService.GetAllPublicChannelsAsync();
             _networks = networks.Select(n =>
             {
-                var primaryChannel = primaryChannels.GetValueOrDefault(n.Id);
-                return new
+                var publicChannelsForNetwork = publicChannels.Where(c => c.NetworkId == n.Id).Select(c => c.Name).ToArray();
+                return new NetworkShortInfo
                 {
-                    n.Id,
-                    NetworkShortName = n.ShortName,
-                    n.SaveAnalytics,
-                    ChannelName = primaryChannel?.Name ?? $"net{n.Id}"
+                    Id = n.Id,
+                    SaveAnalytics = n.SaveAnalytics,
+                    ShortName = n.ShortName,
+                    PublicChannelNames = publicChannelsForNetwork
                 };
-            }).ToDictionary(x => x.Id, x => (x.NetworkShortName, x.ChannelName, x.SaveAnalytics));
+            }).ToDictionary(x => x.Id);
 
             _networkByShortName = _networks
-                .Where(x => !string.IsNullOrEmpty(x.Value.NetworkShortName))
-                .ToLookup(x => x.Value.NetworkShortName, x => x.Key);
+                .Where(x => !string.IsNullOrEmpty(x.Value.ShortName))
+                .ToLookup(x => x.Value.ShortName, x => x.Key);
         }
 
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkEnabled) == true;
@@ -145,9 +146,9 @@ namespace TBot
                 if (topic.Contains(NetworkShortNameToken))
                 {
                     var network = _networks.GetValueOrDefault(networkId);
-                    if (network.NetworkShortName != null)
+                    if (network.ShortName != null)
                     {
-                        topic = topic.Replace(NetworkShortNameToken, network.NetworkShortName);
+                        topic = topic.Replace(NetworkShortNameToken, network.ShortName);
                     }
                 }
 
@@ -264,28 +265,34 @@ namespace TBot
                     }
                     else if (hasNetworkNameToken)
                     {
-                        foreach (var (networkShortName, channelName, _) in _networks.Values.Where(x => !string.IsNullOrEmpty(x.NetworkShortName) && x.SaveAnalytics).Distinct())
+                        foreach (var network in _networks.Values.Where(x => !string.IsNullOrEmpty(x.ShortName) && x.SaveAnalytics).Distinct())
                         {
-                            var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, networkShortName).TrimEnd('/') + '/' + channelName + "/#";
-
-                            topicFilters.Add(new MqttTopicFilter
+                            foreach (var channelName in network.PublicChannelNames.Distinct())
                             {
-                                Topic = topic,
-                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                            });
+                                var topic = server.EncryptedTopicPrefix.Replace(NetworkShortNameToken, network.ShortName).TrimEnd('/') + '/' + channelName + "/#";
+
+                                topicFilters.Add(new MqttTopicFilter
+                                {
+                                    Topic = topic,
+                                    QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                                });
+                            }
                         }
                     }
                     else
                     {
-                        foreach (var channelName in _networks.Values.Where(x => x.SaveAnalytics).Select(x => x.ChannelName).Distinct())
+                        foreach (var network in _networks.Values.Where(x => x.SaveAnalytics).Distinct())
                         {
-                            var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
-
-                            topicFilters.Add(new MqttTopicFilter
+                            foreach (var channelName in network.PublicChannelNames.Distinct())
                             {
-                                Topic = topic,
-                                QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
-                            });
+                                var topic = server.EncryptedTopicPrefix.TrimEnd('/') + '/' + channelName + "/#";
+
+                                topicFilters.Add(new MqttTopicFilter
+                                {
+                                    Topic = topic,
+                                    QualityOfServiceLevel = MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce
+                                });
+                            }
                         }
                     }
 

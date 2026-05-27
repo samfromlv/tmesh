@@ -18,7 +18,7 @@ namespace TBot.Database.Models
 
         public RecipientType RecipientType => RecipientDeviceId.HasValue ? RecipientType.Device : (RecipientPrivateChannelId.HasValue ? RecipientType.PrivateChannel : RecipientType.PublicChannel);
 
-        public long? RecipientId => RecipientDeviceId ?? RecipientPrivateChannelId;
+        public long? RecipientId => RecipientDeviceId ?? RecipientPrivateChannelId ?? RecipientPublicChannelId;
 
         public bool IsPublicChannel => RecipientPublicChannelId.HasValue;
     }

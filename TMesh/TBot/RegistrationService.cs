@@ -1405,6 +1405,15 @@ namespace TBot
                 .ToListAsync();
         }
 
+        public async Task<List<PublicChannel>> GetAllPublicChannelsAsync()
+        {
+            return await db.PublicChannels
+                .OrderBy(c => c.IsPrimary ? 0 : 1)
+                .ThenBy(c => c.Name)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
 
         public async Task<PublicChannel> GetPublicChannelByIdCachedAsync(int id)
         {

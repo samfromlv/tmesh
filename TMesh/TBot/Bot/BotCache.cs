@@ -94,7 +94,7 @@ namespace TBot.Bot
             var currentMeshQueueDelay = meshtasticService.EstimateDelay(networkId, MessagePriority.Normal);
 
             var cacheKey = $"TelegramMessageStatus_{chatId}_{messageId}";
-            memoryCache.Set(cacheKey, status, currentMeshQueueDelay.Add(TimeSpan.FromMinutes(Math.Max(currentMeshQueueDelay.TotalMinutes * 1.3, 3))));
+            memoryCache.Set(cacheKey, status, currentMeshQueueDelay.Add(TimeSpan.FromMinutes(Math.Max(currentMeshQueueDelay.TotalMinutes * 1.3, 10))));
         }
 
         public void StoreGatewayRegistraionChat(long deviceId, long chatId)
