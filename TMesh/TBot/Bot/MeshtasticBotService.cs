@@ -1270,7 +1270,7 @@ namespace TBot.Bot
                 sentByPart = $" by {deviceName}";
             }
 
-            var activeSession = botCache.GetActiveChatSession(tgChat.ChatId);
+            var activeSession = await botCache.GetActiveChatSession(tgChat.ChatId, db);
             if (activeSession != null
                 && (activeSession.DeviceId != recipient.RecipientDeviceId
                 || activeSession.ChannelId != recipient.RecipientPrivateChannelId
@@ -1327,6 +1327,7 @@ namespace TBot.Bot
                 {
                     DeviceId = recipient.RecipientDeviceId,
                     ChannelId = recipient.RecipientPrivateChannelId,
+                    PublicChannelId = recipient.RecipientPublicChannelId,
                 }, db);
 
                 var tgMsg = await TrySendMessage(tgChat.ChatId,
@@ -1377,7 +1378,7 @@ namespace TBot.Bot
         {
             var tgChat = await registrationService.GetTgChatByChatIdAsync(tgChatId);
 
-            var otherMeshSession = botCache.GetActiveChatSession(tgChatId);
+            var otherMeshSession = await botCache.GetActiveChatSession(tgChatId, db);
             if (otherMeshSession != null
                 && (otherMeshSession.DeviceId != recipient.RecipientDeviceId
                 || otherMeshSession.ChannelId != recipient.RecipientPrivateChannelId
@@ -1427,7 +1428,9 @@ namespace TBot.Bot
 
             await botCache.StartChatSession(tgChatId, new DeviceOrChannelId
             {
-                DeviceId = message.DeviceId,
+                DeviceId = recipient.RecipientDeviceId,
+                ChannelId = recipient.RecipientPrivateChannelId,
+                PublicChannelId = recipient.RecipientPublicChannelId,
             }, db);
 
             string tgMsgText;

@@ -24,6 +24,7 @@ namespace TBot.Bot
 
     {
         private const int ChatSessionSlidingExpirationMinutes = 30;
+        private const int ChatSessionRefreshAfterMinutes = ChatSessionSlidingExpirationMinutes - 10;
         private readonly TBotOptions _options = options.Value;
 
         public DeviceAndGatewayId GetSingleDeviceChannelGateway(int channelId)
@@ -358,6 +359,8 @@ namespace TBot.Bot
                 SlidingExpiration = ChatSessionTtl
             };
 
+            id.LastRefreshed = DateTime.UtcNow;
+
             memoryCache.Set(ChatSessionActive_TgChat_Key(chatId), id, expirationWithCallback);
             if (id.DeviceId != null)
             {
@@ -391,10 +394,24 @@ namespace TBot.Bot
             }
         }
 
-        public DeviceOrChannelId GetActiveChatSession(long chatId)
+        public async ValueTask<DeviceOrChannelId> GetActiveChatSession(long chatId, TBotDbContext db)
         {
             if (memoryCache.TryGetValue<DeviceOrChannelId>(ChatSessionActive_TgChat_Key(chatId), out var id))
             {
+                if (id != null)
+                {
+                    var now = DateTime.UtcNow;
+                    var sinceRefreshed = now - id.LastRefreshed;
+                    if (sinceRefreshed.TotalMinutes >= ChatSessionRefreshAfterMinutes)
+                    {
+                        id.LastRefreshed = now;
+                        var newExpiration = now.Add(ChatSessionTtl);
+                        await db.ChatSessions.Where(x => x.ChatId == chatId)
+                            .ExecuteUpdateAsync(setters => setters
+                                .SetProperty(x => x.ExpirationDate, newExpiration)
+                            );
+                    }
+                }
                 return id;
             }
             return null;

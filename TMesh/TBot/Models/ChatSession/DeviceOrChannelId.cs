@@ -14,5 +14,6 @@ namespace TBot.Models.ChatSession
 
         public long? ImpersonateDeviceId { get; set; }
         public long? ForceGatewayId { get; set; }
+        public DateTime LastRefreshed { get; set; }
     }
 }

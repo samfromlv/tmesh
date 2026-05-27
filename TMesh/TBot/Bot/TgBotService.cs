@@ -184,7 +184,7 @@ namespace TBot.Bot
             var userName = GetTelegramUserName(msgReaction.User);
             var trimmedUserName = TrimTelegramUserName(userName);
 
-            var activeSession = botCache.GetActiveChatSession(chatId);
+            var activeSession = await botCache.GetActiveChatSession(chatId, db);
             if (activeSession != null)
             {
                 var emjText = activeSession.PublicChannelId != null
@@ -311,7 +311,7 @@ namespace TBot.Bot
 
         private async Task ApproveChatRequestFromMesh(long chatId, string username, DeviceOrChannelRequestCode request)
         {
-            var otherMeshSession = botCache.GetActiveChatSession(chatId);
+            var otherMeshSession = await botCache.GetActiveChatSession(chatId, db);
             if (otherMeshSession != null
                 && (otherMeshSession.DeviceId != request.DeviceId
                 || otherMeshSession.ChannelId != request.ChannelId))
@@ -364,7 +364,7 @@ namespace TBot.Bot
                 await botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
                     DeviceId = request.DeviceId,
-                    ChannelId = null
+                    ChannelId = request.ChannelId
                 }, db);
 
                 botCache.RemovePendingChatRequest_MeshToTg(chatId);
@@ -401,7 +401,7 @@ namespace TBot.Bot
                 }
                 await botCache.StartChatSession(chatId, new DeviceOrChannelId
                 {
-                    DeviceId = null,
+                    DeviceId = request.DeviceId,
                     ChannelId = request.ChannelId
                 }, db);
                 botCache.RemovePendingChatRequest_MeshToTg(chatId);
@@ -471,7 +471,7 @@ namespace TBot.Bot
                 return;
             }
 
-            var activeSession = botCache.GetActiveChatSession(chatId);
+            var activeSession = await botCache.GetActiveChatSession(chatId, db);
 
             var textToMesh = activeSession?.PublicChannelId != null
                 ? text

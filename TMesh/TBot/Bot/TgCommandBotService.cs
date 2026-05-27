@@ -188,7 +188,7 @@ namespace TBot.Bot
             var devices = await registrationService.GetDeviceNamesByChatId(chatId);
             var deviceApprovals = await registrationService.GetDeviceApprovalsByChatId(chatId);
             var networks = await registrationService.GetNetworksLookupCached();
-            var chatSession = botCache.GetActiveChatSession(chatId);
+            var chatSession = await botCache.GetActiveChatSession(chatId, db);
             var registeredChat = await registrationService.GetTgChatByChatIdAsync(chatId);
             var response = new StringBuilder();
             if (registeredChat != null)
@@ -2061,7 +2061,7 @@ namespace TBot.Bot
 
         private async Task<TgResult> HandleDisable(long chatId)
         {
-            var activeSession = botCache.GetActiveChatSession(chatId);
+            var activeSession = await botCache.GetActiveChatSession(chatId, db);
             if (activeSession != null)
             {
                 await botClient.SendMessage(chatId,
@@ -2086,7 +2086,7 @@ namespace TBot.Bot
 
         private async Task MaybeEndOtherChatSession(long chatId, DeviceOrChannelId id, string username)
         {
-            var existingSession = botCache.GetActiveChatSession(chatId);
+            var existingSession = await botCache.GetActiveChatSession(chatId, db);
             if (existingSession != null
                 && (existingSession.DeviceId != id.DeviceId
                 || existingSession.ChannelId != id.ChannelId
@@ -2354,7 +2354,7 @@ namespace TBot.Bot
 
         private async Task<TgResult> HandleStopChat(long chatId)
         {
-            var activeSessions = botCache.GetActiveChatSession(chatId);
+            var activeSessions = await botCache.GetActiveChatSession(chatId, db);
             if (activeSessions == null)
             {
                 await botClient.SendMessage(chatId, "There is no active chat session to stop.");
