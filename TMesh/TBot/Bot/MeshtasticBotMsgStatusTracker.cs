@@ -61,7 +61,7 @@ namespace TBot.Bot
                 var newMeshMessageId = MeshtasticService.GetNextMeshtasticMessageId();
                 var recStatus = new DeliveryStatusWithRecipientId
                 {
-                    RecipientId = recipient.RecipientDeviceId ?? recipient.RecipientPrivateChannelId,
+                    RecipientId = recipient.RecipientDeviceId ?? recipient.RecipientPrivateChannelId ?? recipient.RecipientPublicChannelId,
                     Type = recipient.RecipientType,
                     Status = DeliveryStatus.Queued
                 };

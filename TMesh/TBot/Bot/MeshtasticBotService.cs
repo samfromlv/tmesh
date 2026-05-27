@@ -221,32 +221,32 @@ namespace TBot.Bot
 
 
 
-        private async ValueTask ProcessPublicTextForChatSession(TextMessage message)
+        private async ValueTask ProcessPublicTextForChatSession(TextMessage meshMsg)
         {
-            if (!message.DecodedBy.IsPublicChannel)
+            if (!meshMsg.DecodedBy.IsPublicChannel)
                 return;
 
-            var activeChatId = botCache.GetActiveChatSessionForPublicChannel(message.DecodedBy.RecipientPublicChannelId.Value);
+            var activeChatId = botCache.GetActiveChatSessionForPublicChannel(meshMsg.DecodedBy.RecipientPublicChannelId.Value);
             if (activeChatId == null)
             {
                 return;
             }
-            var text = message.Text;
+            var text = meshMsg.Text;
             if (string.IsNullOrWhiteSpace(text))
             {
                 return;
             }
-            var channel = (PublicChannel)message.DecodedBy;
+            var channel = (PublicChannel)meshMsg.DecodedBy;
             var channelName = channel.Name;
 
             bool sentReply = false;
 
-            var device = await registrationService.GetDeviceAsync(message.DeviceId);
-            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
+            var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
+            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(meshMsg.DeviceId);
 
-            if (message.ReplyTo != 0)
+            if (meshMsg.ReplyTo != 0)
             {
-                var replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
+                var replyToStatus = botCache.GetMeshMessageStatus(meshMsg.ReplyTo);
                 if (replyToStatus?.TelegramChatId == activeChatId.Value)
                 {
                     var msg = await TrySendMessage(
@@ -268,7 +268,7 @@ namespace TBot.Bot
                         TelegramMessageId = msg.Id,
                         MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
                             {
-                                { message.Id, new DeliveryStatusWithRecipientId
+                                { meshMsg.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
                                         Type = RecipientType.PublicChannel,
@@ -283,26 +283,26 @@ namespace TBot.Bot
                         msg.Id,
                         status);
 
-                    botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
+                    botCache.StoreMeshMessageStatus(channel.NetworkId, meshMsg.Id, status);
                     sentReply = true;
                 }
             }
 
             if (!sentReply)
             {
-                var msg = await TrySendMessage(
+                var tgMsg = await TrySendMessage(
                     chatId: activeChatId.Value,
                     text: $"{deviceName} [#{channel.Name}]: {text}");
 
-                if (msg == null) return;
+                if (tgMsg == null) return;
 
                 var status = new MeshtasticMessageStatus
                 {
                     TelegramChatId = activeChatId.Value,
-                    TelegramMessageId = msg.Id,
+                    TelegramMessageId = tgMsg.Id,
                     MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
                             {
-                                { message.Id, new DeliveryStatusWithRecipientId
+                                { meshMsg.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
                                         Type = RecipientType.PublicChannel,
@@ -313,8 +313,8 @@ namespace TBot.Bot
                     BotReplyId = null
                 };
 
-                meshSender.StoreTelegramMessageStatus(channel.NetworkId, activeChatId.Value, msg.Id, status);
-                botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
+                meshSender.StoreTelegramMessageStatus(channel.NetworkId, activeChatId.Value, tgMsg.Id, status);
+                botCache.StoreMeshMessageStatus(channel.NetworkId, meshMsg.Id, status);
             }
         }
 
