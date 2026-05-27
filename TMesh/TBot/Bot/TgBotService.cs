@@ -196,7 +196,9 @@ namespace TBot.Bot
                    [recipient],
                    chatId,
                    msgId,
-                   emjText);
+                   emjText,
+                   impersonateDeviceId: activeSession.ImpersonateDeviceId,
+                   forceRelayGatewayId: activeSession.ForceGatewayId);
 
                 return true;
             }
