@@ -271,7 +271,7 @@ namespace TBot.Bot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = RecipientType.Channel,
+                                        Type = RecipientType.PublicChannel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -305,7 +305,7 @@ namespace TBot.Bot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = RecipientType.Channel,
+                                        Type = RecipientType.PublicChannel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -586,7 +586,7 @@ namespace TBot.Bot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = RecipientType.Channel,
+                                        Type = RecipientType.PrivateChannel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }
@@ -622,7 +622,7 @@ namespace TBot.Bot
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
                                         RecipientId = channel.Id,
-                                        Type = RecipientType.Channel,
+                                        Type = RecipientType.PrivateChannel,
                                         Status = DeliveryStatus.Delivered,
                                     }
                                 }

@@ -57,6 +57,7 @@ namespace TBot
             int hopLimit,
             string publicChannelName,
             IRecipient recipient,
+            bool isEmoji = false,
             long? replyToMessageId = null,
             long? impersonateDeviceId = null)
         {
@@ -510,7 +511,8 @@ namespace TBot
             IRecipient recipient)
         {
             var packet = CreateAckMessagePacket(deviceId, recipient.RecipientType == RecipientType.Device ? recipient.RecipientKey : null, messageId, messageHopLimit);
-            if (recipient.RecipientType == RecipientType.Channel)
+            if (recipient.RecipientType == RecipientType.PrivateChannel
+                || recipient.RecipientType == RecipientType.PublicChannel)
             {
                 packet = EncryptPacketWithPsk(packet, recipient);
             }

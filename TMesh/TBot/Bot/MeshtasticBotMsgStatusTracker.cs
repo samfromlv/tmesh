@@ -100,7 +100,7 @@ namespace TBot.Bot
                     .FirstOrDefault(kv =>
                         kv.Value.RecipientId != null &&
                         kv.Value.RecipientId == recipient.RecipientId &&
-                        kv.Value.Type == RecipientType.Device == (recipient.RecipientType == RecipientType.Device));
+                        kv.Value.Type == recipient.RecipientType);
 
                 if (replyMsg != null && replyMsg.Value.Key != default)
                 {
@@ -169,7 +169,8 @@ namespace TBot.Bot
                         return;
                     }
 
-                    if (msgStatus.Type == RecipientType.Channel
+                    if ((msgStatus.Type == RecipientType.PrivateChannel
+                        || msgStatus.Type == RecipientType.PublicChannel)
                         && newStatus == DeliveryStatus.SentToMqtt)
                     {
                         msgStatus.Status = DeliveryStatus.SentToMqttNoAckExpected;
@@ -462,7 +463,9 @@ namespace TBot.Bot
            IEnumerable<IRecipient> recipients,
            long chatId,
            int replyToTelegramMsgId,
-           string emojis)
+           string emojis,
+           long? impersonateDeviceId = null,
+           long? forceRelayGatewayId = null)
         {
             var telMsgStatus = botCache.GetTelegramMessageStatus(chatId, replyToTelegramMsgId);
             if (telMsgStatus == null || telMsgStatus.MeshMessages == null)
@@ -472,15 +475,15 @@ namespace TBot.Bot
 
             foreach (var recipient in recipients)
             {
-
                 var replyMsg = telMsgStatus.MeshMessages
                    .FirstOrDefault(kv =>
                        kv.Value.RecipientId != null &&
                        kv.Value.RecipientId == recipient.RecipientId &&
-                       kv.Value.Type == RecipientType.Device == (recipient.RecipientType == RecipientType.Device));
+                       kv.Value.Type == recipient.RecipientType);
 
                 long? replyToMeshMessageId = replyMsg.Key != default ?
                     replyMsg.Key : null;
+
                 if (replyToMeshMessageId == null)
                 {
                     continue;
@@ -507,24 +510,39 @@ namespace TBot.Bot
                             recipient.RecipientKey,
                             emojis,
                             replyToMeshMessageId,
-                            deviceAndGatewayId?.GatewayId,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
                             isEmoji: true);
                 }
-                else
+                else if (recipient.RecipientPrivateChannelId != null)
                 {
                     meshtasticService.SendPrivateChannelTextMessage(
                             newMeshMessageId,
                             emojis,
                             replyToMeshMessageId,
-                            relayGatewayId: deviceAndGatewayId?.GatewayId,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
                             recipient,
                             isEmoji: true);
                 }
+                else if (recipient.RecipientPublicChannelId != null)
+                {
+                    meshtasticService.SendPublicTextMessage(
+                            newMeshMessageId,
+                            emojis,
+                            relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
+                            hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
+                            recipient: recipient,
+                            publicChannelName: (recipient as PublicChannel)?.Name ?? MeshtasticService.UnknownChannelName,
+                            replyToMessageId: replyToMeshMessageId,
+                            isEmoji: true,
+                            impersonateDeviceId: impersonateDeviceId);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Recipient must have either DeviceId or PrivateChannelId or PublicChannelId");
+                }
             }
-
-
         }
 
         private DateTime EstimateSendDelay(int networkId, int messageCount)

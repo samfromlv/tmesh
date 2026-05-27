@@ -187,12 +187,16 @@ namespace TBot.Bot
             var activeSession = botCache.GetActiveChatSession(chatId);
             if (activeSession != null)
             {
+                var emjText = activeSession.PublicChannelId != null
+                    ? emojis
+                    : $"{trimmedUserName} reacted with {emojis}";
+
                 var recipient = await GetChatSessionRecipient(activeSession);
                 EnsureMeshSenderCreated().SendMeshtasticMessageReactions(
                    [recipient],
                    chatId,
                    msgId,
-                   $"{trimmedUserName}{emojis}");
+                   emjText);
 
                 return true;
             }
