@@ -335,7 +335,7 @@ namespace TBot.Bot
                 }
             }
 
-            var otherTgChatId = botCache.GetActiveChatSessionForRequest(request);
+            var otherTgChatId = await botCache.GetActiveChatSessionForRequest(request, db);
             if (otherTgChatId != null && otherTgChatId != chatId)
             {
                 IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);

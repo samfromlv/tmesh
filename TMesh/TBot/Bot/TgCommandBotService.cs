@@ -2174,7 +2174,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var activeSessionTgChatId = botCache.GetActiveChatSessionForDevice(deviceId);
+            var activeSessionTgChatId = await botCache.GetActiveChatSessionForDevice(deviceId, db);
             bool chatingWithSomeoneElse = activeSessionTgChatId != null
                 && activeSessionTgChatId != chatId;
 
@@ -2289,7 +2289,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var activeSessionTgChatId = botCache.GetActiveChatSessionForChannel(channelId);
+            var activeSessionTgChatId = await botCache.GetActiveChatSessionForChannel(channelId, db);
             bool chatingWithSomeoneElse = activeSessionTgChatId != null
                 && activeSessionTgChatId != chatId;
 

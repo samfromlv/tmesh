@@ -188,7 +188,7 @@ namespace TBot.Bot
         {
             List<long> chatIds;
 
-            var activeSessionChatId = botCache.GetActiveChatSessionForDevice(deviceId);
+            var activeSessionChatId = await botCache.GetActiveChatSessionForDevice(deviceId, db);
             if (activeSessionChatId != null)
             {
                 chatIds = [activeSessionChatId.Value];
@@ -226,7 +226,7 @@ namespace TBot.Bot
             if (!meshMsg.DecodedBy.IsPublicChannel)
                 return;
 
-            var activeChatId = botCache.GetActiveChatSessionForPublicChannel(meshMsg.DecodedBy.RecipientPublicChannelId.Value);
+            var activeChatId = await botCache.GetActiveChatSessionForPublicChannel(meshMsg.DecodedBy.RecipientPublicChannelId.Value, db);
             if (activeChatId == null)
             {
                 return;
@@ -532,7 +532,7 @@ namespace TBot.Bot
 
             List<long> chatIds;
 
-            var activeChatId = botCache.GetActiveChatSessionForChannel((int)message.ChannelId.Value);
+            var activeChatId = await botCache.GetActiveChatSessionForChannel((int)message.ChannelId.Value, db);
             if (activeChatId != null)
             {
                 chatIds = [activeChatId.Value];
@@ -1182,7 +1182,7 @@ namespace TBot.Bot
 
         private async Task HandleEndChatRequstFromMesh(TextMessage message, Device device, IRecipient recipient)
         {
-            var activeSessionTgChatId = botCache.GetActiveChatSessionForRecipient(recipient);
+            var activeSessionTgChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
 
             if (activeSessionTgChatId == null)
             {
@@ -1313,7 +1313,7 @@ namespace TBot.Bot
 
             if (isApproved)
             {
-                var otherSessionTgSessionChatId = botCache.GetActiveChatSessionForRecipient(recipient);
+                var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
                 if (otherSessionTgSessionChatId != null
                     && otherSessionTgSessionChatId != tgChat.ChatId)
                 {
@@ -1403,7 +1403,7 @@ namespace TBot.Bot
 
             var recipientName = await GetRecipientName(recipient);
 
-            var otherSessionTgSessionChatId = botCache.GetActiveChatSessionForRecipient(recipient);
+            var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
             if (otherSessionTgSessionChatId != null
                 && otherSessionTgSessionChatId != tgChatId)
             {
