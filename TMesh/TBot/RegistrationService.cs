@@ -1533,6 +1533,11 @@ namespace TBot
                 var channel = recipient as Channel ?? await GetChannelAsync(recipient.RecipientPrivateChannelId.Value);
                 return channel != null ? $"{channel.Name} (ID: {channel.Id})" : $"Channel ID {recipient.RecipientPrivateChannelId.Value}";
             }
+            else if (recipient.RecipientPublicChannelId.HasValue)
+            {
+                var publicChannel = await GetPublicChannelByIdCachedAsync(recipient.RecipientPublicChannelId.Value);
+                return publicChannel != null ? $"Public channel {publicChannel.Name} (ID: {publicChannel.Id})" : $"Public Channel ID {recipient.RecipientPublicChannelId.Value}";
+            }
             else
             {
                 return "Unknown";
