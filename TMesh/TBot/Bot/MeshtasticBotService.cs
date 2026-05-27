@@ -938,6 +938,17 @@ namespace TBot.Bot
 
         private async Task ProcessInboundNodeInfo(NodeInfoMessage message)
         {
+            int? publicChannelIdWithPreset = null;
+            if (message.DecodedBy.IsPublicChannel)
+            {
+                var channel = await registrationService.GetPublicChannelByIdCachedAsync(message.DecodedBy.RecipientPublicChannelId.Value);
+
+                if (channel != null && (channel.IsPrimary || channel.SendNodeInfoOnSecondary))
+                {
+                    publicChannelIdWithPreset = message.DecodedBy.RecipientPublicChannelId;
+                }
+            }
+
             var res = await registrationService.SaveDeviceAsync(
                 message.DeviceId,
                 message.NetworkId,
@@ -946,7 +957,7 @@ namespace TBot.Bot
                 message.NodeInfo.MacAddr,
                 message.PublicKey,
                 message.Id,
-                message.DecodedBy.RecipientPublicChannelId,
+                publicChannelIdWithPreset,
                 MeshtasticService.ConvertDeviceRole(message.NodeInfo.Role));
 
             if (message.NeedAck && res.device != null && res.device.PublicKey != null)
