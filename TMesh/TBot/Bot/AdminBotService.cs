@@ -15,7 +15,7 @@ using static System.Net.Mime.MediaTypeNames;
 
 namespace TBot.Bot
 {
-    public class AdminBotService(
+    public partial class AdminBotService(
         TelegramBotClient botClient,
         IOptions<TBotOptions> options,
         BotCache botCache,
@@ -142,7 +142,7 @@ namespace TBot.Bot
                     }
                 case "update_public_channel":
                     {
-                        return await UpdatePublicChannel(chatId, segments);
+                        return await UpdatePublicChannel(chatId, noPrefix);
                     }
                 case "remove_public_channel":
                     {
@@ -183,7 +183,7 @@ namespace TBot.Bot
                     }
                 case "send_mass_direct_message":
                     {
-                        return await SendMassDirectMessage(userId, chatId, noPrefix, segments);
+                        return await SendMassDirectMessage(chatId, noPrefix, segments);
                     }
                 case "confirm_mass_direct_message":
                     {
@@ -260,8 +260,10 @@ namespace TBot.Bot
 
             var gateways = await registrationService.GetGatewaysCached();
 
-            var lines = new List<string>();
-            lines.Add("🌐 *Networks:*");
+            var lines = new List<string>
+            {
+                "🌐 *Networks:*"
+            };
 
             foreach (var network in networks)
             {
@@ -274,6 +276,7 @@ namespace TBot.Bot
                 if (network.WelcomeUrl != null)
                     lines.Add($"  welcomeurl: `{StringHelper.EscapeMdV2(network.WelcomeUrl)}`");
 
+                lines.Add("");
                 var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(network.Id);
                 if (publicChannels.Count == 0)
                 {
@@ -284,9 +287,14 @@ namespace TBot.Bot
                     foreach (var ch in publicChannels)
                     {
                         var primaryMark = ch.IsPrimary ? " ⭐" : "  ";
-                        lines.Add($"{primaryMark} ch\\#{ch.Id} `{StringHelper.EscapeMdV2(ch.Name)}`");
+                        lines.Add($"{primaryMark} \\#{ch.Id} `{StringHelper.EscapeMdV2(ch.Name)}`");
+                        if (ch.SpecialPongText != null)
+                        {
+                            lines.Add($"    _Special pong text:_ `{StringHelper.EscapeMdV2(ch.SpecialPongText)}`");
+                        }
                     }
                 }
+                lines.Add("");
 
                 var networkGateways = gateways.Values.Where(g => g.NetworkId == network.Id).ToList();
                 if (networkGateways.Count > 0)
@@ -400,7 +408,7 @@ namespace TBot.Bot
             {
                 Handled = true,
                 NetworksUpdated = true,
-                NetworkWithUpdatedPublicChannels = new List<int> { network.Id }
+                NetworkWithUpdatedPublicChannels = [network.Id]
             };
         }
 
@@ -521,7 +529,7 @@ namespace TBot.Bot
                 {
                     Handled = true,
                     NetworksUpdated = true,
-                    NetworkWithUpdatedPublicChannels = new List<int> { network.Id }
+                    NetworkWithUpdatedPublicChannels = [network.Id]
                 };
             }
             else
@@ -619,21 +627,22 @@ namespace TBot.Bot
             return new TgResult
             {
                 Handled = true,
-                NetworkWithUpdatedPublicChannels = new List<int> { networkId }
+                NetworkWithUpdatedPublicChannels = [networkId]
             };
         }
 
-        private async Task<TgResult> UpdatePublicChannel(long chatId, string[] segments)
+        private async Task<TgResult> UpdatePublicChannel(long chatId, string noPrefix)
         {
-            // Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary>
+            // Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary> [pong_text="<text>"]
+            var segments = noPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (segments.Length < 4
                 || !int.TryParse(segments[1], out var channelId)
                 || !bool.TryParse(segments[2], out var isPrimary)
                 || !bool.TryParse(segments[3], out var sendNodeInfoOnSecondary))
             {
                 await botClient.SendMessage(chatId,
-                    "Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary>\n" +
-                    "Example: update_public_channel 2 false true");
+                    "Usage: update_public_channel <id> <is_primary> <send_node_info_on_secondary> [pong_text=\"<text>\"]\n" +
+                    "Example: update_public_channel 2 false true pong_text=\"Pong\"");
                 return TgResult.Ok;
             }
 
@@ -644,10 +653,16 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
+            string pongText = null;
+            var pongTextMatch = PongTextRegex().Match(noPrefix);
+            if (pongTextMatch.Success)
+                pongText = pongTextMatch.Groups[1].Value.Replace("\\\"", "\"");
+
             (var ok, var updated) = await registrationService.TryUpdatePublicChannelAsync(
                 channelId,
                 isPrimary,
-                sendNodeInfoOnSecondary);
+                sendNodeInfoOnSecondary,
+                pongText);
 
             if (!ok)
             {
@@ -663,7 +678,7 @@ namespace TBot.Bot
             return new TgResult
             {
                 Handled = true,
-                NetworkWithUpdatedPublicChannels = new List<int> { updated.NetworkId }
+                NetworkWithUpdatedPublicChannels = [updated.NetworkId]
             };
         }
 
@@ -696,7 +711,7 @@ namespace TBot.Bot
             return new TgResult
             {
                 Handled = true,
-                NetworkWithUpdatedPublicChannels = new List<int> { ch.NetworkId }
+                NetworkWithUpdatedPublicChannels = [ch.NetworkId]
             };
         }
 
@@ -726,10 +741,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            if (networkId == null)
-            {
-                networkId = device.NetworkId;
-            }
+            networkId ??= device.NetworkId;
 
             var network = await registrationService.GetNetwork(networkId.Value);
 
@@ -920,9 +932,6 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-
-            var pwd = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
-
             await registrationService.RegisterGatewayAsync(parsedNodeId, networkId.Value);
             botCache.StoreGatewayRegistraionChat(parsedNodeId, chatId);
             var mqttUsername = hexId;
@@ -1030,9 +1039,7 @@ namespace TBot.Bot
         {
             var cmd = noPrefix["public_text".Length..].Trim();
             var networkIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-            var channelNameEndIndex = cmd.IndexOf(' ');
-
-            if (channelNameEndIndex == -1)
+            if (!cmd.Contains(' '))
             {
                 await botClient.SendMessage(chatId, "Usage: public_text <networkId> <channelName> <text>\nPlease specify the network ID, channel name, and announcement text.");
                 return TgResult.Ok;
@@ -1219,9 +1226,8 @@ namespace TBot.Bot
         {
             var cmd = noPrefix["mqtt_uplink_text".Length..].Trim();
             var publicChannelIdStr = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-            var channelNameEndIndex = cmd.IndexOf(' ');
 
-            if (channelNameEndIndex == -1)
+            if (!cmd.Contains(' '))
             {
                 await botClient.SendMessage(chatId, "Usage: mqtt_uplink_text <publicChannelId> <fromNodeId> <text>\nPlease specify the public channel ID and announcement text.");
                 return TgResult.Ok;
@@ -1373,7 +1379,7 @@ namespace TBot.Bot
 
         private static readonly string LocalDateFormat = "yyyy-MM-ddTHH:mm:ss";
 
-        private bool TryParseLocalDate(string value, out DateTime result)
+        private static bool TryParseLocalDate(string value, out DateTime result)
             => DateTime.TryParseExact(value, LocalDateFormat,
                 System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out result);
@@ -1445,7 +1451,7 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
-        private async Task<TgResult> SendMassDirectMessage(long userId, long chatId, string noPrefix, string[] segments)
+        private async Task<TgResult> SendMassDirectMessage(long chatId, string noPrefix, string[] segments)
         {
             // Usage: send_mass_direct_message network=<network_id> text="<message text>" [max_node_age_hours=<hours>] [node_name_filter_regex="regex"]
             if (segments.Length < 3 || !noPrefix.Contains("text=\"") || !noPrefix.Contains("network_id="))
@@ -1461,8 +1467,7 @@ namespace TBot.Bot
 
             var workingString = noPrefix;
 
-            var textMatch = System.Text.RegularExpressions.Regex.Match(
-                workingString, @"text=""((?:[^""\\]|\\.)*)""");
+            var textMatch = TextRegex().Match(workingString);
 
             if (!textMatch.Success)
             {
@@ -1478,8 +1483,7 @@ namespace TBot.Bot
 
             string nodeNameRegexPattern = null;
 
-            var regexMatch = System.Text.RegularExpressions.Regex.Match(
-                workingString, @"node_name_filter_regex=""((?:[^""\\]|\\.)*)""");
+            var regexMatch = NodeNameFilterRegex().Match(workingString);
 
             if (regexMatch.Success)
             {
@@ -1494,8 +1498,7 @@ namespace TBot.Bot
             }
 
 
-            var maxAgeHoursMatch = Regex.Match(
-                workingString, @"max_node_age_hours=(\d+)");
+            var maxAgeHoursMatch = MaxNodeAgeRegex().Match(workingString);
 
             int? maxAgeHours = null;
             if (maxAgeHoursMatch.Success)
@@ -1513,8 +1516,7 @@ namespace TBot.Bot
                 workingString = workingString.Remove(maxAgeHoursMatch.Index, maxAgeHoursMatch.Length).Trim();
             }
 
-            var networkIdMatch = System.Text.RegularExpressions.Regex.Match(
-                workingString, @"network_id=(\d+)");
+            var networkIdMatch = NetworkIdRegex().Match(workingString);
 
             if (!networkIdMatch.Success || !int.TryParse(networkIdMatch.Groups[1].Value, out var networkId))
             {
@@ -1522,8 +1524,6 @@ namespace TBot.Bot
                     $"Invalid or missing network ID. Please specify a valid integer network ID using network_id=<network_id>.");
                 return TgResult.Ok;
             }
-
-            workingString = workingString.Remove(networkIdMatch.Index, networkIdMatch.Length).Trim();
 
             var network = await registrationService.GetNetwork(networkId);
             if (network == null)
@@ -1607,8 +1607,7 @@ namespace TBot.Bot
             var afterFixed = noPrefix[$"add_scheduled_message {segments[1]} {segments[2]} ".Length..].Trim();
 
             // Extract text="..." — supports \" escapes inside the quoted value
-            var textMatch = System.Text.RegularExpressions.Regex.Match(
-                afterFixed, @"text=""((?:[^""\\]|\\.)*)""");
+            var textMatch = TextRegex().Match(afterFixed);
             if (!textMatch.Success)
             {
                 await botClient.SendMessage(chatId,
@@ -1732,15 +1731,15 @@ namespace TBot.Bot
             int? newInterval = null;
             int? newChannelId = null;
 
-            var textMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"text=""((?:[^""\\]|\\.)*)""");
+            var textMatch = TextRegex().Match(argsStr);
             if (textMatch.Success)
                 newText = textMatch.Groups[1].Value.Replace("\\\"", "\"");
 
-            var intervalMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"interval=""(\d+)""");
+            var intervalMatch = IntervalRegex().Match(argsStr);
             if (intervalMatch.Success && int.TryParse(intervalMatch.Groups[1].Value, out var parsedInterval))
                 newInterval = parsedInterval;
 
-            var channelMatch = System.Text.RegularExpressions.Regex.Match(argsStr, @"channel=""(\d+)""");
+            var channelMatch = ChannelRegex().Match(argsStr);
             if (channelMatch.Success && int.TryParse(channelMatch.Groups[1].Value, out var parsedChannelId))
                 newChannelId = parsedChannelId;
 
@@ -1811,8 +1810,10 @@ namespace TBot.Bot
             }
 
             // Build the full list as individual lines so we can split at any line boundary.
-            var lines = new List<string>();
-            lines.Add("🕐 *Scheduled messages:*");
+            var lines = new List<string>
+            {
+                "🕐 *Scheduled messages:*"
+            };
 
             foreach (var msg in items)
             {
@@ -1870,8 +1871,7 @@ namespace TBot.Bot
             }
 
             var afterId = cmd[(firstSpace + 1)..].Trim();
-            var textMatch = System.Text.RegularExpressions.Regex.Match(
-                afterId, @"text=""((?:[^""\\]|\\.)*)""");
+            var textMatch = TextRegex().Match(afterId);
             if (!textMatch.Success)
             {
                 await botClient.SendMessage(chatId, "Could not parse text parameter. Use: text=\"your variant text here\"");
@@ -1920,8 +1920,7 @@ namespace TBot.Bot
             }
 
             var afterId = cmd[(firstSpace + 1)..].Trim();
-            var textMatch = System.Text.RegularExpressions.Regex.Match(
-                afterId, @"text=""((?:[^""\\]|\\.)*)""");
+            var textMatch = TextRegex().Match(afterId);
             if (!textMatch.Success)
             {
                 await botClient.SendMessage(chatId, "Could not parse text parameter. Use: text=\"your new text here\"");
@@ -1969,5 +1968,20 @@ namespace TBot.Bot
                 : $"Scheduled message variant #{variantId} not found.");
             return TgResult.Ok;
         }
+
+        [GeneratedRegex(@"pong_text=""((?:[^""\\]|\\.)*)""")]
+        private static partial Regex PongTextRegex();
+        [GeneratedRegex(@"text=""((?:[^""\\]|\\.)*)""")]
+        private static partial Regex TextRegex();
+        [GeneratedRegex(@"node_name_filter_regex=""((?:[^""\\]|\\.)*)""")]
+        private static partial Regex NodeNameFilterRegex();
+        [GeneratedRegex(@"max_node_age_hours=(\d+)")]
+        private static partial Regex MaxNodeAgeRegex();
+        [GeneratedRegex(@"network_id=(\d+)")]
+        private static partial Regex NetworkIdRegex();
+        [GeneratedRegex(@"interval=""(\d+)""")]
+        private static partial Regex IntervalRegex();
+        [GeneratedRegex(@"channel=""(\d+)""")]
+        private static partial Regex ChannelRegex();
     }
 }

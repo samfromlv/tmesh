@@ -11,8 +11,7 @@ namespace TBot.Helpers
 
         public static int ColorIndexFromDeviceId(uint deviceId, int colorCount)
         {
-            if (colorCount <= 0)
-                throw new ArgumentOutOfRangeException(nameof(colorCount));
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(colorCount, nameof(colorCount));
 
             uint x = deviceId;
 

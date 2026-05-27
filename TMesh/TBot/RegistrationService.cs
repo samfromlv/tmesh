@@ -806,7 +806,7 @@ namespace TBot
                 entity.NodeName = nodeName;
                 entity.HardwareModel = hardwareModel;
                 entity.MacAddress = macAddress;
-                entity.NodeInfoOnPublicChannelId = entity.NodeInfoOnPublicChannelId ?? nodeInfoFromPublicChannelId;
+                entity.NodeInfoOnPublicChannelId ??= nodeInfoFromPublicChannelId;
                 entity.UpdatedUtc = now;
                 entity.Role = role;
                 entity.LastUpdatePacketId = meshPacketId;
@@ -819,7 +819,7 @@ namespace TBot
                 entity.NetworkId = networkId;
                 entity.NodeName = nodeName;
                 entity.Role = role;
-                entity.NodeInfoOnPublicChannelId = entity.NodeInfoOnPublicChannelId ?? nodeInfoFromPublicChannelId;
+                entity.NodeInfoOnPublicChannelId ??= nodeInfoFromPublicChannelId;
                 entity.HardwareModel = hardwareModel;
                 entity.MacAddress = macAddress;
                 entity.UpdatedUtc = now;
@@ -1213,7 +1213,7 @@ namespace TBot
                 filtered = filtered.Take(maxRecords.Value);
             }
 
-            return filtered.ToList();
+            return [.. filtered];
         }
 
         public async Task<List<DeviceNameForVote>> GetActiveDevicesNamesForVote(int networkId, DateTime fromUtc)
@@ -1354,7 +1354,8 @@ namespace TBot
         public async Task<(bool success, PublicChannel updated)> TryUpdatePublicChannelAsync(
             int id,
             bool isPrimary,
-            bool sendNodeInfoOnSecondary)
+            bool sendNodeInfoOnSecondary,
+            string pongText)
         {
             var entity = await db.PublicChannels.FirstOrDefaultAsync(c => c.Id == id);
             if (entity == null)
@@ -1379,6 +1380,10 @@ namespace TBot
 
             entity.IsPrimary = isPrimary;
             entity.SendNodeInfoOnSecondary = sendNodeInfoOnSecondary && !isPrimary;
+            if (pongText != null)
+            {
+                entity.SpecialPongText = pongText == "" ? null : pongText;
+            }
             await db.SaveChangesAsync();
             InvalidatePublicChannelsCache(entity.NetworkId, id);
             return (true, entity);
@@ -1897,9 +1902,7 @@ namespace TBot
             var variantsByMsg = variants.GroupBy(v => v.ScheduledMessageId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            return due
-                .Select(d => (d.Message, d.Channel, variantsByMsg.GetValueOrDefault(d.Message.Id) ?? []))
-                .ToList();
+            return [.. due.Select(d => (d.Message, d.Channel, variantsByMsg.GetValueOrDefault(d.Message.Id) ?? []))];
         }
 
         public async Task UpdateScheduledMessageLastSentAsync(List<ScheduledMessage> messages, DateTime sentUtc)

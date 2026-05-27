@@ -368,10 +368,7 @@ namespace TBot.Bot
                     && item.DeviceId != MeshtasticService.BroadcastDeviceId)
                 {
                     var primaryChannel = item.DecodedBy.IsPublicChannel ? item.DecodedBy : null;
-                    if (primaryChannel == null)
-                    {
-                        primaryChannel = await regService.GetNetworkPrimaryChannelCached(item.NetworkId);
-                    }
+                    primaryChannel ??= await regService.GetNetworkPrimaryChannelCached(item.NetworkId);
                     if (primaryChannel != null)
                     {
                         meshtasticService.SendVirtualNodeInfo(
@@ -438,7 +435,7 @@ namespace TBot.Bot
             botCache.StoreTelegramMessageStatus(networkId, chatId, messageId, status);
             if (trackForStatusResolve)
             {
-                TrackedMessages ??= new List<MeshtasticMessageStatus>();
+                TrackedMessages ??= [];
                 TrackedMessages.Add(status);
             }
         }

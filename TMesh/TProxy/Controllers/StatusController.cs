@@ -16,7 +16,7 @@ namespace TProxy.Controllers
         };
 
         [HttpGet("bot")]
-        public IActionResult Bot(int? networkId)
+        public IActionResult Bot()
         {
             var status = publisher.LastStatusPayload;
             if (status == null)
@@ -65,7 +65,7 @@ namespace TProxy.Controllers
             {
                 VoteId = voteId,
                 LastUpdateTs = voteStat.LastUpdateTimestampSec,
-                Stats = voteStat.Stats
+                voteStat.Stats
             }, _jsonOptions);
         }
 

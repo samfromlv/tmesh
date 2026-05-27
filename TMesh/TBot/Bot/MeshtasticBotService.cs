@@ -238,8 +238,6 @@ namespace TBot.Bot
                 return;
             }
             var channel = (PublicChannel)meshMsg.DecodedBy;
-            var channelName = channel.Name;
-
             bool sentReply = false;
 
             var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
@@ -355,11 +353,15 @@ namespace TBot.Bot
 
                 if (!network.DisablePongs)
                 {
+                    var channel = message.DecodedBy as PublicChannel;
+
+                    var pongReply = string.IsNullOrEmpty(channel?.SpecialPongText) ? GetPingReplyText(network) : channel.SpecialPongText;
+
                     meshtasticService.SendDirectTextMessage(
                         message.DeviceId,
                         device.NetworkId,
                         device.PublicKey,
-                        GetPingReplyText(network),
+                        pongReply,
                         replyToMessageId: null,//Message is from public channel and we are sending direct reply, so no replyToMessageId
                         relayGatewayId: meshSender.GetReplyGatewayId(message),
                         hopLimit: message.GetSuggestedReplyHopLimit());
@@ -671,11 +673,9 @@ namespace TBot.Bot
 
         private async Task ProcessInboundDirectMeshTextMessage(TextMessage message)
         {
-            var device = message.DecodedBy as Device;
-
-            if (device == null)
+            if (message.DecodedBy is not Device device)
             {
-                throw new ArgumentNullException(nameof(device), "Device cannot be null for Text messages");
+                throw new InvalidOperationException("Device cannot be null for Text messages");
             }
             if (message.NeedAck)
             {
@@ -986,11 +986,7 @@ namespace TBot.Bot
                     }
 
                     var primaryChannel = message.DecodedBy.IsPublicChannel ? message.DecodedBy : null;
-
-                    if (primaryChannel == null)
-                    {
-                        primaryChannel = await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
-                    }
+                    primaryChannel ??= await registrationService.GetNetworkPrimaryChannelCached(message.NetworkId);
                     if (primaryChannel == null)
                     {
                         return;

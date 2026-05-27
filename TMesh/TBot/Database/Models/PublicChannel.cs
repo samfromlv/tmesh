@@ -11,6 +11,7 @@ public class PublicChannel: IRecipient
     public byte XorHash { get; set; }
 
     public bool IsPrimary { get; set; }
+    public string SpecialPongText { get; set; }
     public bool SendNodeInfoOnSecondary { get; set; }
     public System.DateTime CreatedUtc { get; set; }
 

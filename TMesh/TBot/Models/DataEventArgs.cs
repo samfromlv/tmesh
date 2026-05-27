@@ -6,12 +6,8 @@ using System.Threading.Tasks;
 
 namespace TBot.Models
 {
-    public class DataEventArgs<T>: EventArgs
+    public class DataEventArgs<T>(T data) : EventArgs
     {
-        public T Data { get; set; }
-        public DataEventArgs(T data)
-        {
-            Data = data;
-        }
+        public T Data { get; set; } = data;
     }
 }

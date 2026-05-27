@@ -356,17 +356,17 @@ public class MessageLoopService(
 
                 var activeVotes = await analyticsService.GetActiveNetworkVotesLatestStats(network.Id);
 
-                networkStats.ActiveVotes = activeVotes.Where(x => x.LastUpdate.HasValue).GroupBy(x => new { x.VoteId, LastUpdateTs = x.LastUpdate.Value.ToUnixTimeSeconds() })
+                networkStats.ActiveVotes = [.. activeVotes.Where(x => x.LastUpdate.HasValue).GroupBy(x => new { x.VoteId, LastUpdateTs = x.LastUpdate.Value.ToUnixTimeSeconds() })
                     .Select(v => new ActiveVoteStats
                     {
                         VoteId = v.Key.VoteId,
                         LastUpdateTimestampSec = v.Key.LastUpdateTs,
-                        Stats = v.Select(v => new VoteChoice
+                        Stats = [.. v.Select(v => new VoteChoice
                         {
                             Id = v.OptionId,
                             ActiveCount = v.ActiveCount,
-                        }).ToList()
-                    }).ToList();
+                        })]
+                    })];
 
             }
 
@@ -576,13 +576,13 @@ public class MessageLoopService(
             else if (meshtasticService.IsPreviouslySeenNodeInfo(env))
             {
                 scope ??= services.CreateScope();
-                await SaveNodeInfoFromEnvelope(scope, networkId, tmeshOrMapGatewayId, env, isTMeshGateway: isTMeshGateway);
+                await SaveNodeInfoFromEnvelope(scope, networkId, env, isTMeshGateway: isTMeshGateway);
                 return;
             }
             else if (meshtasticService.IsPreviouslySeenTraceRoute(env))
             {
                 scope ??= services.CreateScope();
-                await SaveTraceRouteFromEnvelope(scope, networkId, tmeshOrMapGatewayId, env, isTMeshGateway: isTMeshGateway);
+                await SaveTraceRouteFromEnvelope(scope, networkId, env, isTMeshGateway: isTMeshGateway);
                 return;
             }
 
@@ -626,15 +626,15 @@ public class MessageLoopService(
                 recipients.AddRange(channelRecipients);
             }
 
-            var res = meshtasticService.TryDecryptMessage(env, recipients, networkId, isTMeshGateway);
-            if (res.msg != null)
+            var (success, msg) = meshtasticService.TryDecryptMessage(env, recipients, networkId, isTMeshGateway);
+            if (msg != null)
             {
                 if (_options.DebugPacketsViaMqtt && isTMeshGateway)
                 {
-                    mqttService.PublishMessageToDebug(res.msg);
+                    mqttService.PublishMessageToDebug(msg);
                 }
             }
-            if (!res.success)
+            if (!success)
             {
                 if (isTMeshGateway && !env.Packet.ViaMqtt)
                 {
@@ -643,8 +643,8 @@ public class MessageLoopService(
                 return;
             }
 
-            if (res.msg.MessageType == MeshMessageType.NodeInfo
-                && res.msg is NodeInfoMessage nim)
+            if (msg.MessageType == MeshMessageType.NodeInfo
+                && msg is NodeInfoMessage nim)
             {
                 if (nim.DeviceId == _options.MeshtasticNodeId)
                 {
@@ -658,37 +658,37 @@ public class MessageLoopService(
                 }
             }
 
-            if (res.msg.MessageType == MeshMessageType.AckMessage)
+            if (msg.MessageType == MeshMessageType.AckMessage)
             {
-                EnqueueAckMessage((AckMessage)res.msg);
+                EnqueueAckMessage((AckMessage)msg);
                 return;
             }
 
             scope ??= services.CreateScope();
 
-            var t1 = PerhapsSaveForAnalytics(scope, tmeshOrMapGatewayId, res.msg);
+            var t1 = PerhapsSaveForAnalytics(scope, tmeshOrMapGatewayId, msg);
 
             var t2 = isTMeshGateway
-                ? PerhapsUplinkToMap(env, res.msg)
+                ? PerhapsUplinkToMap(env, msg)
                 : ValueTask.CompletedTask;
 
             await Task.WhenAll(t1.AsTask(), t2.AsTask());
 
 
-            if (res.msg.MessageType == MeshMessageType.TraceRoute
-                && res.msg is TraceRouteMessage trm
+            if (msg.MessageType == MeshMessageType.TraceRoute
+                && msg is TraceRouteMessage trm
                 && trm.ToDeviceId != _options.MeshtasticNodeId)
             {
                 return;
             }
 
-            if (res.msg.MessageType == MeshMessageType.Unknown)
+            if (msg.MessageType == MeshMessageType.Unknown)
             {
                 return;
             }
 
             var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotService>();
-            await botService.ProcessInboundMeshtasticMessage(res.msg);
+            await botService.ProcessInboundMeshtasticMessage(msg);
             if (botService.TrackedMessages != null)
             {
                 ScheduleStatusResolve(botService.TrackedMessages);
@@ -709,8 +709,7 @@ public class MessageLoopService(
 
         var senderDeviceId = envelope.Packet.From;
         var receiverDeviceId = envelope.Packet.To;
-
-        var senderIsGateway = _gatewayNetworkIds.TryGetValue(senderDeviceId, out var senderNetworkId);
+        var senderIsGateway = _gatewayNetworkIds.TryGetValue(senderDeviceId, out _);
         var receiverIsGateway = _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId);
 
         if (_options.BridgeDirectMessagesToGateways
@@ -744,7 +743,7 @@ public class MessageLoopService(
                 return false;
             }
 
-            var decryptRes = meshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
+            var (success, msg) = MeshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
 
             meshtasticService.AddStat(new MeshStat
             {
@@ -758,7 +757,7 @@ public class MessageLoopService(
             }
 
             ServiceEnvelope outgoing;
-            if (!decryptRes.success || decryptRes.msg == null || decryptRes.msg.MessageType != MeshMessageType.TraceRoute)
+            if (!success || msg == null || msg.MessageType != MeshMessageType.TraceRoute)
             {
                 outgoing = envelope.Clone();
                 outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
@@ -773,7 +772,7 @@ public class MessageLoopService(
                 logger.LogInformation("Bridging direct message from {Sender} to {Receiver} via trace route injection", MeshtasticService.GetMeshtasticNodeHexId(senderDeviceId), MeshtasticService.GetMeshtasticNodeHexId(receiverDeviceId));
 
                 meshtasticService.InjectOurNodeInTraceRouteAndSend(
-                    (TraceRouteMessage)decryptRes.msg,
+                    (TraceRouteMessage)msg,
                     receiverDeviceId,
                     primaryChannel,
                     primaryChannel.Name,
@@ -861,7 +860,6 @@ public class MessageLoopService(
     private async Task SaveNodeInfoFromEnvelope(
         IServiceScope scope,
         int networkId,
-        long gatewayId,
         ServiceEnvelope env,
         bool isTMeshGateway)
     {
@@ -873,8 +871,8 @@ public class MessageLoopService(
             return;
         }
 
-        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId, isTMeshGateway);
-        if (!res.success || res.msg is not NodeInfoMessage nodeInfoMsg)
+        var (success, msg) = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId, isTMeshGateway);
+        if (!success || msg is not NodeInfoMessage nodeInfoMsg)
             return;
 
         await SaveNodeInfo(scope, nodeInfoMsg);
@@ -883,7 +881,6 @@ public class MessageLoopService(
     private async Task SaveTraceRouteFromEnvelope(
         IServiceScope scope,
         int networkId,
-        long gatewayId,
         ServiceEnvelope env,
         bool isTMeshGateway)
     {
@@ -895,8 +892,8 @@ public class MessageLoopService(
             return;
         }
 
-        var res = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId, isTMeshGateway);
-        if (!res.success || res.msg is not TraceRouteMessage traceRouteMsg)
+        var (success, msg) = meshtasticService.TryDecryptMessage(env, [primaryChannel], networkId, isTMeshGateway);
+        if (!success || msg is not TraceRouteMessage traceRouteMsg)
             return;
 
         await SaveTraceRoute(scope, traceRouteMsg);

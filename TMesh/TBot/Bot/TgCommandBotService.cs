@@ -39,7 +39,7 @@ namespace TBot.Bot
             }
             if (message.Text?.StartsWith("/kill", StringComparison.OrdinalIgnoreCase) == true)
             {
-                return await HandleKill(userId, chatId, message);
+                return await HandleKill(userId, chatId);
             }
             if (message.Text?.StartsWith("/disable", StringComparison.OrdinalIgnoreCase) == true
                 && (message.Text.Length == 8 || message.Text[8] == ' ' || message.Text[8] == '@'))
@@ -1961,7 +1961,7 @@ namespace TBot.Bot
             }
         }
 
-        private async Task<TgResult> HandleKill(long userId, long chatId, Message message)
+        private async Task<TgResult> HandleKill(long userId, long chatId)
         {
             await botClient.SendMessage(chatId, "Please confirm that you want to delete this chat from TMesh.\n" +
                 "This will delete chat, delete all registered devices and channels, delete approved devices and channels.\n" +
@@ -1996,7 +1996,7 @@ namespace TBot.Bot
             msg.AppendLine("Welcome to the TMesh Telegram bot! This bot allows you to connect your Telegram account with Meshtastic devices and channels, enabling seamless communication between them.");
             msg.AppendLine("Please read carefully the privacy disclaimer:");
             msg.AppendLine();
-            msg.Append("*");
+            msg.Append('*');
             msg.Append(StringHelper.EscapeMd(privacyDisclaimerMsg));
             msg.AppendLine("*");
             msg.AppendLine();
@@ -2037,7 +2037,6 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var username = message.From.Username;
             var tgChat = await registrationService.RegisterTgChatAsync(chatId, message.From.Username, isPrivate: true);
 
             registrationService.SetChatState(userId, chatId, ChatState.Default);

@@ -68,6 +68,7 @@ namespace TBot
                 hopLimit,
                 recipient,
                 publicChannelName,
+                isEmoji,
                 fromNodeId: impersonateDeviceId);
 
             AddStat(new MeshStat
@@ -118,8 +119,7 @@ namespace TBot
             string text,
             long? replyToMessageId,
             long? relayGatewayId,
-            int hopLimit,
-            string publicChannelName = null)
+            int hopLimit)
         {
             if (recipient.RecipientDeviceId.HasValue)
             {
@@ -356,7 +356,6 @@ namespace TBot
             IRecipient primaryChannel,
             string primaryChannelName)
         {
-            var hopsUsed = msg.HopStart - msg.HopLimit;
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
 
             var hopStartAndLimit = (uint)Math.Min(_options.OutgoingMessageHopLimit, hopsForReply);
@@ -1213,7 +1212,7 @@ namespace TBot
             return (true, MeshMessage.FromEnvelope<UnknownMeshMessage>(envelope, decodedPki, device, networkId, isTMeshGateway));
         }
 
-        public (bool success, MeshMessage msg) TryDecryptPskTraceRoute(
+        public static (bool success, MeshMessage msg) TryDecryptPskTraceRoute(
            ServiceEnvelope envelope,
            IRecipient recipient,
            int networkId,
@@ -1619,6 +1618,7 @@ namespace TBot
                 WantResponse = decoded.WantResponse,
             };
 
+#pragma warning disable CS0612 // Type or member is obsolete
             msg.NodeInfo = new Analytics.Models.NodeInfo
             {
                 UserId = user.Id,
@@ -1635,6 +1635,7 @@ namespace TBot
                     ? MacBytesToUInt64(user.Macaddr)
                     : null
             };
+#pragma warning restore CS0612 // Type or member is obsolete
 
             return (true, msg);
         }
@@ -1650,8 +1651,7 @@ namespace TBot
 
         private static long MacBytesToUInt64(IEnumerable<byte> bytes)
         {
-            if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes));
+            ArgumentNullException.ThrowIfNull(bytes, nameof(bytes));
 
             long value = 0;
             foreach (byte b in bytes)
@@ -1760,6 +1760,7 @@ namespace TBot
         public void Dispose()
         {
             _cancellationTokenSource.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

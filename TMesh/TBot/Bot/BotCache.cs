@@ -321,13 +321,10 @@ namespace TBot.Bot
             StoreChatSessionInCache(chatId, id);
 
             var chatSession = db.ChatSessions.FirstOrDefault(cs => cs.ChatId == chatId);
-            if (chatSession == null)
-            {
-                chatSession = db.ChatSessions.Add(new ChatSession
+            chatSession ??= db.ChatSessions.Add(new ChatSession
                 {
                     ChatId = chatId,
                 }).Entity;
-            }
             chatSession.ExpirationDate = DateTime.UtcNow.Add(ChatSessionTtl);
             chatSession.DeviceId = id.DeviceId;
             chatSession.ChannelId = id.ChannelId;

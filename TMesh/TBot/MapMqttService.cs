@@ -39,10 +39,10 @@ namespace TBot
             (IMqttClient mqttClient, MapMqttServerOptions server)[] snapshot;
             lock (_clients)
             {
-                snapshot =_clients.ToArray();
+                snapshot = [.. _clients];
             }
 
-            return snapshot.Select(x =>
+            return [.. snapshot.Select(x =>
             {
                 var s = x.mqttClient.IsConnected ? "Connected" : "Disconnected";
                 var serverId = new StringBuilder();
@@ -61,7 +61,7 @@ namespace TBot
                     ServerID = serverId.ToString(),
                     Status = s
                 };
-            }).ToArray();
+            })];
         }
 
         /// <summary>Raised when a PKI-encrypted telemetry packet from a TMesh gateway is received.</summary>
