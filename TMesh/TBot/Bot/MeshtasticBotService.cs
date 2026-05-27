@@ -244,6 +244,9 @@ namespace TBot.Bot
             var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
             var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(meshMsg.DeviceId);
 
+            var colorSymbols = "⚪⚫🔴🟠🟡🟢🔵🟣";
+            var colorSymbol = colorSymbols[(int)(meshMsg.DeviceId % colorSymbols.Length)];
+
             if (meshMsg.ReplyTo != 0)
             {
                 var replyToStatus = botCache.GetMeshMessageStatus(meshMsg.ReplyTo);
@@ -251,7 +254,7 @@ namespace TBot.Bot
                 {
                     var msg = await TrySendMessage(
                         chatId: replyToStatus.TelegramChatId,
-                        text: $"{deviceName} [#{channel.Name}]: {text}",
+                        text: $"{colorSymbol}{deviceName} [#{channel.Name}]: {text}",
                         replyParameters: new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
@@ -292,7 +295,7 @@ namespace TBot.Bot
             {
                 var tgMsg = await TrySendMessage(
                     chatId: activeChatId.Value,
-                    text: $"{deviceName} [#{channel.Name}]: {text}");
+                    text: $"{colorSymbol}{deviceName} [#{channel.Name}]: {text}");
 
                 if (tgMsg == null) return;
 
