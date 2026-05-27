@@ -267,9 +267,39 @@ namespace TBot.Bot
                     }
                     else if (chatSession.PublicChannelId != null)
                     {
-                        var channel = await registrationService.GetPublicChannelByIdCachedAsync(chatSession.PublicChannelId.Value);
-                        var networkName = networks.GetValueOrDefault(channel.NetworkId)?.Name ?? "Unknown";
-                        response.AppendLine($"• Public channel: {StringHelper.EscapeMdV2(channel.Name)} \\(ID `{channel.Id}`\\), network: {StringHelper.EscapeMdV2(networkName)}");
+                        var publicChannel = await registrationService.GetPublicChannelByIdCachedAsync(chatSession.PublicChannelId.Value);
+                        var networkName = networks.GetValueOrDefault(publicChannel.NetworkId)?.Name ?? "Unknown";
+                        var fromDeviceName = StringHelper.EscapeMdV2($"{_options.MeshtasticNodeNameLong} ({MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId)})");
+                        if (chatSession.ImpersonateDeviceId.HasValue)
+                        {
+                            var device = await registrationService.GetDeviceAsync(chatSession.ImpersonateDeviceId.Value);
+                            var hexId = MeshtasticService.GetMeshtasticNodeHexId(chatSession.ImpersonateDeviceId.Value);
+                            if (device != null)
+                            {
+                                fromDeviceName = StringHelper.EscapeMdV2($"{device.NodeName} ({hexId})");
+                            }
+                            else
+                            {
+                                fromDeviceName = StringHelper.EscapeMdV2($"Unknown device ({hexId})");
+                            }
+                        }
+
+                        var fromGatewayId = "All gateways";
+                        if (chatSession.ForceGatewayId != null) {
+                            var gateways = await registrationService.GetGatewaysCached();
+                            if (gateways.TryGetValue(chatSession.ForceGatewayId.Value, out var gateway))
+                            {
+                                var device = await registrationService.GetDeviceAsync(gateway.DeviceId);
+                                var hexId = MeshtasticService.GetMeshtasticNodeHexId(gateway.DeviceId);
+                                var name = device?.NodeName ?? hexId;
+                                fromGatewayId = StringHelper.EscapeMdV2($"{name} ({hexId})");
+                            }
+                            else
+                            {
+                                fromGatewayId = StringHelper.EscapeMdV2($"Unknown gateway ({chatSession.ForceGatewayId.Value})");
+                            }
+                        }
+                        response.AppendLine($"• Public channel: {StringHelper.EscapeMdV2(publicChannel.Name)} \\(ID `{publicChannel.Id}`\\), network: {StringHelper.EscapeMdV2(networkName)}, from: {fromDeviceName}, gateway: {fromGatewayId}");
                     }
                     response.AppendLine();
                 }
