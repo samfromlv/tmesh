@@ -1082,9 +1082,16 @@ public class MessageLoopService(
             {
                 try
                 {
+                    var networkId = _gatewayNetworkIds.GetValueOrDefault(gatewayId);
+
                     using var scope = services.CreateScope();
                     var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
                     await registrationService.UpdateGatewayLastSeenAsync(gatewayId, now);
+                    var channels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
+                    foreach (var channel in channels.Where(x => x.IsPrimary || x.SendNodeInfoOnSecondary))
+                    {
+                        meshtasticService.SendVirtualNodeInfo(channel.Name, channel, int.MaxValue, gatewayId, gatewayId);
+                    }
                     var botService = scope.ServiceProvider.GetRequiredService<TgBotService>();
                     await botService.NotifyNewGatewaySeen(gatewayId);
                 }

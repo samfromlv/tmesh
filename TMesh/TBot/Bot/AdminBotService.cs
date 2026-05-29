@@ -36,7 +36,16 @@ namespace TBot.Bot
             var chatStateWithData = registrationService.GetChatState(userId, chatId);
             var chatState = chatStateWithData?.State;
 
-            var noPrefix = text["/admin".Length..].Trim();
+            bool isSafe = false;
+            var prefix = "/admin";
+            if (text.StartsWith("/adminsafe"))
+            {
+                // Allow executing certain non-admin commands with /adminsafe prefix to prevent accidental usage
+                prefix = "/adminsafe";
+                isSafe = true;
+            }
+
+            var noPrefix = text[prefix.Length..].Trim();
             var segments = noPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (segments.Length == 0)
             {
@@ -47,14 +56,27 @@ namespace TBot.Bot
                     await botClient.SendMessage(chatId, "Invalid admin command");
                     return TgResult.Ok;
                 }
-                else
+                else if (!isSafe)
                 {
                     return TgResult.NotHandled;
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, "Invalid command. To see available admin commands, type /adminsafe help");
+                    return TgResult.Ok;
                 }
             }
             else if (chatState != ChatState.Admin && segments[0] != "login")
             {
-                return TgResult.NotHandled;
+                if (!isSafe)
+                {
+                    return TgResult.NotHandled;
+                }
+                else
+                {
+                    await botClient.SendMessage(chatId, "You must be logged in as admin to use admin commands. To log in, type /adminsafe login");
+                }
+                return TgResult.Ok;
             }
 
             if (chatState == ChatState.Admin)
@@ -77,6 +99,10 @@ namespace TBot.Bot
                 case "stop":
                     {
                         return await Logout(userId, chatId);
+                    }
+                case "refresh":
+                    {
+                        return await Refresh(userId, chatId, segments);
                     }
                 case "public_text_primary":
                     {
@@ -1361,6 +1387,39 @@ namespace TBot.Bot
         {
             registrationService.SetChatState(userId, chatId, Models.ChatState.Default);
             await botClient.SendMessage(chatId, "Admin access revoked.");
+            return TgResult.Ok;
+        }
+
+        private async Task<TgResult> Refresh(long userId, long chatId, string[] segments)
+        {
+            // /admin refresh <networkId>
+            if (segments == null || segments.Length <= 1)
+            {
+                await botClient.SendMessage(chatId, "Usage: /admin refresh <networkId>\nExample: /admin refresh 1");
+                return TgResult.Ok;
+            }
+
+            if (!int.TryParse(segments[1], out var networkId))
+            {
+                await botClient.SendMessage(chatId, "Invalid network ID. Please specify a valid integer network ID.\nExample: /admin refresh 1");
+                return TgResult.Ok;
+            }
+
+            var network = await registrationService.GetNetwork(networkId);
+            if (network == null)
+            {
+                await botClient.SendMessage(chatId, $"Network with ID {networkId} not found.");
+                return TgResult.Ok;
+            }
+
+            var names = new StringBuilder();
+            var channels = await registrationService.GetAllNodeInfoChannelsCached();
+            foreach (var channel in channels.Where(c => c.NetworkId == networkId))
+            {
+                meshtasticService.SendVirtualNodeInfo(channel.Name, channel, int.MaxValue);
+                names.AppendLine($"  • {channel.Name} (ID: {channel.Id})");
+            }
+            await botClient.SendMessage(chatId, $"Sent virtual node info to the following channels in network [{networkId}] \"{network.Name}\":\n{names}");
             return TgResult.Ok;
         }
 
