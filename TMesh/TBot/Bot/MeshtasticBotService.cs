@@ -755,7 +755,7 @@ namespace TBot.Bot
                     message.DeviceId,
                     device.NetworkId,
                     device.PublicKey,
-                    "Pongs disabled. Use /enablepongs to re-enable.",
+                    _options.Texts.PongsDisabled ?? "Pongs disabled. Use /enablepongs to re-enable.",
                     replyToMessageId: message.Id,
                     relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
@@ -768,7 +768,7 @@ namespace TBot.Bot
                     message.DeviceId,
                     device.NetworkId,
                     device.PublicKey,
-                    "Pongs enabled.",
+                    _options.Texts.PongsEnabled ?? "Pongs enabled.",
                     replyToMessageId: message.Id,
                     relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
