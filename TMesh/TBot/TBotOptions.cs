@@ -90,6 +90,7 @@ public class TBotOptions
     public MapMqttServerOptions[] MapMqttServers { get; set; }
     public int MaxQueueLengthForChannelAckEmojis { get; set; }
     public bool DebugPacketsViaMqtt { get; set; }
+    public bool EnablePingStatsLateReply { get; set; }
 
 }
 

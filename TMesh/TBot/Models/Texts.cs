@@ -18,5 +18,6 @@ namespace TBot.Models
         public string NotRegisteredDeviceReply { get; set; }
         public string FakeMessageWarningReply { get; set; }
         public string PingReplyNoPongs { get; set; }
+        public string PingStatsReply { get; set; }
     }
 }

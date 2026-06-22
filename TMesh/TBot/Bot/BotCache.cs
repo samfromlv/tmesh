@@ -143,6 +143,32 @@ namespace TBot.Bot
             return null;
         }
 
+        public void StorePingStatus(long meshtasticMessageId, PingInfo pingInfo, int slidingExpirationSeconds)
+        {
+            var cacheKey = $"PingStatus_{meshtasticMessageId}";
+            memoryCache.Set(cacheKey, pingInfo, new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromSeconds(slidingExpirationSeconds)
+            });
+        }
+
+
+        public PingInfo GetPingStatus(long meshtasticMessageId)
+        {
+            var cacheKey = $"PingStatus_{meshtasticMessageId}";
+            if (memoryCache.TryGetValue(cacheKey, out PingInfo status))
+            {
+                return status;
+            }
+            return null;
+        }
+
+        public void RemovePingStatus(long meshtasticMessageId)
+        {
+            var cacheKey = $"PingStatus_{meshtasticMessageId}";
+            memoryCache.Remove(cacheKey);
+        }
+
 
         public void StoreChannelGateway(int channelId, long gatewayId, long deviceId, int replyHopLimit)
         {

@@ -32,7 +32,8 @@ public class MessageLoopService(
     IServiceProvider services,
     SimpleScheduler scheduler,
     BotCache botCache,
-    UptimeService uptimeService) : IHostedService
+    UptimeService uptimeService,
+    PongService pongService) : IHostedService
 {
     private const int GatewayActivityRefreshEveryHours = 1;
     private const int CheckGatewayNodeInfoLastSeenAfterMinutes = 60;
@@ -598,6 +599,8 @@ public class MessageLoopService(
                 {
                     status.SeenByGateways++;
                 }
+
+                scope = await pongService.TryUpdatePingStats(env.Packet.Id, tmeshOrMapGatewayId, scope);
                 return;
             }
 

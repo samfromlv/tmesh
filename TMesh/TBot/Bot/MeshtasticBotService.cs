@@ -29,7 +29,8 @@ namespace TBot.Bot
         ILogger<MeshtasticBotService> logger,
         IServiceProvider services,
         TBotDbContext db,
-        UptimeService uptimeService)
+        UptimeService uptimeService,
+        PongService pongService)
     {
         private const int MaxFakeMsgReplyPer5Min = 30;
         private readonly TBotOptions _options = options.Value;
@@ -244,7 +245,7 @@ namespace TBot.Bot
             var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
             var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(meshMsg.DeviceId);
 
-           
+
             var colorSymbol = colorSymbols[HashHelper.ColorIndexFromDeviceId((uint)meshMsg.DeviceId, colorSymbols.Length)];
 
             if (meshMsg.ReplyTo != 0)
@@ -364,7 +365,10 @@ namespace TBot.Bot
 
                     var pongReply = string.IsNullOrEmpty(channel?.SpecialPongText) ? GetPingReplyText(network) : channel.SpecialPongText;
 
+                    var pongMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+
                     meshtasticService.SendDirectTextMessage(
+                        pongMsgId,
                         message.DeviceId,
                         device.NetworkId,
                         device.PublicKey,
@@ -378,6 +382,13 @@ namespace TBot.Bot
                         NetworkId = device.NetworkId,
                         PongSent = 1,
                     });
+
+                    await pongService.SchedulePingStats(
+                        message.DeviceId, 
+                        message.GatewayId,
+                        message.Id,
+                        pongMsgId, 
+                        registrationService);
                 }
             }
         }
@@ -528,19 +539,22 @@ namespace TBot.Bot
                 }
                 else
                 {
-                meshtasticService.SendPrivateChannelTextMessage(
-                    MeshtasticService.GetNextMeshtasticMessageId(),
-                    GetPingReplyText(network),
-                    replyToMessageId: message.Id,
-                    relayGatewayId: meshSender.GetReplyGatewayId(message),
-                    hopLimit: message.GetSuggestedReplyHopLimit(),
-                    channel);
+                    var pongMsgId = MeshtasticService.GetNextMeshtasticMessageId();
+                    meshtasticService.SendPrivateChannelTextMessage(
+                        pongMsgId,
+                        GetPingReplyText(network),
+                        replyToMessageId: message.Id,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
+                        hopLimit: message.GetSuggestedReplyHopLimit(),
+                        channel);
 
-                meshtasticService.AddStat(new Shared.Models.MeshStat
-                {
-                    NetworkId = channel.NetworkId,
-                    PongSent = 1,
-                });
+                    meshtasticService.AddStat(new Shared.Models.MeshStat
+                    {
+                        NetworkId = channel.NetworkId,
+                        PongSent = 1,
+                    });
+
+                    await pongService.SchedulePingStats(message.DeviceId, message.GatewayId, message.Id, pongMsgId, registrationService);
                 }
                 return;
             }
@@ -814,20 +828,26 @@ namespace TBot.Bot
                 }
                 else
                 {
-                meshtasticService.SendDirectTextMessage(
-                    message.DeviceId,
-                    device.NetworkId,
-                    device.PublicKey,
-                    GetPingReplyText(network),
-                    replyToMessageId: message.Id,
-                    relayGatewayId: meshSender.GetReplyGatewayId(message),
-                    hopLimit: message.GetSuggestedReplyHopLimit());
+                    var pongMsgId = MeshtasticService.GetNextMeshtasticMessageId();
 
-                meshtasticService.AddStat(new Shared.Models.MeshStat
-                {
-                    NetworkId = device.NetworkId,
-                    PongSent = 1,
-                });
+                    meshtasticService.SendDirectTextMessage(
+                        pongMsgId,
+                        message.DeviceId,
+                        device.NetworkId,
+                        device.PublicKey,
+                        GetPingReplyText(network),
+                        replyToMessageId: message.Id,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
+                        hopLimit: message.GetSuggestedReplyHopLimit());
+
+                    meshtasticService.AddStat(new Shared.Models.MeshStat
+                    {
+                        NetworkId = device.NetworkId,
+                        PongSent = 1,
+                    });
+
+                    await pongService.SchedulePingStats(message.DeviceId, message.GatewayId, message.Id, pongMsgId, registrationService);
+
                 }
                 return;
             }
@@ -997,7 +1017,7 @@ namespace TBot.Bot
             int? publicChannelIdWithPreset = null;
             if (message.DecodedBy.IsPublicChannel)
             {
-                var channel = message.DecodedBy as PublicChannel 
+                var channel = message.DecodedBy as PublicChannel
                     ?? await registrationService.GetPublicChannelByIdCachedAsync(message.DecodedBy.RecipientPublicChannelId.Value);
 
                 if (channel != null && (channel.IsPrimary || channel.SendNodeInfoOnSecondary))

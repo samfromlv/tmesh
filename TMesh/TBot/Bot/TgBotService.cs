@@ -582,6 +582,7 @@ namespace TBot.Bot
 
             services.AddSingleton<MeshtasticService>();
             services.AddSingleton<BotCache>();
+            services.AddSingleton<PongService>();
             services.AddScoped<RegistrationService>();
             services.AddScoped<TgBotService>();
             services.AddScoped<AdminBotService>();
