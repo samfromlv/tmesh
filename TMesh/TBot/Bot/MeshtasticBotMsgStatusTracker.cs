@@ -52,6 +52,8 @@ namespace TBot.Bot
                 TelegramChatId = chatId,
                 TelegramMessageId = tgMessageId,
                 MeshMessages = [],
+                SeenByGateways = 0,
+                IsPublicChannelOnly = recipients.All(x => x.IsPublicChannel),
                 EstimatedSendDate = EstimateSendDelay(recipients.First().NetworkId, recipients.Count())
             };
 
@@ -84,7 +86,7 @@ namespace TBot.Bot
                 chatId,
                 tgMessageId,
                 status,
-                trackForStatusResolve: recipients.Any(x => x.RecipientDeviceId.HasValue));
+                trackForStatusResolve: status.IsPublicChannelOnly || recipients.Any(x => x.RecipientDeviceId.HasValue));
 
             await ReportStatus(status);
 
@@ -136,7 +138,7 @@ namespace TBot.Bot
                             text,
                             relayGatewayId: forceRelayGatewayId ?? deviceAndGatewayId?.GatewayId,
                             hopLimit: deviceAndGatewayId?.ReplyHopLimit ?? int.MaxValue,
-                            recipient:recipient,
+                            recipient: recipient,
                             publicChannelName: (recipient as PublicChannel)?.Name ?? MeshtasticService.UnknownChannelName,
                             replyToMessageId: replyToMeshMessageId,
                             impersonateDeviceId: impersonateDeviceId);
@@ -169,8 +171,7 @@ namespace TBot.Bot
                         return;
                     }
 
-                    if ((msgStatus.Type == RecipientType.PrivateChannel
-                        || msgStatus.Type == RecipientType.PublicChannel)
+                    if (msgStatus.Type == RecipientType.PrivateChannel
                         && newStatus == DeliveryStatus.SentToMqtt)
                     {
                         msgStatus.Status = DeliveryStatus.SentToMqttNoAckExpected;
@@ -198,7 +199,7 @@ namespace TBot.Bot
             }
         }
 
-        public async Task ResolveMessageStatus(long chatId, int telegramMessageId)
+        public async Task MarkMessagesWithoutAckAsUnknown(long chatId, int telegramMessageId)
         {
             var status = botCache.GetTelegramMessageStatus(chatId, telegramMessageId);
             if (status != null)
@@ -221,7 +222,9 @@ namespace TBot.Bot
                 }
             }
         }
-        private async Task ReportStatus(MeshtasticMessageStatus status)
+
+       
+        public async Task ReportStatus(MeshtasticMessageStatus status)
         {
             if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered)
                 || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Unknown)
@@ -281,6 +284,10 @@ namespace TBot.Bot
                 foreach (var (messageId, deliveryStatus) in statusesOrdered)
                 {
                     sb.Append(ConvertDeliveryStatusToString(deliveryStatus.Status));
+                }
+                if (status.IsPublicChannelOnly)
+                {
+                    sb.Append($". Gateways: {status.SeenByGateways}");
                 }
                 if (statusesOrdered.Any(x => x.Value.Status == DeliveryStatus.Queued)
                     && status.EstimatedSendDate.HasValue)

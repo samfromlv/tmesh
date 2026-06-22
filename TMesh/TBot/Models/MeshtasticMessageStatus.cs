@@ -18,6 +18,8 @@ namespace TBot.Models
 
         public DateTime? EstimatedSendDate { get; set; }
 
+        public int SeenByGateways { get; set; }
+        public bool IsPublicChannelOnly { get; set; }
         public Dictionary<long, DeliveryStatusWithRecipientId> MeshMessages { get; set; }
 
        

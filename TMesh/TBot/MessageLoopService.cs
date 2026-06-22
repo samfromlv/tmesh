@@ -592,6 +592,12 @@ public class MessageLoopService(
                     NetworkId = networkId,
                     DupsIgnored = 1,
                 });
+
+                var status = botCache.GetMeshMessageStatus(env.Packet.Id);
+                if (status != null)
+                {
+                    status.SeenByGateways++;
+                }
                 return;
             }
 
@@ -1170,26 +1176,79 @@ public class MessageLoopService(
             return;
         }
 
-        foreach (var msgStatus in msgStatuses)
+        foreach (var msgStatus in msgStatuses.Where(x => !x.IsPublicChannelOnly))
         {
             var delay = (msgStatus.EstimatedSendDate ?? DateTime.UtcNow)
                 .AddMinutes(MeshtasticService.WaitForAckStatusMaxMinutes)
                 .Subtract(DateTime.UtcNow);
 
             scheduler.Schedule(delay, () =>
-                ProcessResolveStatusOfMeshtasticMessage(
+                FinalizeMeshMessageStatusExpectingAck(
                     msgStatus.TelegramChatId,
                     msgStatus.TelegramMessageId));
         }
+
+        foreach (var msgStatus in msgStatuses.Where(x => x.IsPublicChannelOnly))
+        {
+            var delay = (msgStatus.EstimatedSendDate ?? DateTime.UtcNow)
+                .Subtract(DateTime.UtcNow);
+
+            var firstMeshMessageId = msgStatus.MeshMessages.FirstOrDefault().Key;
+
+            for (int i = 0; i < 5; i++)
+            {
+                delay += TimeSpan.FromSeconds(2);
+                scheduler.Schedule(delay, () =>
+                    RefreshMessageStatusReport(msgStatus.TelegramChatId, msgStatus.TelegramMessageId));
+            }
+            delay += TimeSpan.FromSeconds(4);
+            scheduler.Schedule(delay, () => SetMeshMessageStatus(firstMeshMessageId, DeliveryStatus.SentToMqttNoAckExpected, DeliveryStatus.SentToMqtt));
+        }
     }
 
-    private async Task ProcessResolveStatusOfMeshtasticMessage(long telegramChatId, int telegramMessageId)
+    private async Task FinalizeMeshMessageStatusExpectingAck(long telegramChatId, int telegramMessageId)
     {
         try
         {
             using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
-            await botService.ResolveMessageStatus(telegramChatId, telegramMessageId);
+            await botService.MarkMessagesWithoutAckAsUnknown(telegramChatId, telegramMessageId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error processing Meshtastic message status");
+        }
+    }
+
+    private async Task RefreshMessageStatusReport(long telegramChatId, int telegramMessageId)
+    {
+        try
+        {
+            var status = botCache.GetTelegramMessageStatus(telegramChatId, telegramMessageId);
+            if (status != null)
+            {
+                using var scope = services.CreateScope();
+                var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
+                await botService.ReportStatus(status);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error processing Meshtastic message status");
+        }
+    }
+
+    private async Task SetMeshMessageStatus(long meshMsgId, DeliveryStatus newStatus, DeliveryStatus requiredStatus)
+    {
+        try
+        {
+            var status = botCache.GetMeshMessageStatus(meshMsgId);
+            if (status != null && status.MeshMessages.TryGetValue(meshMsgId, out var msgStatus) && msgStatus.Status == requiredStatus)
+            {
+                using var scope = services.CreateScope();
+                var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
+                await botService.UpdateMeshMessageStatus(meshMsgId, newStatus, null, null);
+            }
         }
         catch (Exception ex)
         {
