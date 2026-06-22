@@ -740,6 +740,18 @@ namespace TBot
                 .FirstOrDefaultAsync(p => p.NetworkId == networkId && p.Name == channelName && p.Key == key);
         }
 
+        public async Task SetDeviceNoDmPongsAsync(long deviceId, bool noDmPongs)
+        {
+            var entity = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+            if (entity == null)
+            {
+                return;
+            }
+            entity.NoDmPongs = noDmPongs;
+            await db.SaveChangesAsync();
+            memoryCache.Remove(GetDeviceCacheKey(deviceId));
+        }
+
         public async Task SaveAssumeChanged(Device device)
         {
             var entry = db.Devices.Attach(device);

@@ -63,6 +63,7 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.Longitude);
             e.Property(p => p.LocationUpdatedUtc);
             e.Property(p => p.AccuracyMeters);
+            e.Property(p => p.NoDmPongs).HasDefaultValue(false);
 
             e.HasIndex(r => r.NetworkId);
 

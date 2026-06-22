@@ -354,6 +354,12 @@ namespace TBot.Bot
 
                 if (!network.DisablePongs)
                 {
+                    if (device.NoDmPongs)
+                    {
+                        // Device has opted out of DM pongs; skip silently
+                        return;
+                    }
+
                     var channel = message.DecodedBy as PublicChannel;
 
                     var pongReply = string.IsNullOrEmpty(channel?.SpecialPongText) ? GetPingReplyText(network) : channel.SpecialPongText;
@@ -516,6 +522,12 @@ namespace TBot.Bot
             {
                 var network = await registrationService.GetNetwork(channel.NetworkId);
 
+                if (device?.NoDmPongs == true)
+                {
+                    // Device has opted out of pongs; skip silently
+                }
+                else
+                {
                 meshtasticService.SendPrivateChannelTextMessage(
                     MeshtasticService.GetNextMeshtasticMessageId(),
                     GetPingReplyText(network),
@@ -529,6 +541,7 @@ namespace TBot.Bot
                     NetworkId = channel.NetworkId,
                     PongSent = 1,
                 });
+                }
                 return;
             }
             else if (cmdText != null && cmdText.Equals("help", StringComparison.OrdinalIgnoreCase))
@@ -716,9 +729,35 @@ namespace TBot.Bot
                         hopLimit: message.GetSuggestedReplyHopLimit());
                 }
             }
-            else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
+            else if (cmdText != null && cmdText.Equals("end_chat", StringComparison.OrdinalIgnoreCase))
             {
                 await HandleEndChatRequstFromMesh(message, device, device);
+                return;
+            }
+            else if (cmdText != null && cmdText.Equals("nopongs", StringComparison.OrdinalIgnoreCase))
+            {
+                await registrationService.SetDeviceNoDmPongsAsync(message.DeviceId, true);
+                meshtasticService.SendDirectTextMessage(
+                    message.DeviceId,
+                    device.NetworkId,
+                    device.PublicKey,
+                    "Pongs disabled. Use /enablepongs to re-enable.",
+                    replyToMessageId: message.Id,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
+                    hopLimit: message.GetSuggestedReplyHopLimit());
+                return;
+            }
+            else if (cmdText != null && cmdText.Equals("enablepongs", StringComparison.OrdinalIgnoreCase))
+            {
+                await registrationService.SetDeviceNoDmPongsAsync(message.DeviceId, false);
+                meshtasticService.SendDirectTextMessage(
+                    message.DeviceId,
+                    device.NetworkId,
+                    device.PublicKey,
+                    "Pongs enabled.",
+                    replyToMessageId: message.Id,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
+                    hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
             else if (cmdText != null && cmdText.Equals("help", StringComparison.OrdinalIgnoreCase))
@@ -760,6 +799,21 @@ namespace TBot.Bot
             {
                 var network = await registrationService.GetNetwork(device.NetworkId);
 
+                if (device.NoDmPongs)
+                {
+                    var noPongsReply = _options.Texts.PingReplyNoPongs
+                        ?? "Can't answer. You can reenable pongs with /enablepongs";
+                    meshtasticService.SendDirectTextMessage(
+                        message.DeviceId,
+                        device.NetworkId,
+                        device.PublicKey,
+                        noPongsReply,
+                        replyToMessageId: message.Id,
+                        relayGatewayId: meshSender.GetReplyGatewayId(message),
+                        hopLimit: message.GetSuggestedReplyHopLimit());
+                }
+                else
+                {
                 meshtasticService.SendDirectTextMessage(
                     message.DeviceId,
                     device.NetworkId,
@@ -774,6 +828,7 @@ namespace TBot.Bot
                     NetworkId = device.NetworkId,
                     PongSent = 1,
                 });
+                }
                 return;
             }
 
