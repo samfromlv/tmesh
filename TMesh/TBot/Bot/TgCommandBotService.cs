@@ -2288,11 +2288,8 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            var activeSessionTgChatId = await botCache.GetActiveChatSessionForChannel(channelId, db);
-            bool chatingWithSomeoneElse = activeSessionTgChatId != null
-                && activeSessionTgChatId != chatId;
 
-            if (!chatingWithSomeoneElse && await registrationService.IsChannelApprovedForChatAsync(chatId, channelId))
+            if (await registrationService.IsChannelApprovedForChatAsync(chatId, channelId))
             {
                 var id = new DeviceOrChannelId { ChannelId = channelId };
                 await MaybeEndOtherChatSession(chatId, id, username);
@@ -2320,11 +2317,6 @@ namespace TBot.Bot
                 botCache.StoreChannelPendingChatRequest_TgToMesh(channelId, request);
 
                 var tgMsgText = new StringBuilder();
-                if (chatingWithSomeoneElse)
-                {
-                    tgMsgText.AppendLine($"{channel.Name} is chatting with someone else");
-                    tgMsgText.AppendLine();
-                }
                 tgMsgText.AppendLine($"📤 Chat request sent to {channel.Name}.");
                 tgMsgText.Append($"Waiting for the channel to reply with 6 digit numeric code to approve the chat...");
 

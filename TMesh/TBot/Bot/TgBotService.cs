@@ -189,7 +189,7 @@ namespace TBot.Bot
             {
                 var emjText = activeSession.PublicChannelId != null
                     ? emojis
-                    : $"{trimmedUserName} reacted with {emojis}";
+                    : $"{trimmedUserName}{emojis}";
 
                 var recipient = await GetChatSessionRecipient(activeSession);
                 EnsureMeshSenderCreated().SendMeshtasticMessageReactions(
@@ -337,21 +337,21 @@ namespace TBot.Bot
                 }
             }
 
-            var otherTgChatId = await botCache.GetActiveChatSessionForRequest(request, db);
-            if (otherTgChatId != null && otherTgChatId != chatId)
-            {
-                IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);
-                await botCache.StopChatSession(otherTgChatId.Value, db);
-                var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
-                await botClient.TrySendMessage(
-                    registrationService,
-                    logger,
-                    otherTgChatId.Value,
-                    $"❌ Chat with {recipientName} is ended by device");
-            }
-
             if (request.DeviceId != null)
             {
+                var otherTgChatId = await botCache.GetActiveChatSessionForDevice(request.DeviceId.Value, db);
+                if (otherTgChatId != null && otherTgChatId != chatId)
+                {
+                    IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);
+                    await botCache.StopChatSession(otherTgChatId.Value, db);
+                    var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
+                    await botClient.TrySendMessage(
+                        registrationService,
+                        logger,
+                        otherTgChatId.Value,
+                        $"❌ Chat with {recipientName} is ended by device");
+                }
+
                 var device = await registrationService.GetDeviceAsync(request.DeviceId.Value);
                 if (device == null)
                 {
