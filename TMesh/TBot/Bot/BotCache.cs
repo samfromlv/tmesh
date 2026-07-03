@@ -383,7 +383,7 @@ namespace TBot.Bot
         {
             StoreChatSessionInCache(chatId, id);
 
-            var chatSession = db.ChatSessions.FirstOrDefault(cs => cs.ChatId == chatId);
+            var chatSession = await db.ChatSessions.FirstOrDefaultAsync(cs => cs.ChatId == chatId);
             chatSession ??= db.ChatSessions.Add(new ChatSession
             {
                 ChatId = chatId,

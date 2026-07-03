@@ -62,6 +62,12 @@ namespace TBot.Bot
                 var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat_channel");
                 return await HandleChatChannelCommand(userId, chatId, chatArg, message.From?.Username);
             }
+            if (message.Text?.StartsWith("/chat_public_channel", StringComparison.OrdinalIgnoreCase) == true
+               && (message.Text.Length == 19 || message.Text[19] == ' ' || message.Text[19] == '@'))
+            {
+                var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat_public_channel");
+                return await HandleChatPublicChannelCommand(userId, chatId, chatArg, message.From?.Username);
+            }
             if (message.Text?.StartsWith("/add_device", StringComparison.OrdinalIgnoreCase) == true)
             {
                 var deviceIdFromCommand = ExtractSingleArgFromCommand(message.Text, "/add_device");
@@ -285,7 +291,8 @@ namespace TBot.Bot
                         }
 
                         var fromGatewayId = "All gateways";
-                        if (chatSession.ForceGatewayId != null) {
+                        if (chatSession.ForceGatewayId != null)
+                        {
                             var gateways = await registrationService.GetGatewaysCached();
                             if (gateways.TryGetValue(chatSession.ForceGatewayId.Value, out var gateway))
                             {
@@ -2228,6 +2235,112 @@ namespace TBot.Bot
             return TgResult.Ok;
         }
 
+        private async Task<TgResult> HandleChatPublicChannelCommand(long userId, long chatId, string arg, string username)
+        {
+            var segments = arg?.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (string.IsNullOrWhiteSpace(arg)
+                || segments == null
+                || segments.Length != 3)
+            {
+                await botClient.SendMessage(chatId,
+                    "Please provide a channel name, your gateway id, your node id to start a chat with public channel.\n" +
+                    "Syntax: /chat_public_channel <channel_name> <gateway_id> <node_id>\n" +
+                    "Examples:\n" +
+                    "• /chat_public_channel MediumFast !aa001122 !bb223344\n" +
+                    "Where 'MediumFast' name is Meshtastic public channel name, !aa001122 is your gateway id, !bb223344 is your node id.\n" +
+                    "Your are only allowed to use gateway and node IDs that you own.");
+                return TgResult.Ok;
+            }
+
+            var channelName = segments[0];
+            var gatewayIdText = segments[1];
+            var nodeIdText = segments[2];
+
+            if (!MeshtasticService.TryParseDeviceId(gatewayIdText, out var gatewayId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid gateway ID format: '{gatewayIdText}'. The gateway ID can be decimal or hex (hex starts with ! or #).");
+                return TgResult.Ok;
+            }
+
+            if (!MeshtasticService.TryParseDeviceId(nodeIdText, out var nodeId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Invalid node ID format: '{nodeIdText}'. The node ID can be decimal or hex (hex starts with ! or #).");
+                return TgResult.Ok;
+            }
+
+            if (!await registrationService.HasDeviceRegistrationAsync(chatId, gatewayId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"You don't have a registered gateway with ID {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)} in this chat. Please register your gateway device first with /add_device and /promote_to_gateway commands.");
+                return TgResult.Ok;
+            }
+
+            if (!await registrationService.HasDeviceRegistrationAsync(chatId, nodeId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"You don't have a registered node with ID {MeshtasticService.GetMeshtasticNodeHexId(nodeId)} in this chat. Please register your node device first with /add_device command.");
+                return TgResult.Ok;
+            }
+
+            var gateway = await registrationService.GetDeviceAsync(gatewayId);
+
+            if (gateway == null)
+            {
+                await botClient.SendMessage(chatId,
+                    $"Gateway device with ID {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)} is not known to TMesh. The device needs to broadcast its Node info or send it directly to {_options.MeshtasticNodeNameLong} node using \"Exchange user information\".");
+                return TgResult.Ok;
+            }
+
+            var device = await registrationService.GetDeviceAsync(nodeId);
+            if (device == null)
+            {
+                await botClient.SendMessage(chatId,
+                    $"Node device with ID {MeshtasticService.GetMeshtasticNodeHexId(nodeId)} is not known to TMesh. The device needs to broadcast its Node info or send it directly to {_options.MeshtasticNodeNameLong} node using \"Exchange user information\".");
+                return TgResult.Ok;
+            }
+
+            var gateways = await registrationService.GetGatewaysCached();
+
+            if (!gateways.ContainsKey(gateway.DeviceId))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Device with ID {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)} is not a registered gateway. Please promote your device to gateway first with /promote_to_gateway command.");
+                return TgResult.Ok;
+            }
+
+            if (gateway.DeviceId == device.DeviceId)
+            {
+                await botClient.SendMessage(chatId,
+                    $"The gateway device and the node device cannot be the same. Please select a different gateway or node.");
+                return TgResult.Ok;
+            }
+
+            var publicChannels = await registrationService.GetPublicChannelsByNetworkAsync(gateway.NetworkId);
+            var publicChannel = publicChannels.FirstOrDefault(x => x.NetworkId == gateway.NetworkId && string.Equals(x.Name, channelName, StringComparison.InvariantCultureIgnoreCase));
+            if (publicChannel == null)
+            {
+                var network = await registrationService.GetNetwork(gateway.NetworkId);
+
+                await botClient.SendMessage(chatId,
+                    $"Public channel '{channelName}' is not found in network '{network.Name}'. Please check the channel name and try again.");
+                return TgResult.Ok;
+            }
+
+            await botCache.StartChatSession(chatId, new DeviceOrChannelId
+            {
+                PublicChannelId = publicChannel.Id,
+                ImpersonateDeviceId = device.DeviceId,
+                ForceGatewayId = gateway.DeviceId
+            }, db);
+
+            var fromName = $"{device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId)})";
+            var gatewayName = $"{gateway.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(gateway.DeviceId)})";
+            await botClient.SendMessage(chatId, $"You are now chatting in channel '{publicChannel.Name}'. From device - {fromName} via gateway - {gatewayName}");
+            return TgResult.Ok;
+        }
 
         private async Task<TgResult> HandleChatChannelCommand(long userId, long chatId, string arg, string username)
         {
@@ -2260,7 +2373,7 @@ namespace TBot.Bot
                         $"Multiple channels match the provided filter '{arg}'. Please be more specific or provide channel ID to start chat.");
                     return TgResult.Ok;
                 }
-                else 
+                else
                 {
                     return await TgRespondWithIncorrectChatChannelCommand(chatId);
                 }
