@@ -238,7 +238,7 @@ namespace TBot.Bot
                         if (currentChatIds != null)
                         {
                             var updatedChatIds = new List<long>(currentChatIds.Where(id => id != chatId));
-                            if (updatedChatIds == null)
+                            if (updatedChatIds.Count > 0)
                             {
                                 memoryCache.Set(chKey, updatedChatIds);
                             }
@@ -280,6 +280,10 @@ namespace TBot.Bot
             else if (recipient.RecipientPrivateChannelId.HasValue)
             {
                 return await GetActiveChatSessionsForChannel(recipient.RecipientPrivateChannelId.Value, db);
+            }
+            else if (recipient.RecipientPublicChannelId.HasValue)
+            {
+                return await GetActiveChatSessionsForPublicChannel(recipient.RecipientPublicChannelId.Value, db);
             }
             return null;
         }

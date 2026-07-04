@@ -63,7 +63,7 @@ namespace TBot.Bot
                 return await HandleChatChannelCommand(userId, chatId, chatArg, message.From?.Username);
             }
             if (message.Text?.StartsWith("/chat_public_channel", StringComparison.OrdinalIgnoreCase) == true
-               && (message.Text.Length == 19 || message.Text[19] == ' ' || message.Text[19] == '@'))
+               && (message.Text.Length == 20 || message.Text[20] == ' ' || message.Text[20] == '@'))
             {
                 var chatArg = ExtractSingleArgFromCommand(message.Text, "/chat_public_channel");
                 return await HandleChatPublicChannelCommand(userId, chatId, chatArg, message.From?.Username);
@@ -1130,7 +1130,7 @@ namespace TBot.Bot
 
             var code = RegistrationService.GenerateRandomCode();
             registrationService.StoreChannelPendingCodeAsync(userId, chatId, channelName, channelKey, networkId.Value, isSingleDevice, code, DateTimeOffset.UtcNow.AddMinutes(5));
-
+            logger.LogDebug("Pending code: {code}", code);
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to channel {channelName}. Please reply with the received code here. The code is valid for 5 minutes.");
 
@@ -1188,6 +1188,7 @@ namespace TBot.Bot
 
             var code = RegistrationService.GenerateRandomCode();
             registrationService.StoreDevicePendingCodeAsync(userId, chatId, deviceId, device.NetworkId, code, DateTimeOffset.UtcNow.AddMinutes(5));
+            logger.LogDebug("Pending code: {code}", code);
 
             var msg = await botClient.SendMessage(chatId,
                 $"Verification code sent to device {device.NodeName} ({MeshtasticService.GetMeshtasticNodeHexId(deviceId)}). Please reply with the received code here. The code is valid for 5 minutes.");

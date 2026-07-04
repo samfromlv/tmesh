@@ -37,7 +37,7 @@ namespace TBot.Bot
                 text);
         }
 
-        public async Task SendAndTrackMeshtasticMessages(
+        public async Task<MeshtasticMessageStatus> SendAndTrackMeshtasticMessages(
            IEnumerable<IRecipient> recipients,
            long chatId,
            int tgMessageId,
@@ -49,7 +49,7 @@ namespace TBot.Bot
             var networkId = recipients.First().NetworkId;
             var status = new MeshtasticMessageStatus
             {
-                TgMessageUids = [new TgMessageUid { ChatId = chatId, MessageId = tgMessageId }],
+                TgMessageUids = [new TgMessageUid { ChatId = chatId, MessageId = tgMessageId, IsFromUser = true }],
                 MeshMessages = [],
                 SeenByGateways = 0,
                 IsPublicChannelOnly = recipients.All(x => x.IsPublicChannel),
@@ -147,6 +147,8 @@ namespace TBot.Bot
                     throw new InvalidOperationException("Recipient must have either DeviceId or PrivateChannelId or PublicChannelId");
                 }
             }
+
+            return status;
         }
 
         public async Task UpdateMeshMessageStatus(
@@ -365,7 +367,7 @@ namespace TBot.Bot
 
         public async Task ReportStatus(MeshtasticMessageStatus status)
         {
-            foreach (var tgMsg in status.TgMessageUids)
+            foreach (var tgMsg in status.TgMessageUids.Where(x => x.IsFromUser))
             {
                 await ReportStatusSingleTgMsg(tgMsg, status);
             }

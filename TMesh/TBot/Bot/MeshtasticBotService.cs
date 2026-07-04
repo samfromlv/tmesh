@@ -221,7 +221,6 @@ namespace TBot.Bot
 
         }
 
-        private static readonly string[] colorSymbols = ["⚪", "⚫", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣"];
 
 
         private async ValueTask ProcessPublicTextForChatSession(TextMessage meshMsg)
@@ -241,79 +240,15 @@ namespace TBot.Bot
             }
             var channel = (PublicChannel)meshMsg.DecodedBy;
 
-            var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
-            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(meshMsg.DeviceId);
-            var colorSymbol = colorSymbols[HashHelper.ColorIndexFromDeviceId((uint)meshMsg.DeviceId, colorSymbols.Length)];
-
-            MeshtasticMessageStatus replyToStatus = null;
-
-            if (meshMsg.ReplyTo != 0)
-            {
-                replyToStatus = botCache.GetMeshMessageStatus(meshMsg.ReplyTo);
-            }
-
-            var newMsgUids = new List<TgMessageUid>(activeChatIds.Count);
-
-            foreach (var chatId in activeChatIds)
-            {
-                ReplyParameters replyParameters = null;
-
-                if (replyToStatus != null)
-                {
-                    var chatMsgUid = replyToStatus.TgMessageUids.FirstOrDefault(x => x.ChatId == chatId);
-
-                    if (chatMsgUid != null)
-                    {
-                        replyParameters = new ReplyParameters()
-                        {
-                            AllowSendingWithoutReply = true,
-                            ChatId = chatId,
-                            MessageId = chatMsgUid.MessageId,
-                        };
-                    }
-                }
-
-                var tgMsg = await TrySendMessage(
-                    chatId: chatId,
-                    text: $"{colorSymbol} {deviceName}: {text}",
-                    replyParameters: replyParameters);
-
-                if (tgMsg == null) continue;
-
-                newMsgUids.Add(new TgMessageUid
-                {
-                    ChatId = chatId,
-                    MessageId = tgMsg.Id,
-                });
-            }
-
-            if (newMsgUids.Count == 0)
-            {
-                return;
-            }
-
-            var status = new MeshtasticMessageStatus
-            {
-                TgMessageUids = newMsgUids.ToArray(),
-                MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { meshMsg.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PublicChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                BotReplyId = null
-            };
-
-            foreach (var msg in newMsgUids)
-            {
-                meshSender.StoreTelegramMessageStatus(channel.NetworkId, msg.ChatId, msg.MessageId, status);
-            }
-            botCache.StoreMeshMessageStatus(channel.NetworkId, meshMsg.Id, status);
-
+            var tgSender = services.GetRequiredService<TgMessageSender>();
+            await tgSender.AddPublicChannelMeshMessageToTgChats(
+                       activeChatIds,
+                       meshMsg.Id,
+                       meshMsg.DeviceId,
+                       channel,
+                       text,
+                       meshMsg.ReplyTo != 0 ? meshMsg.ReplyTo : (long?)null,
+                       status: null);
         }
 
 
@@ -463,9 +398,7 @@ namespace TBot.Bot
                 return;
             }
 
-            var device = await registrationService.GetDeviceAsync(message.DeviceId);
 
-            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
 
             string cmdText = null;
             if (message.Text != null
@@ -478,6 +411,7 @@ namespace TBot.Bot
             // Handle /chat @username command from Mesh device
             if (cmdText != null && cmdText.StartsWith("chat ", StringComparison.OrdinalIgnoreCase))
             {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
                 var parts = cmdText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2)
                 {
@@ -488,6 +422,7 @@ namespace TBot.Bot
             }
             else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
             {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
                 var tgChatName = cmdText.Length > 8 ? cmdText[8..].Trim() : null;
                 await HandleEndChatRequstFromMesh(message, device, channel, tgChatName);
                 return;
@@ -504,6 +439,8 @@ namespace TBot.Bot
                 {
                     if (trimmedText.Equals(pendingRequest.Code, StringComparison.InvariantCultureIgnoreCase))
                     {
+                        var device = await registrationService.GetDeviceAsync(message.DeviceId);
+
                         await HandleChatApprovalFromMesh(message, device, channel, pendingRequest.ChatId);
                         return;
                     }
@@ -526,6 +463,7 @@ namespace TBot.Bot
             if (cmdText != null &&
                 _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
                 var network = await registrationService.GetNetwork(channel.NetworkId);
 
                 if (device?.NoDmPongs == true)
@@ -578,79 +516,15 @@ namespace TBot.Bot
                 return;
             }
 
-            string colorSymbolPart = "";
-            if (!channel.IsSingleDevice)
-            {
-                var colorSymbol = colorSymbols[HashHelper.ColorIndexFromDeviceId((uint)message.DeviceId, colorSymbols.Length)];
-                colorSymbolPart = $"{colorSymbol} ";
-            }
-
-            MeshtasticMessageStatus replyToStatus = null;
-
-            if (message.ReplyTo != 0)
-            {
-                replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
-            }
-
-            var newMsgUids = new List<TgMessageUid>(chatIds.Count);
-
-            foreach (var chatId in chatIds)
-            {
-                ReplyParameters replyParameters = null;
-                if (replyToStatus != null)
-                {
-                    var chatMsgUid = replyToStatus.TgMessageUids.FirstOrDefault(x => x.ChatId == chatId);
-                    if (chatMsgUid != null)
-                    {
-                        replyParameters = new ReplyParameters
-                        {
-                            AllowSendingWithoutReply = true,
-                            ChatId = chatId,
-                            MessageId = chatMsgUid.MessageId,
-                        };
-                    }
-                }
-
-                var msg = await TrySendMessage(
-                    chatId: chatId,
-                    text: $"{colorSymbolPart}{deviceName} [#{channel.Name}]: {text}",
-                    replyParameters: replyParameters);
-
-                if (msg == null) continue;
-
-                newMsgUids.Add(new TgMessageUid
-                {
-                    ChatId = chatId,
-                    MessageId = msg.Id,
-                });
-            }
-
-            if (newMsgUids.Count == 0)
-            {
-                return;
-            }
-
-
-            var status = new MeshtasticMessageStatus
-            {
-                TgMessageUids = newMsgUids.ToArray(),
-                MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { message.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PrivateChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                BotReplyId = null
-            };
-            foreach (var msg in newMsgUids)
-            {
-                meshSender.StoreTelegramMessageStatus(channel.NetworkId, msg.ChatId, msg.MessageId, status);
-            }
-            botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
+            var tgSender = services.GetRequiredService<TgMessageSender>();
+            await tgSender.AddPrivateChannelMeshMessageToTgChats(
+                chatIds,
+                message.Id,
+                message.DeviceId,
+                channel,
+                text,
+                message.ReplyTo != 0 ? message.ReplyTo : (long?)null,
+                status: null);
 
             if (!message.IsEmoji && meshtasticService.GetTotalQueueLength(channel.NetworkId) < _options.MaxQueueLengthForChannelAckEmojis)
             {
@@ -896,6 +770,7 @@ namespace TBot.Bot
                 {
                     ChatId = chatId,
                     MessageId = msg.Id,
+                    IsFromUser = false
                 });
             }
 
@@ -1244,6 +1119,11 @@ namespace TBot.Bot
             IRecipient recipient,
             string tgChatName)
         {
+            if (recipient.IsPublicChannel)
+            {
+                return;
+            }
+
             tgChatName = StringHelper.Truncate(tgChatName?.Trim(), TBotDbContext.MaxChatNameLength);
 
             var activeSessionTgChatIds = await botCache.GetActiveChatSessionsForRecipient(recipient, db);
@@ -1253,7 +1133,10 @@ namespace TBot.Bot
                 && !string.IsNullOrEmpty(tgChatName))
             {
                 var tgChat = await registrationService.GetTgChatByNameAsync(tgChatName);
-                activeSessionTgChatIds = activeSessionTgChatIds.Where(x => x == tgChat?.ChatId).ToList();
+                if (tgChat != null)
+                {
+                    activeSessionTgChatIds = activeSessionTgChatIds.Where(x => x == tgChat.ChatId).ToList();
+                }
             }
 
             if (activeSessionTgChatIds == null || activeSessionTgChatIds.Count == 0)
@@ -1304,7 +1187,7 @@ namespace TBot.Bot
             {
                 meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
-                    "Multiple active chat sessions found. Please specify which one to end.",
+                    "Multiple chat sessions, please specify which to end",
                     replyToMessageId: message.Id,
                     relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());

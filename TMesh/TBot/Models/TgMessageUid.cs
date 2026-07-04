@@ -11,5 +11,7 @@ namespace TBot.Models
         public long ChatId { get; set; }
 
         public int MessageId { get; set; }
+
+        public bool IsFromUser { get; set; }
     }
 }
