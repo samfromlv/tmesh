@@ -37,7 +37,7 @@ namespace TBot.Bot
                 text);
         }
 
-        public async Task SendAndTrackMeshtasticMessages(
+        public async Task<MeshtasticMessageStatus> SendAndTrackMeshtasticMessages(
            IEnumerable<IRecipient> recipients,
            long chatId,
            int tgMessageId,
@@ -49,8 +49,7 @@ namespace TBot.Bot
             var networkId = recipients.First().NetworkId;
             var status = new MeshtasticMessageStatus
             {
-                TelegramChatId = chatId,
-                TelegramMessageId = tgMessageId,
+                TgMessageUids = [new TgMessageUid { ChatId = chatId, MessageId = tgMessageId, IsFromUser = true }],
                 MeshMessages = [],
                 SeenByGateways = 0,
                 IsPublicChannelOnly = recipients.All(x => x.IsPublicChannel),
@@ -148,6 +147,8 @@ namespace TBot.Bot
                     throw new InvalidOperationException("Recipient must have either DeviceId or PrivateChannelId or PublicChannelId");
                 }
             }
+
+            return status;
         }
 
         public async Task UpdateMeshMessageStatus(
@@ -185,23 +186,25 @@ namespace TBot.Bot
             await ReportStatus(status);
             if (replyText != null)
             {
-                await botClient.TrySendMessage(
-                    regService,
-                    logger,
-                    status.TelegramChatId,
-                    replyText,
-                    replyParameters: new ReplyParameters
-                    {
-                        AllowSendingWithoutReply = true,
-                        ChatId = status.TelegramChatId,
-                        MessageId = status.TelegramMessageId,
-                    });
+                foreach (var tgMsg in status.TgMessageUids)
+                {
+                    await botClient.TrySendMessage(
+                        regService,
+                        logger,
+                        tgMsg.ChatId,
+                        replyText,
+                        replyParameters: new ReplyParameters
+                        {
+                            AllowSendingWithoutReply = true,
+                            ChatId = tgMsg.ChatId,
+                            MessageId = tgMsg.MessageId,
+                        });
+                }
             }
         }
 
-        public async Task MarkMessagesWithoutAckAsUnknown(long chatId, int telegramMessageId)
+        public async Task MarkMessagesWithoutAckAsUnknown(MeshtasticMessageStatus status)
         {
-            var status = botCache.GetTelegramMessageStatus(chatId, telegramMessageId);
             if (status != null)
             {
                 bool madeChanged = false;
@@ -223,8 +226,7 @@ namespace TBot.Bot
             }
         }
 
-       
-        public async Task ReportStatus(MeshtasticMessageStatus status)
+        public async Task ReportStatusSingleTgMsg(TgMessageUid tgMsg, MeshtasticMessageStatus status)
         {
             if (status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Delivered)
                 || status.MeshMessages.All(x => x.Value.Status == DeliveryStatus.Unknown)
@@ -237,13 +239,13 @@ namespace TBot.Bot
                 try
                 {
                     await botClient.SetMessageReaction(
-                              status.TelegramChatId,
-                              status.TelegramMessageId,
+                              tgMsg.ChatId,
+                              tgMsg.MessageId,
                               [reactionEmoji]);
                 }
                 catch (ApiRequestException e) when (e.IsChatGoneError())
                 {
-                    await regService.RemoveAllForTgChat(status.TelegramChatId);
+                    await regService.RemoveAllForTgChat(tgMsg.ChatId);
                     return;
                 }
                 catch (ApiRequestException e) when (e.IsMessageCantBeReactedError())
@@ -257,12 +259,12 @@ namespace TBot.Bot
                     try
                     {
                         await botClient.DeleteMessage(
-                            status.TelegramChatId,
+                            tgMsg.ChatId,
                             deletedReplyId.Value);
                     }
                     catch (ApiRequestException e) when (e.IsChatGoneError())
                     {
-                        await regService.RemoveAllForTgChat(status.TelegramChatId);
+                        await regService.RemoveAllForTgChat(tgMsg.ChatId);
                         return;
                     }
                     catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError())
@@ -313,7 +315,7 @@ namespace TBot.Bot
                         var editReplyId = status.BotReplyId.Value;
 
                         var msg = await botClient.EditMessageText(
-                            status.TelegramChatId,
+                            tgMsg.ChatId,
                             editReplyId,
                             text);
 
@@ -325,7 +327,7 @@ namespace TBot.Bot
                     }
                     catch (ApiRequestException e) when (e.IsChatGoneError())
                     {
-                        await regService.RemoveAllForTgChat(status.TelegramChatId);
+                        await regService.RemoveAllForTgChat(tgMsg.ChatId);
                         return;
                     }
                     catch (ApiRequestException e) when (e.IsMessageCantBeEditedOrDeletedError())
@@ -339,13 +341,13 @@ namespace TBot.Bot
                     var replyMsg = await botClient.TrySendMessage(
                            regService,
                            logger,
-                           status.TelegramChatId,
+                           tgMsg.ChatId,
                            text,
                            replyParameters: new ReplyParameters
                            {
                                AllowSendingWithoutReply = false,
-                               ChatId = status.TelegramChatId,
-                               MessageId = status.TelegramMessageId,
+                               ChatId = tgMsg.ChatId,
+                               MessageId = tgMsg.MessageId,
                            });
 
                     if (replyMsg == null)
@@ -359,6 +361,15 @@ namespace TBot.Bot
                         status.BotReplyId = replyMsg.MessageId;
                     }
                 }
+            }
+        }
+
+
+        public async Task ReportStatus(MeshtasticMessageStatus status)
+        {
+            foreach (var tgMsg in status.TgMessageUids.Where(x => x.IsFromUser))
+            {
+                await ReportStatusSingleTgMsg(tgMsg, status);
             }
         }
 

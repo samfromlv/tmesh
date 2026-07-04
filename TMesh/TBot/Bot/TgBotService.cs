@@ -73,6 +73,11 @@ namespace TBot.Bot
                     Command = "chat_channel",
                     Description = $"Start a chat session with a Meshtastic channel. e.g., /chat_channel MyChannel:123, 123 - is TMesh channel ID created on registration. Use /end_chat command to stop the chat session."
                 },
+                 new BotCommand
+                {
+                    Command = "chat_public_channel",
+                    Description = $"Start a chat session with a Meshtastic public channel. e.g., /chat_public_channel MediumFast <yourGatewayId> <yourOtherNodeId> (e.g., /chat_public_channel MediumFast !aabbcc11 !11223344)."
+                },
                 new BotCommand
                 {
                     Command = "end_chat",
@@ -189,7 +194,7 @@ namespace TBot.Bot
             {
                 var emjText = activeSession.PublicChannelId != null
                     ? emojis
-                    : $"{trimmedUserName} reacted with {emojis}";
+                    : $"{trimmedUserName}{emojis}";
 
                 var recipient = await GetChatSessionRecipient(activeSession);
                 EnsureMeshSenderCreated().SendMeshtasticMessageReactions(
@@ -337,21 +342,21 @@ namespace TBot.Bot
                 }
             }
 
-            var otherTgChatId = await botCache.GetActiveChatSessionForRequest(request, db);
-            if (otherTgChatId != null && otherTgChatId != chatId)
-            {
-                IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);
-                await botCache.StopChatSession(otherTgChatId.Value, db);
-                var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
-                await botClient.TrySendMessage(
-                    registrationService,
-                    logger,
-                    otherTgChatId.Value,
-                    $"❌ Chat with {recipientName} is ended by device");
-            }
-
             if (request.DeviceId != null)
             {
+                var otherTgChatId = await botCache.GetActiveChatSessionForDevice(request.DeviceId.Value, db);
+                if (otherTgChatId != null && otherTgChatId != chatId)
+                {
+                    IRecipient recipient = await registrationService.GetRecipientForChatRequest(request);
+                    await botCache.StopChatSession(otherTgChatId.Value, db);
+                    var recipientName = recipient != null ? await registrationService.GetRecipientName(recipient) : "Unknown";
+                    await botClient.TrySendMessage(
+                        registrationService,
+                        logger,
+                        otherTgChatId.Value,
+                        $"❌ Chat with {recipientName} is ended by device");
+                }
+
                 var device = await registrationService.GetDeviceAsync(request.DeviceId.Value);
                 if (device == null)
                 {
@@ -497,7 +502,7 @@ namespace TBot.Bot
             {
                 var recipient = await GetChatSessionRecipient(activeSession);
 
-                await EnsureMeshSenderCreated().SendAndTrackMeshtasticMessages(
+                var status = await EnsureMeshSenderCreated().SendAndTrackMeshtasticMessages(
                     [recipient],
                     chatId,
                     msgId,
@@ -505,6 +510,49 @@ namespace TBot.Bot
                     textToMesh,
                     activeSession.ImpersonateDeviceId,
                     activeSession.ForceGatewayId);
+
+                if (recipient.IsPublicChannel || recipient.RecipientPrivateChannelId != null)
+                {
+                    var allChatSesions = await botCache.GetActiveChatSessionsForRecipient(recipient, db);
+                    if (allChatSesions != null)
+                    {
+                        var otherChatSessions = allChatSesions.Where(x => x != chatId).ToList();
+                        if (otherChatSessions.Any())
+                        {
+                            var replyToStatus = replyToTelegramMessageId.HasValue
+                                ? botCache.GetTelegramMessageStatus(chatId, replyToTelegramMessageId.Value)
+                                : null;
+
+                            long? replyToMeshMsgId = replyToStatus != null ?
+                                replyToStatus.MeshMessages.Keys.First()
+                                : null;
+
+                            var tgSender = services.GetRequiredService<TgMessageSender>();
+                            if (recipient.IsPublicChannel)
+                            {
+                                await tgSender.AddPublicChannelMeshMessageToTgChats(
+                                    otherChatSessions,
+                                    status.MeshMessages.Keys.First(),
+                                    activeSession.ImpersonateDeviceId ?? _options.MeshtasticNodeId,
+                                    (PublicChannel)recipient,
+                                    textToMesh,
+                                    replyToMeshMsgId,
+                                    status);
+                            }
+                            else if (recipient.RecipientPrivateChannelId != null)
+                            {
+                                await tgSender.AddPrivateChannelMeshMessageToTgChats(
+                                   otherChatSessions,
+                                   status.MeshMessages.Keys.First(),
+                                   deviceId: null,
+                                   (Channel)recipient,
+                                   textToMesh,
+                                   replyToMeshMsgId,
+                                   status);
+                            }
+                        }
+                    }
+                }
 
                 return;
             }
@@ -589,6 +637,7 @@ namespace TBot.Bot
             services.AddScoped<TgCommandBotService>();
             services.AddScoped<MeshtasticBotService>();
             services.AddScoped<MeshtasticBotMsgStatusTracker>();
+            services.AddScoped<TgMessageSender>();
         }
 
 

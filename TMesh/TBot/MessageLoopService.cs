@@ -1185,10 +1185,10 @@ public class MessageLoopService(
                 .AddMinutes(MeshtasticService.WaitForAckStatusMaxMinutes)
                 .Subtract(DateTime.UtcNow);
 
-            scheduler.Schedule(delay, () =>
-                FinalizeMeshMessageStatusExpectingAck(
-                    msgStatus.TelegramChatId,
-                    msgStatus.TelegramMessageId));
+            scheduler.Schedule(delay, async () =>
+            {
+                await FinalizeMeshMessageStatusExpectingAck(msgStatus);
+            });
         }
 
         foreach (var msgStatus in msgStatuses.Where(x => x.IsPublicChannelOnly))
@@ -1202,20 +1202,20 @@ public class MessageLoopService(
             {
                 delay += TimeSpan.FromSeconds(2);
                 scheduler.Schedule(delay, () =>
-                    RefreshMessageStatusReport(msgStatus.TelegramChatId, msgStatus.TelegramMessageId));
+                    RefreshMessageStatusReport(msgStatus));
             }
             delay += TimeSpan.FromSeconds(4);
             scheduler.Schedule(delay, () => SetMeshMessageStatus(firstMeshMessageId, DeliveryStatus.SentToMqttNoAckExpected, DeliveryStatus.SentToMqtt));
         }
     }
 
-    private async Task FinalizeMeshMessageStatusExpectingAck(long telegramChatId, int telegramMessageId)
+    private async Task FinalizeMeshMessageStatusExpectingAck(MeshtasticMessageStatus status)
     {
         try
         {
             using var scope = services.CreateScope();
             var botService = scope.ServiceProvider.GetRequiredService<MeshtasticBotMsgStatusTracker>();
-            await botService.MarkMessagesWithoutAckAsUnknown(telegramChatId, telegramMessageId);
+            await botService.MarkMessagesWithoutAckAsUnknown(status);
         }
         catch (Exception ex)
         {
@@ -1223,11 +1223,10 @@ public class MessageLoopService(
         }
     }
 
-    private async Task RefreshMessageStatusReport(long telegramChatId, int telegramMessageId)
+    private async Task RefreshMessageStatusReport(MeshtasticMessageStatus status)
     {
         try
         {
-            var status = botCache.GetTelegramMessageStatus(telegramChatId, telegramMessageId);
             if (status != null)
             {
                 using var scope = services.CreateScope();

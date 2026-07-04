@@ -221,7 +221,6 @@ namespace TBot.Bot
 
         }
 
-        private static readonly string[] colorSymbols = ["⚪", "⚫", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣"];
 
 
         private async ValueTask ProcessPublicTextForChatSession(TextMessage meshMsg)
@@ -229,8 +228,8 @@ namespace TBot.Bot
             if (!meshMsg.DecodedBy.IsPublicChannel)
                 return;
 
-            var activeChatId = await botCache.GetActiveChatSessionForPublicChannel(meshMsg.DecodedBy.RecipientPublicChannelId.Value, db);
-            if (activeChatId == null)
+            var activeChatIds = await botCache.GetActiveChatSessionsForPublicChannel(meshMsg.DecodedBy.RecipientPublicChannelId.Value, db);
+            if (activeChatIds == null || activeChatIds.Count == 0)
             {
                 return;
             }
@@ -240,86 +239,16 @@ namespace TBot.Bot
                 return;
             }
             var channel = (PublicChannel)meshMsg.DecodedBy;
-            bool sentReply = false;
 
-            var device = await registrationService.GetDeviceAsync(meshMsg.DeviceId);
-            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(meshMsg.DeviceId);
-
-
-            var colorSymbol = colorSymbols[HashHelper.ColorIndexFromDeviceId((uint)meshMsg.DeviceId, colorSymbols.Length)];
-
-            if (meshMsg.ReplyTo != 0)
-            {
-                var replyToStatus = botCache.GetMeshMessageStatus(meshMsg.ReplyTo);
-                if (replyToStatus?.TelegramChatId == activeChatId.Value)
-                {
-                    var msg = await TrySendMessage(
-                        chatId: replyToStatus.TelegramChatId,
-                        text: $"{colorSymbol} {deviceName}: {text}",
-                        replyParameters: new ReplyParameters
-                        {
-                            AllowSendingWithoutReply = true,
-                            ChatId = replyToStatus.TelegramChatId,
-                            MessageId = replyToStatus.TelegramMessageId,
-                        });
-
-                    if (msg == null)
-                        return;
-
-                    var status = new MeshtasticMessageStatus
-                    {
-                        TelegramChatId = replyToStatus.TelegramChatId,
-                        TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { meshMsg.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PublicChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                        BotReplyId = null,
-                    };
-
-                    meshSender.StoreTelegramMessageStatus(channel.NetworkId, replyToStatus.TelegramChatId,
-                        msg.Id,
-                        status);
-
-                    botCache.StoreMeshMessageStatus(channel.NetworkId, meshMsg.Id, status);
-                    sentReply = true;
-                }
-            }
-
-            if (!sentReply)
-            {
-                var tgMsg = await TrySendMessage(
-                    chatId: activeChatId.Value,
-                    text: $"{colorSymbol} {deviceName}: {text}");
-
-                if (tgMsg == null) return;
-
-                var status = new MeshtasticMessageStatus
-                {
-                    TelegramChatId = activeChatId.Value,
-                    TelegramMessageId = tgMsg.Id,
-                    MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { meshMsg.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PublicChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                    BotReplyId = null
-                };
-
-                meshSender.StoreTelegramMessageStatus(channel.NetworkId, activeChatId.Value, tgMsg.Id, status);
-                botCache.StoreMeshMessageStatus(channel.NetworkId, meshMsg.Id, status);
-            }
+            var tgSender = services.GetRequiredService<TgMessageSender>();
+            await tgSender.AddPublicChannelMeshMessageToTgChats(
+                       activeChatIds,
+                       meshMsg.Id,
+                       meshMsg.DeviceId,
+                       channel,
+                       text,
+                       meshMsg.ReplyTo != 0 ? meshMsg.ReplyTo : (long?)null,
+                       status: null);
         }
 
 
@@ -384,10 +313,10 @@ namespace TBot.Bot
                     });
 
                     await pongService.SchedulePingStats(
-                        message.DeviceId, 
+                        message.DeviceId,
                         message.GatewayId,
                         message.Id,
-                        pongMsgId, 
+                        pongMsgId,
                         registrationService);
                 }
             }
@@ -469,9 +398,7 @@ namespace TBot.Bot
                 return;
             }
 
-            var device = await registrationService.GetDeviceAsync(message.DeviceId);
 
-            var deviceName = device != null ? device.NodeName : MeshtasticService.GetMeshtasticNodeHexId(message.DeviceId);
 
             string cmdText = null;
             if (message.Text != null
@@ -484,6 +411,7 @@ namespace TBot.Bot
             // Handle /chat @username command from Mesh device
             if (cmdText != null && cmdText.StartsWith("chat ", StringComparison.OrdinalIgnoreCase))
             {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
                 var parts = cmdText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2)
                 {
@@ -494,7 +422,9 @@ namespace TBot.Bot
             }
             else if (cmdText != null && cmdText.StartsWith("end_chat", StringComparison.OrdinalIgnoreCase))
             {
-                await HandleEndChatRequstFromMesh(message, device, channel);
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
+                var tgChatName = cmdText.Length > 8 ? cmdText[8..].Trim() : null;
+                await HandleEndChatRequstFromMesh(message, device, channel, tgChatName);
                 return;
             }
 
@@ -509,6 +439,8 @@ namespace TBot.Bot
                 {
                     if (trimmedText.Equals(pendingRequest.Code, StringComparison.InvariantCultureIgnoreCase))
                     {
+                        var device = await registrationService.GetDeviceAsync(message.DeviceId);
+
                         await HandleChatApprovalFromMesh(message, device, channel, pendingRequest.ChatId);
                         return;
                     }
@@ -531,6 +463,7 @@ namespace TBot.Bot
             if (cmdText != null &&
                 _options.PingWords.Any(pingWord => string.Equals(cmdText, pingWord, StringComparison.OrdinalIgnoreCase)))
             {
+                var device = await registrationService.GetDeviceAsync(message.DeviceId);
                 var network = await registrationService.GetNetwork(channel.NetworkId);
 
                 if (device?.NoDmPongs == true)
@@ -564,17 +497,8 @@ namespace TBot.Bot
                 return;
             }
 
-            List<long> chatIds;
-
-            var activeChatId = await botCache.GetActiveChatSessionForChannel((int)message.ChannelId.Value, db);
-            if (activeChatId != null)
-            {
-                chatIds = [activeChatId.Value];
-            }
-            else
-            {
-                chatIds = await registrationService.GetChatsByChannelIdCached(channel.Id);
-            }
+            var chatIds = await botCache.GetActiveChatSessionsForChannel((int)message.ChannelId.Value, db);
+            chatIds ??= await registrationService.GetChatsByChannelIdCached(channel.Id);
 
             if (chatIds.Count == 0)
             {
@@ -583,91 +507,24 @@ namespace TBot.Bot
             }
 
 
+
             var text = message.Text;
+
             if (string.IsNullOrWhiteSpace(text))
             {
                 logger.LogWarning("Received empty text message from channel {ChannelId}", channel.Id);
                 return;
             }
 
-            bool sentReply = false;
-
-            if (message.ReplyTo != 0)
-            {
-                var replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
-                if (replyToStatus != null
-                        && chatIds.Any(x => x == replyToStatus.TelegramChatId))
-                {
-                    var msg = await TrySendMessage(
-                        chatId: replyToStatus.TelegramChatId,
-                        text: $"{deviceName} [#{channel.Name}]: {text}",
-                        replyParameters: new ReplyParameters
-                        {
-                            AllowSendingWithoutReply = true,
-                            ChatId = replyToStatus.TelegramChatId,
-                            MessageId = replyToStatus.TelegramMessageId,
-                        });
-
-                    if (msg == null)
-                        return;
-
-                    var status = new MeshtasticMessageStatus
-                    {
-                        TelegramChatId = replyToStatus.TelegramChatId,
-                        TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { message.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PrivateChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                        BotReplyId = null,
-                    };
-
-                    meshSender.StoreTelegramMessageStatus(channel.NetworkId, replyToStatus.TelegramChatId,
-                        msg.Id,
-                        status);
-
-                    botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
-                    sentReply = true;
-                }
-            }
-
-            if (!sentReply)
-            {
-                foreach (var chatId in chatIds)
-                {
-                    var msg = await TrySendMessage(
-                        chatId: chatId,
-                        text: $"{deviceName} [#{channel.Name}]: {text}");
-
-                    if (msg == null) continue;
-
-                    var status = new MeshtasticMessageStatus
-                    {
-                        TelegramChatId = chatId,
-                        TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { message.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = channel.Id,
-                                        Type = RecipientType.PrivateChannel,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                        BotReplyId = null
-                    };
-
-                    meshSender.StoreTelegramMessageStatus(channel.NetworkId, chatId, msg.Id, status);
-                    botCache.StoreMeshMessageStatus(channel.NetworkId, message.Id, status);
-                }
-            }
+            var tgSender = services.GetRequiredService<TgMessageSender>();
+            await tgSender.AddPrivateChannelMeshMessageToTgChats(
+                chatIds,
+                message.Id,
+                message.DeviceId,
+                channel,
+                text,
+                message.ReplyTo != 0 ? message.ReplyTo : (long?)null,
+                status: null);
 
             if (!message.IsEmoji && meshtasticService.GetTotalQueueLength(channel.NetworkId) < _options.MaxQueueLengthForChannelAckEmojis)
             {
@@ -681,6 +538,7 @@ namespace TBot.Bot
                     isEmoji: true);
             }
         }
+
 
 
 
@@ -745,7 +603,7 @@ namespace TBot.Bot
             }
             else if (cmdText != null && cmdText.Equals("end_chat", StringComparison.OrdinalIgnoreCase))
             {
-                await HandleEndChatRequstFromMesh(message, device, device);
+                await HandleEndChatRequstFromMesh(message, device, device, null);
                 return;
             }
             else if (cmdText != null && cmdText.Equals("nopongs", StringComparison.OrdinalIgnoreCase))
@@ -869,76 +727,63 @@ namespace TBot.Bot
                 return;
             }
 
-            bool sentReply = false;
 
+            if (chatIds.Count == 0)
+            {
+                MaybeSendNotRegisteredResponse(message, device);
+                return;
+            }
+
+            MeshtasticMessageStatus replyToStatus = null;
             if (message.ReplyTo != 0)
             {
-                var replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
-                if (replyToStatus != null
-                        && chatIds.Any(x => x == replyToStatus.TelegramChatId))
+                replyToStatus = botCache.GetMeshMessageStatus(message.ReplyTo);
+            }
+
+            var newMsgUids = new List<TgMessageUid>(chatIds.Count);
+
+            foreach (var chatId in chatIds)
+            {
+                ReplyParameters replyParameters = null;
+                if (replyToStatus != null)
                 {
-                    var msg = await TrySendMessage(
-                        chatId: replyToStatus.TelegramChatId,
-                        text: $"{device.NodeName}: {text}",
-                        replyParameters: new ReplyParameters
+                    var chatMsgUid = replyToStatus.TgMessageUids.FirstOrDefault(x => x.ChatId == chatId);
+                    if (chatMsgUid != null)
+                    {
+                        replyParameters = new ReplyParameters
                         {
                             AllowSendingWithoutReply = true,
-                            ChatId = replyToStatus.TelegramChatId,
-                            MessageId = replyToStatus.TelegramMessageId,
-                        });
-
-                    if (msg == null)
-                        return;
-
-
-                    var status = new MeshtasticMessageStatus
-                    {
-                        TelegramChatId = replyToStatus.TelegramChatId,
-                        TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
-                            {
-                                { message.Id, new DeliveryStatusWithRecipientId
-                                    {
-                                        RecipientId = message.DeviceId,
-                                        Type = RecipientType.Device,
-                                        Status = DeliveryStatus.Delivered,
-                                    }
-                                }
-                            },
-                        BotReplyId = null,
-                    };
-
-                    meshSender.StoreTelegramMessageStatus(device.NetworkId, replyToStatus.TelegramChatId,
-                        msg.Id,
-                        status);
-
-                    botCache.StoreMeshMessageStatus(device.NetworkId, message.Id, status);
-
-                    sentReply = true;
+                            ChatId = chatId,
+                            MessageId = chatMsgUid.MessageId,
+                        };
+                    }
                 }
+
+                var msg = await TrySendMessage(
+                    chatId: chatId,
+                    text: $"{device.NodeName}: {text}",
+                    replyParameters: replyParameters);
+
+                if (msg == null) continue;
+
+                newMsgUids.Add(new TgMessageUid
+                {
+                    ChatId = chatId,
+                    MessageId = msg.Id,
+                    IsFromUser = false
+                });
             }
 
-            if (!sentReply)
+            if (newMsgUids.Count == 0)
             {
-                if (chatIds.Count == 0)
-                {
-                    MaybeSendNotRegisteredResponse(message, device);
-                    return;
-                }
+                return;
+            }
 
-                foreach (var chatId in chatIds)
-                {
-                    var msg = await TrySendMessage(
-                        chatId: chatId,
-                        text: $"{device.NodeName}: {text}");
 
-                    if (msg == null) continue;
-
-                    var status = new MeshtasticMessageStatus
-                    {
-                        TelegramChatId = chatId,
-                        TelegramMessageId = msg.Id,
-                        MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
+            var status = new MeshtasticMessageStatus
+            {
+                TgMessageUids = newMsgUids.ToArray(),
+                MeshMessages = new Dictionary<long, DeliveryStatusWithRecipientId>
                             {
                                 { message.Id, new DeliveryStatusWithRecipientId
                                     {
@@ -948,13 +793,13 @@ namespace TBot.Bot
                                     }
                                 }
                             },
-                        BotReplyId = null
-                    };
-
-                    meshSender.StoreTelegramMessageStatus(device.NetworkId, chatId, msg.Id, status);
-                    botCache.StoreMeshMessageStatus(device.NetworkId, message.Id, status);
-                }
+                BotReplyId = null
+            };
+            foreach (var msg in newMsgUids)
+            {
+                meshSender.StoreTelegramMessageStatus(device.NetworkId, msg.ChatId, msg.MessageId, status);
             }
+            botCache.StoreMeshMessageStatus(device.NetworkId, message.Id, status);
         }
 
 
@@ -1268,25 +1113,51 @@ namespace TBot.Bot
             return registrationService.GetRecipientName(recipient);
         }
 
-        private async Task HandleEndChatRequstFromMesh(TextMessage message, Device device, IRecipient recipient)
+        private async Task HandleEndChatRequstFromMesh(
+            TextMessage message,
+            Device device,
+            IRecipient recipient,
+            string tgChatName)
         {
-            var activeSessionTgChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
-
-            if (activeSessionTgChatId == null)
+            if (recipient.IsPublicChannel)
             {
+                return;
+            }
+
+            tgChatName = StringHelper.Truncate(tgChatName?.Trim(), TBotDbContext.MaxChatNameLength);
+
+            var activeSessionTgChatIds = await botCache.GetActiveChatSessionsForRecipient(recipient, db);
+
+            if (activeSessionTgChatIds != null
+                && activeSessionTgChatIds.Count != 0
+                && !string.IsNullOrEmpty(tgChatName))
+            {
+                var tgChat = await registrationService.GetTgChatByNameAsync(tgChatName);
+                if (tgChat != null)
+                {
+                    activeSessionTgChatIds = activeSessionTgChatIds.Where(x => x == tgChat.ChatId).ToList();
+                }
+            }
+
+            if (activeSessionTgChatIds == null || activeSessionTgChatIds.Count == 0)
+            {
+                var msg = !string.IsNullOrEmpty(tgChatName)
+                    ? $"No active chat session found with {tgChatName}"
+                    : $"No active chat session found";
+
                 meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
                     recipient,
-                    $"No active chat session found",
+                    msg,
                     replyToMessageId: message.Id,
                     relayGatewayId: meshSender.GetReplyGatewayId(message),
                     hopLimit: message.GetSuggestedReplyHopLimit());
                 return;
             }
-            else
+            else if (activeSessionTgChatIds.Count == 1)
             {
-                await botCache.StopChatSession(activeSessionTgChatId.Value, db);
+                await botCache.StopChatSession(activeSessionTgChatIds[0], db);
 
-                var tgChat = await registrationService.GetTgChatByChatIdAsync(activeSessionTgChatId.Value);
+                var tgChat = await registrationService.GetTgChatByChatIdAsync(activeSessionTgChatIds[0]);
                 string chatName = tgChat != null ? tgChat.ChatName : "Unknown";
 
                 meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
@@ -1310,7 +1181,16 @@ namespace TBot.Bot
                 {
                     tgMsgText = $"❌ Chat with {recipientName} is ended by device";
                 }
-                await TrySendMessage(activeSessionTgChatId.Value, tgMsgText);
+                await TrySendMessage(activeSessionTgChatIds[0], tgMsgText);
+            }
+            else
+            {
+                meshtasticService.SendTextMessageToDeviceOrPrivateChannel(
+                    recipient,
+                    "Multiple chat sessions, please specify which to end",
+                    replyToMessageId: message.Id,
+                    relayGatewayId: meshSender.GetReplyGatewayId(message),
+                    hopLimit: message.GetSuggestedReplyHopLimit());
             }
         }
 
@@ -1401,14 +1281,17 @@ namespace TBot.Bot
 
             if (isApproved)
             {
-                var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
-                if (otherSessionTgSessionChatId != null
-                    && otherSessionTgSessionChatId != tgChat.ChatId)
+                if (recipient.RecipientDeviceId != null)
                 {
-                    await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
-                    await TrySendMessage(
-                        otherSessionTgSessionChatId.Value,
-                        $"❌ Chat with {recipientName} is ended by device");
+                    var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForDevice(recipient.RecipientDeviceId.Value, db);
+                    if (otherSessionTgSessionChatId != null
+                        && otherSessionTgSessionChatId != tgChat.ChatId)
+                    {
+                        await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
+                        await TrySendMessage(
+                            otherSessionTgSessionChatId.Value,
+                            $"❌ Chat with {recipientName} is ended by device");
+                    }
                 }
 
                 await botCache.StartChatSession(tgChat.ChatId, new DeviceOrChannelId
@@ -1491,16 +1374,19 @@ namespace TBot.Bot
 
             var recipientName = await GetRecipientName(recipient);
 
-            var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForRecipient(recipient, db);
-            if (otherSessionTgSessionChatId != null
-                && otherSessionTgSessionChatId != tgChatId)
+            if (recipient.RecipientDeviceId.HasValue)
             {
-                await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
-                await botClient.TrySendMessage(
-                    registrationService,
-                    logger,
-                    otherSessionTgSessionChatId.Value,
-                    $"❌ Chat with {recipientName} is ended by device");
+                var otherSessionTgSessionChatId = await botCache.GetActiveChatSessionForDevice(recipient.RecipientDeviceId.Value, db);
+                if (otherSessionTgSessionChatId != null
+                    && otherSessionTgSessionChatId != tgChatId)
+                {
+                    await botCache.StopChatSession(otherSessionTgSessionChatId.Value, db);
+                    await botClient.TrySendMessage(
+                        registrationService,
+                        logger,
+                        otherSessionTgSessionChatId.Value,
+                        $"❌ Chat with {recipientName} is ended by device");
+                }
             }
 
             botCache.RemovePendingChatRequest_TgToMesh(new DeviceOrChannelId

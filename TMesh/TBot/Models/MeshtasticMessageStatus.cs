@@ -8,9 +8,7 @@ namespace TBot.Models
 {
     public class MeshtasticMessageStatus
     {
-        public long TelegramChatId { get; set; }
-
-        public int TelegramMessageId { get; set; }
+        public TgMessageUid[] TgMessageUids { get; set; }
 
         public int? BotReplyId { get; set; }
 

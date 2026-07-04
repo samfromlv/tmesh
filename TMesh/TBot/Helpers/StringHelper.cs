@@ -14,6 +14,9 @@ namespace TBot.Helpers
             return value.Length <= maxLength ? value : value[..maxLength];
         }
 
+        public static readonly string[] ColorSymbols = ["⚪", "⚫", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣"];
+
+
         private static readonly char[] EscapeCharsV2 =
     [
         '_', '*', '[', ']', '(', ')', '~', '`', '>', '#',

@@ -1244,7 +1244,7 @@ namespace TBot.Bot
                 }
             }
 
-            await botClient.SendMessage(chatId, $"You are now chatting in channel '{publicChannel.Name}' in network [{publicChannel.NetworkId}] \"{publicChannel.Name}\". From device - {fromName}. Gateway - {gatewayName}");
+            await botClient.SendMessage(chatId, $"You are now chatting in channel '{publicChannel.Name}' in network [{publicChannel.NetworkId}]. From device - {fromName}. Gateway - {gatewayName}");
             return TgResult.Ok;
         }
 
