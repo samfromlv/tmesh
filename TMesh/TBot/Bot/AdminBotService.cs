@@ -964,6 +964,9 @@ namespace TBot.Bot
             var mqttPassword = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
             var mqttAddress = _options.PublicMqttAddress;
             var mqttTopic = _options.PublicMqttTopic.Replace(TgCommandBotService.NetworkIdToken, MqttService.NetworkSegmentPrefix + networkId.Value.ToString());
+            var adminPublicChannels = (await registrationService
+                .GetPublicChannelsByNetworkAsync(networkId.Value)
+                ).Where(c => c.IsPrimary || !c.SendNodeInfoOnSecondary);
             var instructions = TgCommandBotService.CreateGatewaySetupInstructions(
                 hexId,
                 device?.NodeName,
@@ -974,7 +977,8 @@ namespace TBot.Bot
                 _options.PublicFlasherAddress,
                 network.SaveAnalytics,
                 _options.MeshtasticNodeNameLong,
-                includeInfoAboutFirstSeenMessage: false);
+                includeInfoAboutFirstSeenMessage: false,
+                publicChannelNames: adminPublicChannels.Select(c => c.Name).ToList());
 
 
             if (existingGatewayRegistration != null)

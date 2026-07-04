@@ -35,13 +35,12 @@ public class MessageLoopService(
     UptimeService uptimeService,
     PongService pongService) : IHostedService
 {
-    private const int GatewayActivityRefreshEveryHours = 1;
-    private const int CheckGatewayNodeInfoLastSeenAfterMinutes = 60;
+    public const int GatewayActivityRefreshEveryHours = 1;
     private readonly TBotOptions _options = options.Value;
     private System.Timers.Timer _serviceInfoTimer;
     private DateTime _lastVirtualNodeInfoSent = DateTime.MinValue;
     private DateTime _lastGatewayCleanup = DateTime.MinValue;
-    private readonly ConcurrentDictionary<long, DateTime> _gatewayLastSeen = new();
+    private readonly ConcurrentDictionary<long, DateTime> _gatewayLastSeen = services.GetRequiredKeyedService<ConcurrentDictionary<long, DateTime>>("GatewaysLastSeen");
 
     private BlockingCollection<AckMessage> _ackQueue;
     private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
@@ -226,15 +225,26 @@ public class MessageLoopService(
         }
     }
 
+    public DateTime? GetGatewayLastSeen(long gatewayId)
+    {
+        if (_gatewayLastSeen.TryGetValue(gatewayId, out var lastSeen))
+        {
+            return lastSeen;
+        }
+        return null;
+    }
+
 
     private async Task CheckGatewayActivity(IServiceScope scope)
     {
         try
         {
-            var threshold = DateTime.UtcNow.AddDays(-_options.InactiveGatewayCleanupDays);
             var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+            await NotifyInactiveGateways(scope, registrationService);
+
             await RefreshGatewayActivityInDb(registrationService);
 
+            var threshold = DateTime.UtcNow.AddDays(-_options.InactiveGatewayCleanupDays);
             var demoted = await registrationService.UnregisterInactiveGatewaysAsync(threshold);
             if (demoted.Count == 0)
             {
@@ -256,6 +266,46 @@ public class MessageLoopService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during inactive gateway cleanup");
+        }
+    }
+
+    private async Task NotifyInactiveGateways(IServiceScope scope, RegistrationService registrationService)
+    {
+        var inactiveNotificationTo = DateTime.UtcNow.AddHours(-_options.InactiveGatewayNotificationHours);
+        var inactiveNotificationFrom = inactiveNotificationTo
+            .AddHours(-GatewayActivityRefreshEveryHours * 2)
+            .AddMinutes(10);
+
+        var inactiveNotificationGateways = await registrationService.GetInactiveGateways(inactiveNotificationFrom, inactiveNotificationTo);
+
+        if (inactiveNotificationGateways.Count == 0) { return; }
+
+        var tgSender = scope.ServiceProvider.GetRequiredService<TgMessageSender>();
+
+        foreach (var gatewayId in inactiveNotificationGateways)
+        {
+            var regs = await registrationService.GetChatsByDeviceIdCached(gatewayId);
+            if (regs == null || regs.Count == 0)
+                continue;
+
+            var device = await registrationService.GetDeviceAsync(gatewayId);
+            var msg = $"⚠️ Gateway {device?.NodeName ?? MeshtasticService.GetMeshtasticNodeHexId(gatewayId)} has been inactive for more than {_options.InactiveGatewayNotificationHours} hours and is not sending packets via MQTT to mqtt.tmesh.ru. Please check the gateway settings and internet connectivity. If you no longer plan to use this node as TMesh gateway, consider removing it with /demote_from_gateway {MeshtasticService.GetMeshtasticNodeHexId(gatewayId)} command. Inactive gateways are automatically demoted after {_options.InactiveGatewayCleanupDays} days of inactivity.";
+            foreach (var chatId in regs)
+            {
+                await tgSender.TrySendMessage(chatId, msg);
+            }
+            if (device?.PublicKey != null)
+            {
+                var meshShortMsg = $"TMesh is not receiving information from your gateway via MQTT. Please check the setup or remove the gateway.";
+                meshtasticService.SendDirectTextMessage(
+                    gatewayId,
+                    device.NetworkId,
+                    device.PublicKey,
+                    meshShortMsg,
+                    replyToMessageId: null,
+                    relayGatewayId: null,
+                    hopLimit: int.MaxValue);
+            }
         }
     }
 
@@ -395,14 +445,6 @@ public class MessageLoopService(
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
             {
                 lastSeen = DateTime.MinValue;
-            }
-            if ((utcNow - lastSeen).TotalMinutes > CheckGatewayNodeInfoLastSeenAfterMinutes)
-            {
-                var gw = await regService.GetDeviceAsync(gwId);
-                if (gw != null && gw.UpdatedUtc > lastSeen)
-                {
-                    lastSeen = gw.UpdatedUtc;
-                }
             }
             stat[MeshtasticService.GetMeshtasticNodeHexId(gwId)] = lastSeen == DateTime.MinValue ? null : lastSeen;
         }

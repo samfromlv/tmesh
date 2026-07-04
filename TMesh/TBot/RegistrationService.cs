@@ -720,6 +720,14 @@ namespace TBot
             return result;
         }
 
+        public async Task<List<long>> GetInactiveGateways(DateTime from, DateTime to)
+        {
+            return await db.GatewayRegistrations
+                .Where(g => (g.LastSeenUtc != null ? g.LastSeenUtc : g.CreatedUtc) >= from && (g.LastSeenUtc != null ? g.LastSeenUtc : g.CreatedUtc) <= to)
+                .Select(g => g.DeviceId)
+                .ToListAsync();
+        }
+
         public async Task<Channel> GetChannelAsync(int channelId)
         {
             return await memoryCache.GetOrCreateAsync($"Channel#{channelId}", async entry =>

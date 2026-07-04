@@ -251,7 +251,7 @@ namespace TBot.Bot
             }
         }
 
-        private Task<Message> TrySendMessage(
+        public Task<Message> TrySendMessage(
          long chatId,
          string text,
          ReplyParameters replyParameters = null,

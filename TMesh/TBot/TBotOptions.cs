@@ -83,6 +83,7 @@ public class TBotOptions
     public string PublicFlasherAddress { get; set; }
     public string AdminTgContact { get; set; }
     public int InactiveGatewayCleanupDays { get; set; }
+    public int InactiveGatewayNotificationHours { get; set; }
 
     /// <summary>
     /// Zero or more public MQTT servers to monitor for TMesh gateway telemetry packets (map gateways).

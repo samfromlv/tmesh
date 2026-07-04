@@ -1,7 +1,7 @@
-﻿using Linux.Bluetooth;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 using System.Text;
 using TBot.Database;
 using TBot.Database.Models;
@@ -311,6 +311,8 @@ namespace TBot.Bot
                     response.AppendLine();
                 }
 
+                var gatewaysLastSeen = services.GetRequiredKeyedService<ConcurrentDictionary<long, DateTime>>("GatewaysLastSeen");
+
                 if (channelRegs.Count > 0
                     || devices.Count > 0
                     || deviceApprovals.Count > 0
@@ -340,8 +342,36 @@ namespace TBot.Bot
                             response.AppendLine("📟 *Registered devices:*");
                             foreach (var d in devices)
                             {
-                                var isGateway = gatewayIdSet.ContainsKey(d.DeviceId);
-                                var gatewayTag = isGateway ? " 📡 \\[Gateway\\]" : "";
+                                string gatewayTag = null;
+                                var gatewayInfo = gatewayIdSet.GetValueOrDefault(d.DeviceId);
+                                if (gatewayInfo != null)
+                                {
+                                    var lastSeen = gatewaysLastSeen.TryGetValue(gatewayInfo.DeviceId, out var lastSeenValue)
+                                        ? lastSeenValue 
+                                        : gatewayInfo.LastSeen;
+
+                                    var sb = new StringBuilder(" 📡 \\[Gateway");
+                                    if (lastSeen == null)
+                                    {
+                                        sb.Append(" unhealthy ❌ \\- never seen\\]");
+                                    }
+                                    else
+                                    {
+                                        var seenAgo = now - lastSeen.Value;
+                                        var lastSeenStr = FormatTimeSpan(now - lastSeen.Value);
+                                        if (seenAgo.TotalMinutes > 30)
+                                        {
+                                            sb.Append(" unhealthy ❌");
+                                        }
+                                        else
+                                        {
+                                            sb.Append(" healthy ✅");
+                                        }
+                                        sb.Append($" \\- last seen {StringHelper.EscapeMdV2(lastSeenStr)} ago\\]");
+                                    }
+                                    gatewayTag = sb.ToString();
+                                }
+
                                 var networkName = networks.GetValueOrDefault(d.NetworkId)?.Name ?? "Unknown";
                                 var hexId = MeshtasticService.GetMeshtasticNodeHexId(d.DeviceId);
                                 var positionStr = d.LastPositionUpdate != null
@@ -501,6 +531,8 @@ namespace TBot.Bot
             var mqttTopic = _options.PublicMqttTopic.Replace(NetworkIdToken, MqttService.NetworkSegmentPrefix + device.NetworkId.ToString());
             var flasherAddress = _options.PublicFlasherAddress;
             var network = await registrationService.GetNetwork(device.NetworkId);
+            var publicChannels = (await registrationService.GetPublicChannelsByNetworkAsync(device.NetworkId))
+                .Where(c => c.IsPrimary || !c.SendNodeInfoOnSecondary);
             StringBuilder instructions = CreateGatewaySetupInstructions(
                 hexId,
                 deviceName,
@@ -511,7 +543,8 @@ namespace TBot.Bot
                 flasherAddress,
                 network.SaveAnalytics,
                 _options.MeshtasticNodeNameLong,
-                includeInfoAboutFirstSeenMessage: true);
+                includeInfoAboutFirstSeenMessage: true,
+                publicChannelNames: publicChannels.Select(c => c.Name).ToList());
 
             await botClient.SendMessage(chatId, instructions.ToString(), parseMode: ParseMode.Markdown);
 
@@ -528,7 +561,8 @@ namespace TBot.Bot
             string flasherAddress,
             bool networkAnalyticsEnabled,
             string botNodeName,
-            bool includeInfoAboutFirstSeenMessage)
+            bool includeInfoAboutFirstSeenMessage,
+            IReadOnlyList<string> publicChannelNames = null)
         {
             var instructions = new StringBuilder();
             instructions.AppendLine($"\u2705 Device *{StringHelper.EscapeMd(deviceName ?? hexId)}* ({hexId}) has been promoted to gateway.");
@@ -557,6 +591,12 @@ namespace TBot.Bot
             instructions.AppendLine($"• *TLS enabled:* Off \u274c");
             instructions.AppendLine($"• *Map reporting:* On ✅");
             instructions.AppendLine();
+            if (publicChannelNames != null && publicChannelNames.Count > 0)
+            {
+                var channelList = string.Join(", ", publicChannelNames.Select(n => $"`{n}`"));
+                instructions.AppendLine($"3. For each of the network's public channels ({channelList}), go to *Channels* in the Meshtastic app and enable *Uplink* and *Downlink* in the MQTT settings.");
+                instructions.AppendLine();
+            }
             instructions.AppendLine("Other settings:");
             instructions.AppendLine($"• Set Device Role to *Client* in Device settings. If you prefer *Client Mute*, than add {StringHelper.EscapeMd(botNodeName)} node to favorites, set device role to *Client* and rebroadcast mode to *KNOWN_ONLY*.");
             if (networkAnalyticsEnabled)

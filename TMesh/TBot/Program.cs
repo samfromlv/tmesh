@@ -1,17 +1,18 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.EntityFrameworkCore;
+using MQTTnet;
+using Serilog;
+using System.Collections.Concurrent;
+using TBot.Analytics;
+using TBot.Bot;
 using TBot.Database;
 using TBot.Helpers;
-using TBot.Analytics;
-using MQTTnet;
-using TBot.Bot;
-using Serilog;
-using TBot.Services.Voting;
 using TBot.Services;
+using TBot.Services.Voting;
 
 namespace TBot
 {
@@ -67,6 +68,7 @@ namespace TBot
                     services.AddSingleton<MqttService>();
                     services.AddSingleton<MapMqttService>();
                     services.AddSingleton<SimpleScheduler>();
+                    services.AddKeyedSingleton<ConcurrentDictionary<long, DateTime>>("GatewaysLastSeen");
                     services.AddHostedService<MessageLoopService>();
                     TgBotService.Register(services);
                 });
