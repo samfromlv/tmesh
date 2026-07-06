@@ -670,6 +670,20 @@ namespace TBot.Bot
                     text,
                     parseMode: ParseMode.Markdown);
             }
+
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            if (device?.PublicKey != null)
+            {
+                var meshShortMsg = "Your device was demoted from TMesh gateway due to inactivity.";
+                meshtasticService.SendDirectTextMessage(
+                    device.DeviceId,
+                    device.NetworkId,
+                    device.PublicKey,
+                    meshShortMsg,
+                    replyToMessageId: null,
+                    relayGatewayId: null,
+                    hopLimit: int.MaxValue);
+            }
         }
         internal async Task NotifyNewGatewaySeen(long gatewayId)
         {
