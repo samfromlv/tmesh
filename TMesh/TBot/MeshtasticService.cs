@@ -10,6 +10,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using Serilog;
 using Shared.Models;
+using System.Diagnostics.Eventing.Reader;
 using System.Text;
 using TBot.Analytics.Models;
 using TBot.Database.Models;
@@ -762,7 +763,7 @@ namespace TBot
 
         public static string PskKeyToBase64(byte[] key)
         {
-            if (key.SequenceEqual(Resources.DEFAULT_PSK))
+            if (IsDefaultKey(key))
             {
                 return Convert.ToBase64String(new byte[] { 1 });
             }
@@ -796,10 +797,28 @@ namespace TBot
                 buffer = null;
                 return false;
             }
-            if (bytesWritten == 1 && bufferLong[0] == 1)
+            if (bytesWritten == 1)
             {
-                buffer = Resources.DEFAULT_PSK;
-                return true;
+                if (bufferLong[0] == 1)
+                {
+                    buffer = Resources.DEFAULT_PSK;
+                    return true;
+                }
+                else
+                {
+                    buffer = new byte[Resources.DEFAULT_PSK.Length];
+                    Array.Copy(Resources.DEFAULT_PSK, buffer, Resources.DEFAULT_PSK.Length);
+                    var delta = (byte)(bufferLong[0] - 1);
+                    if (delta + buffer[buffer.Length - 1] > 255)
+                    {
+                        return false;
+                    }
+                    else
+                    {
+                        buffer[buffer.Length - 1] += delta;
+                    }
+                    return true;
+                }
             }
 
             if (bytesWritten != PskKeyLength && bytesWritten != PskKeyLengthShort)

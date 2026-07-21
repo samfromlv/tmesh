@@ -1,6 +1,4 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Cms;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,7 +9,6 @@ using TBot.Models;
 using TBot.Models.Admin;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace TBot.Bot
 {
@@ -211,6 +208,7 @@ namespace TBot.Bot
                     {
                         return await SendMassDirectMessage(chatId, noPrefix, segments);
                     }
+                
                 case "confirm_mass_direct_message":
                     {
                         return await ConfirmMassDirectMessage(chatId, segments);
@@ -842,6 +840,21 @@ namespace TBot.Bot
             var registrations = await registrationService.GetChatsByDeviceIdCached(device.DeviceId);
             var json = JsonSerializer.Serialize(device, TgBotService.IdentedOptions);
 
+            string publicKey = null;
+            if (device.PublicKey != null)
+            {
+                publicKey = Convert.ToBase64String(device.PublicKey);
+            }
+            string nodeInfoOnChannel = null;
+            if (device.NodeInfoOnPublicChannelId.HasValue)
+            {
+                var channel = await registrationService.GetPublicChannelByIdCachedAsync(device.NodeInfoOnPublicChannelId.Value);
+                if (channel != null)
+                {
+                    nodeInfoOnChannel = $"#{channel.Id} \"{channel.Name}\"";
+                }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine($"📟 *{StringHelper.EscapeMdV2(device.NodeName)}* `{StringHelper.EscapeMdV2(hexId)}`");
             sb.AppendLine($"  Registrations: `{registrations.Count}`");
@@ -849,6 +862,24 @@ namespace TBot.Bot
             sb.AppendLine($"```");
             sb.AppendLine(StringHelper.EscapeMdV2(json));
             sb.AppendLine($"```");
+            sb.AppendLine();
+            if (nodeInfoOnChannel != null)
+            {
+                sb.AppendLine($"Node info is being sent on public channel: {StringHelper.EscapeMdV2(nodeInfoOnChannel)}");
+            }
+            else
+            {
+                sb.AppendLine($"Node info is not being sent on any public channel");
+            }
+            sb.AppendLine();
+            if (!string.IsNullOrEmpty(publicKey))
+            {
+                sb.AppendLine($"Public key: `{StringHelper.EscapeMdV2(publicKey)}`");
+            }
+            else
+            {
+                sb.AppendLine($"Public key is not available");
+            }
 
             await botClient.SendMessage(chatId, sb.ToString().TrimEnd(), parseMode: ParseMode.MarkdownV2);
             return TgResult.Ok;
@@ -1520,6 +1551,7 @@ namespace TBot.Bot
 
             return TgResult.Ok;
         }
+
 
         private async Task<TgResult> SendMassDirectMessage(long chatId, string noPrefix, string[] segments)
         {
