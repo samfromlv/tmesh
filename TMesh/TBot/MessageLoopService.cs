@@ -341,7 +341,10 @@ public class MessageLoopService(
         if (mapMqttService.UplinkEnabled
             && !arg.Data.Message.Packet.ViaMqtt)
         {
-            await UplinkToMap(arg.Data.NetworkId, MeshtasticService.DefaultOkToMqtt, arg.Data.Message);
+            await UplinkToMap(arg.Data.NetworkId,
+                MeshtasticService.DefaultOkToMqtt,
+                arg.Data.Message,
+                overrideChannelId: null);
         }
     }
 
@@ -584,10 +587,10 @@ public class MessageLoopService(
             if (mapMqttService.UplinkEnabled
                 && !env.Packet.ViaMqtt)
             {
-                var uplinkStatus = meshtasticService.GetUplinkPacketStatus(env);
-                if (uplinkStatus.HasValue)
+                var uplinkInfo = meshtasticService.GetUplinkPacketInfo(env);
+                if (uplinkInfo != null)
                 {
-                    await UplinkToMap(networkId, uplinkStatus.Value, env);
+                    await UplinkToMap(networkId, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
                 }
             }
 
@@ -702,7 +705,7 @@ public class MessageLoopService(
             {
                 if (isTMeshGateway && !env.Packet.ViaMqtt)
                 {
-                    await UplinkToMap(networkId, msg?.OkToMqtt ?? OkToMqttStatus.Unknown, env);
+                    await UplinkToMap(networkId, msg?.OkToMqtt ?? OkToMqttStatus.Unknown, env, overrideChannelId: null);
                 }
                 return;
             }
@@ -866,10 +869,19 @@ public class MessageLoopService(
             return;
         }
 
-        await UplinkToMap(msg.NetworkId, msg.OkToMqtt, data);
+        string overrideChannelId = null;
+        if (data.ChannelId == MeshtasticService.UnknownChannelName
+            && msg != null
+            && msg.DecodedBy != null
+            && msg.DecodedBy.IsPublicChannel)
+        {
+            overrideChannelId = ((PublicChannel)msg.DecodedBy).Name;
+        }
+
+        await UplinkToMap(msg.NetworkId, msg.OkToMqtt, data, overrideChannelId);
     }
 
-    private async ValueTask UplinkToMap(int networkId, OkToMqttStatus okToMqttStatus, ServiceEnvelope data)
+    private async ValueTask UplinkToMap(int networkId, OkToMqttStatus okToMqttStatus, ServiceEnvelope data, string overrideChannelId)
     {
         if (data.Packet.ViaMqtt)
         {
@@ -882,8 +894,19 @@ public class MessageLoopService(
             return;
         }
 
-        meshtasticService.MarkUplinkPacket(data.Packet.Id, okToMqttStatus);
-        await mapMqttService.PublishMeshtasticMessage(networkId, okToMqttStatus, data);
+        var dataToUplink = data;
+        if (data.ChannelId == MeshtasticService.UnknownChannelName 
+            && overrideChannelId != null)
+        {
+            dataToUplink = data.Clone();
+            dataToUplink.ChannelId = overrideChannelId;
+        }
+        meshtasticService.MarkUplinkPacket(dataToUplink.Packet.Id, new PacketUplinkInfo
+        {
+            MqttStatus = okToMqttStatus,
+            OverrideChannelName = overrideChannelId
+        });
+        await mapMqttService.PublishMeshtasticMessage(networkId, okToMqttStatus, dataToUplink);
     }
 
     private async ValueTask PerhapsSaveForAnalytics(

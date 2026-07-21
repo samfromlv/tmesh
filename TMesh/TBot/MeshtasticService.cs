@@ -940,16 +940,16 @@ namespace TBot
             return memoryCache.TryGetValue(key, out _);
         }
 
-        public void MarkUplinkPacket(long packetId, OkToMqttStatus status)
+        public void MarkUplinkPacket(long packetId, PacketUplinkInfo info)
         {
             var key = $"meshtastic:uplinkpacket:{packetId:X}";
-            memoryCache.Set(key, status, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(key, info, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
-        public OkToMqttStatus? GetUplinkPacketStatus(ServiceEnvelope env)
+        public PacketUplinkInfo GetUplinkPacketInfo(ServiceEnvelope env)
         {
             var key = $"meshtastic:uplinkpacket:{env.Packet.Id:X}";
-            return memoryCache.TryGetValue(key, out OkToMqttStatus status) ? status : null;
+            return memoryCache.TryGetValue(key, out PacketUplinkInfo status) ? status : null;
         }
 
         public bool TryStoreLinkTraceGatewayNoDup(long packetId, long gatewayId)
