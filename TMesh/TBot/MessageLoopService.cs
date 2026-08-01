@@ -1,5 +1,4 @@
 using Google.Protobuf;
-using Google.Protobuf.Collections;
 using Meshtastic.Protobufs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -649,7 +648,7 @@ public class MessageLoopService(
                 return;
             }
 
-            if (TryBridge(env, tmeshOrMapGatewayId, isTMeshGateway))
+            if (await TryBridge(env, tmeshOrMapGatewayId, isTMeshGateway))
             {
                 return;
             }
@@ -767,7 +766,7 @@ public class MessageLoopService(
         }
     }
 
-    private bool TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway)
+    private async ValueTask<bool> TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway)
     {
         if (envelope.Packet == null || envelope.Packet.PayloadVariantCase != MeshPacket.PayloadVariantOneofCase.Encrypted)
         {
@@ -779,17 +778,22 @@ public class MessageLoopService(
         var senderIsGateway = _gatewayNetworkIds.TryGetValue(senderDeviceId, out _);
         var receiverIsGateway = _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId);
 
+        var senderIsSpecialNode = !senderIsGateway
+            && _options.BridgeAllowedExtraNodeIds != null
+            && _options.BridgeAllowedExtraNodeIds.Contains(senderDeviceId);
+
+        var receiverIsSpecialNode = !receiverIsGateway
+            && _options.BridgeAllowedExtraNodeIds != null
+            && _options.BridgeAllowedExtraNodeIds.Contains(receiverDeviceId);
+
         if (_options.BridgeDirectMessagesToGateways
                && senderDeviceId != receiverDeviceId
                && senderDeviceId != _options.MeshtasticNodeId
-               && (senderIsGateway || receiverIsGateway)
-               && (receiverIsGateway || (_options.BridgeAllowedExtraNodeIds != null
-                    && _options.BridgeAllowedExtraNodeIds.Contains(receiverDeviceId)))
-               && (senderIsGateway || (_options.BridgeAllowedExtraNodeIds != null
-                    && _options.BridgeAllowedExtraNodeIds.Contains(senderDeviceId)))
+               && (receiverIsGateway || receiverIsSpecialNode)
+               && (senderIsGateway || senderIsSpecialNode)
                && gatewayId != _options.MeshtasticNodeId)
         {
-            long outGoingGatewayId;
+            long? outGoingGatewayId = null;
             if (receiverIsGateway)
             {
                 outGoingGatewayId = receiverDeviceId;
@@ -799,9 +803,20 @@ public class MessageLoopService(
                 var ids = botCache.GetDeviceGateway(receiverDeviceId);
                 if (ids == null || !_gatewayNetworkIds.TryGetValue(ids.GatewayId, out receiverNetworkId))
                 {
-                    return false;
+                    using var scope = services.CreateScope();
+                    var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
+                    var device = await registrationService.GetDeviceAsync(receiverDeviceId);
+                    if (device == null)
+                    {
+                        return false;
+                    }
+                    outGoingGatewayId = null;
+                    receiverNetworkId = device.NetworkId;
                 }
-                outGoingGatewayId = ids.GatewayId;
+                else
+                {
+                    outGoingGatewayId = ids.GatewayId;
+                }
             }
 
             var primaryChannel = _primaryChannels.GetValueOrDefault(receiverNetworkId);
@@ -832,10 +847,15 @@ public class MessageLoopService(
                     outgoing,
                     receiverNetworkId,
                     MessagePriority.High,
-                    outGoingGatewayId);
+                    relayThroughGatewayId: outGoingGatewayId);
             }
-            else
+            else 
             {
+                if (!outGoingGatewayId.HasValue)
+                {
+                    return false;
+                }
+
                 logger.LogInformation("Bridging direct message from {Sender} to {Receiver} via trace route injection", MeshtasticService.GetMeshtasticNodeHexId(senderDeviceId), MeshtasticService.GetMeshtasticNodeHexId(receiverDeviceId));
 
                 meshtasticService.InjectOurNodeInTraceRouteAndSend(
@@ -844,7 +864,7 @@ public class MessageLoopService(
                     primaryChannel,
                     primaryChannel.Name,
                     gatewayId,
-                    outGoingGatewayId);
+                    outGoingGatewayId.Value);
             }
             return true;
         }
