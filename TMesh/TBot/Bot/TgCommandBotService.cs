@@ -1314,7 +1314,7 @@ namespace TBot.Bot
             {
                 return await ProceedNeedCode(userId, chatId, message);
             }
-            else if (chatState.State == ChatState.AddingDevice_NeedPrivacyConfim)
+            else if (chatState.State == ChatState.AddingDevice_NeedPrivacyConfirm)
             {
                 return await ProceedAddingDeviceNeedPrivacyConfirm(userId, chatId, message, chatState);
             }
@@ -1385,7 +1385,7 @@ namespace TBot.Bot
                     return await ProceedStarting_NeedPrivacyConfirm(userId, chatId, msg, chatStateWithData);
                 case ChatState.KillingChat_NeedConfirm:
                     return await ProceedKillingChatNeedConfirm(userId, chatId, msg);
-                case ChatState.AddingDevice_NeedPrivacyConfim:
+                case ChatState.AddingDevice_NeedPrivacyConfirm:
                 case ChatState.AddingDevice_NeedId:
                 case ChatState.AddingDevice_NeedCode:
                     return await ProceedDeviceAdd(userId, chatId, msg, chatStateWithData);
@@ -1739,7 +1739,7 @@ namespace TBot.Bot
                     await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
                     registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                     {
-                        State = ChatState.AddingDevice_NeedPrivacyConfim,
+                        State = ChatState.AddingDevice_NeedPrivacyConfirm,
                         PrivacyConfirmed = false
                     });
                     return TgResult.Ok;
@@ -1767,7 +1767,7 @@ namespace TBot.Bot
                 await botClient.SendMessage(chatId, msgMd, ParseMode.Markdown);
                 registrationService.SetChatStateWithData(userId, chatId, new ChatStateWithData
                 {
-                    State = ChatState.AddingDevice_NeedPrivacyConfim,
+                    State = ChatState.AddingDevice_NeedPrivacyConfirm,
                     DeviceId = deviceId,
                     PrivacyConfirmed = false
                 });

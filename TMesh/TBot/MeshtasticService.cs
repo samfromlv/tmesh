@@ -551,6 +551,7 @@ namespace TBot
             return $"!{deviceId:x8}";
         }
 
+
         public static OkToMqttStatus DefaultOkToMqtt => OkToMqttMask == 1 ? OkToMqttStatus.True : OkToMqttStatus.False_NotPosition;
 
 

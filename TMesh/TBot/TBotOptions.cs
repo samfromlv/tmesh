@@ -48,6 +48,7 @@ public class TBotOptions
     public string MeshtasticNodeNameShort { get; set; }
     public string MeshtasticNodeNameLong { get; set; }
     public string AdminPassword { get; set; }
+    public string AdminOtpKey { get; set; }
 
     //public string MeshtasticPrimaryChannelName { get; set; }
     //public string MeshtasticPrimaryChannelPskBase64 { get; set; }

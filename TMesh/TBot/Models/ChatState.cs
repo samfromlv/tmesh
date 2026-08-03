@@ -12,7 +12,7 @@ namespace TBot.Models
         Starting_NeedPrivacyConfim,
         KillingChat_NeedConfirm,
         AddingDevice_NeedId,
-        AddingDevice_NeedPrivacyConfim,
+        AddingDevice_NeedPrivacyConfirm,
         AddingDevice_NeedCode,
         AddingChannel_NeedPrivacyConfim,
         AddingChannel_NeedNetwork,

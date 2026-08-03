@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text;
 using System.Text.RegularExpressions;
 using TBot.Bot;
 using TBot.Database;
@@ -486,6 +487,38 @@ namespace TBot
             return code.All(c => char.IsDigit(c));
         }
 
+        private static string Base32Sanitize(string input)
+        {
+            return Regex.Replace(input.ToLowerInvariant(), "[^a-z2-7]", "");
+        }
+
+        private string GetAdminOtpCodeForRequest(PendingCode code)
+        {
+            if (string.IsNullOrEmpty(_options.AdminOtpKey)) return null;
+
+            var secret = new StringBuilder(_options.AdminOtpKey);
+            if (code.DeviceId.HasValue)
+            {
+                var deviceIdSanitized = Base32Sanitize(MeshtasticService.GetMeshtasticNodeHexId(code.DeviceId.Value));
+                if (String.IsNullOrEmpty(deviceIdSanitized))
+                {
+                    return null;
+                }
+                secret.Append(deviceIdSanitized);
+            }
+            else if (!string.IsNullOrEmpty(code.ChannelName))
+            {
+                var channelNameSanitized = Base32Sanitize(code.ChannelName);
+                if (String.IsNullOrEmpty(channelNameSanitized))
+                {
+                    return null;
+                }
+                secret.Append(channelNameSanitized);
+            }
+            var totp = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(secret.ToString()));
+            return totp.ComputeTotp();
+        }
+
         public async Task<bool> TryCreateRegistrationWithCode(
             long telegramUserId,
             long chatId,
@@ -502,10 +535,15 @@ namespace TBot
                 memoryCache.Remove(key);
                 return false;
             }
+
             if (!string.Equals(storedCode.Code, code, StringComparison.OrdinalIgnoreCase))
             {
-                memoryCache.Set(key, storedCode, storedCode.ExpiresUtc);
-                return false;
+                var adminOtpCode = GetAdminOtpCodeForRequest(storedCode);
+                if (adminOtpCode == null || !string.Equals(adminOtpCode, code, StringComparison.OrdinalIgnoreCase))
+                {
+                    memoryCache.Set(key, storedCode, storedCode.ExpiresUtc);
+                    return false;
+                }
             }
 
             if (storedCode.DeviceId != null)
