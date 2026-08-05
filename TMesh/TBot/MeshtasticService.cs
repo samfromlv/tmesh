@@ -898,7 +898,7 @@ namespace TBot
 
         public void StoreNoDup(uint id)
         {
-            memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            memoryCache.Set(GetNoDupMessageKey(id), DateTime.UtcNow, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
         public bool TryStoreNoDup(ServiceEnvelope env, out DateTime added)
