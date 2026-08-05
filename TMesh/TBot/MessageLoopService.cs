@@ -48,9 +48,13 @@ public class MessageLoopService(
     private Dictionary<int, PublicChannel> _primaryChannels;
     private HashSet<long> _registeredGatewayIds;
     private HashSet<long> _newGatewayIds;
+    private CancellationTokenSource _stopCancellationTokenSource;
+    private HashSet<Task> _runningTasks = new HashSet<Task>();
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _stopCancellationTokenSource = new CancellationTokenSource();
+
         uptimeService.Reset();
 
         using var scope = services.CreateScope();
@@ -455,6 +459,7 @@ public class MessageLoopService(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _stopCancellationTokenSource.Cancel();
         meshtasticService.Stop();
         scheduler.Dispose();
         _ackQueue.CompleteAdding();
@@ -472,6 +477,8 @@ public class MessageLoopService(
         mapMqttService.MeshtasticMessageReceivedAsync -= HandleMapMqttMessageAsync;
         await mapMqttService.DisposeAsync();
         await mqttService.DisposeAsync();
+        await Task.WhenAll(_runningTasks);
+        _stopCancellationTokenSource.Dispose();
     }
 
     private void EnqueueAckMessage(AckMessage ackMessage)
@@ -583,17 +590,19 @@ public class MessageLoopService(
 
             UpdateGatewayLastSeen(gatewayId);
 
+            bool uplinkTried = false;
             if (mapMqttService.UplinkEnabled
                 && !env.Packet.ViaMqtt)
             {
                 var uplinkInfo = meshtasticService.GetUplinkPacketInfo(env);
                 if (uplinkInfo != null)
                 {
+                    uplinkTried = true;
                     await PerhapsUplinkEnvelopeToMap(networkId, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
                 }
             }
 
-            await ProcessPacket(env, networkId, gatewayId, isTMeshGateway: true);
+            await ProcessPacket(env, networkId, gatewayId, isTMeshGateway: true, uplinkTried: uplinkTried);
         }
         catch (Exception ex)
         {
@@ -605,7 +614,8 @@ public class MessageLoopService(
         ServiceEnvelope env,
         int networkId,
         long tmeshOrMapGatewayId,
-        bool isTMeshGateway)
+        bool isTMeshGateway,
+        bool uplinkTried)
     {
         IServiceScope scope = null;
 
@@ -630,8 +640,19 @@ public class MessageLoopService(
                 return;
             }
 
-            if (!meshtasticService.TryStoreNoDup(env.Packet.Id))
+            if (!meshtasticService.TryStoreNoDup(env.Packet.Id, out var added))
             {
+                //handle race condition where the same packet is received from multiple gateways at the same time
+                if (isTMeshGateway
+                    && !uplinkTried
+                    && mapMqttService.UplinkEnabled
+                    && !env.Packet.ViaMqtt
+                    && DateTime.UtcNow.Subtract(added) < TimeSpan.FromSeconds(1)
+                    && !_stopCancellationTokenSource.IsCancellationRequested)
+                {
+                    ScheduleNeedToUplinkCheck(env, networkId);
+                }
+
                 meshtasticService.AddStat(new MeshStat
                 {
                     NetworkId = networkId,
@@ -769,6 +790,48 @@ public class MessageLoopService(
         {
             scope?.Dispose();
         }
+    }
+
+    private void ScheduleNeedToUplinkCheck(ServiceEnvelope env, int networkId)
+    {
+        var task = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1000, _stopCancellationTokenSource.Token);
+                var uplinkInfo = meshtasticService.GetUplinkPacketInfo(env);
+                if (uplinkInfo != null)
+                {
+                    await PerhapsUplinkEnvelopeToMap(networkId, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        });
+
+        lock (_runningTasks)
+        {
+            _runningTasks.Add(task);
+        }
+        _ = task.ContinueWith(
+               completedTask =>
+               {
+                   lock (_runningTasks)
+                   {
+                       _runningTasks.Remove(completedTask);
+                   }
+
+                   // Observe unexpected exceptions.
+                   if (completedTask.IsFaulted)
+                   {
+                       _ = completedTask.Exception;
+                   }
+               },
+               CancellationToken.None,
+               TaskContinuationOptions.ExecuteSynchronously,
+               TaskScheduler.Default);
     }
 
     private async ValueTask<bool> TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway)
@@ -1243,7 +1306,7 @@ public class MessageLoopService(
                 return;
             }
 
-            await ProcessPacket(env, args.Data.NetworkId.Value, mapGatewayId, isTMeshGateway: false);
+            await ProcessPacket(env, args.Data.NetworkId.Value, mapGatewayId, isTMeshGateway: false, uplinkTried: false);
         }
         catch (Exception ex)
         {

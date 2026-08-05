@@ -901,24 +901,27 @@ namespace TBot
             memoryCache.Set(GetNoDupMessageKey(id), true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
         }
 
-        public bool TryStoreNoDup(ServiceEnvelope env)
+        public bool TryStoreNoDup(ServiceEnvelope env, out DateTime added)
         {
             if (env?.Packet == null)
             {
+                added = default;
                 return false;
             }
             var id = env.Packet.Id;
-            return TryStoreNoDup(id);
+            return TryStoreNoDup(id, out added);
         }
 
-        public bool TryStoreNoDup(uint id)
+        public bool TryStoreNoDup(uint id, out DateTime added)
         {
             var key = GetNoDupMessageKey(id);
-            if (memoryCache.TryGetValue(key, out _))
+            if (memoryCache.TryGetValue(key, out DateTime addedToCache))
             {
+                added = addedToCache;
                 return false;
             }
-            memoryCache.Set(key, true, TimeSpan.FromMinutes(NoDupExpirationMinutes));
+            added = DateTime.UtcNow;
+            memoryCache.Set(key, added, TimeSpan.FromMinutes(NoDupExpirationMinutes));
             return true;
         }
 
