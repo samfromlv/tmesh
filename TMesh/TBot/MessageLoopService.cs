@@ -893,7 +893,9 @@ public class MessageLoopService(
                 return false;
             }
 
-            var (success, msg) = MeshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
+            var (traceRouteSuccess, msg) = MeshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
+
+
 
             meshtasticService.AddStat(new MeshStat
             {
@@ -907,7 +909,7 @@ public class MessageLoopService(
             }
 
             ServiceEnvelope outgoing;
-            if (!success || msg == null || msg.MessageType != MeshMessageType.TraceRoute)
+            if (!traceRouteSuccess || msg == null || msg.MessageType != MeshMessageType.TraceRoute)
             {
                 outgoing = envelope.Clone();
                 outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
@@ -916,25 +918,14 @@ public class MessageLoopService(
                     receiverNetworkId,
                     MessagePriority.High,
                     relayThroughGatewayId: outGoingGatewayId);
+
+                return true;
             }
             else
             {
-                if (!outGoingGatewayId.HasValue)
-                {
-                    return false;
-                }
-
-                logger.LogInformation("Bridging direct message from {Sender} to {Receiver} via trace route injection", MeshtasticService.GetMeshtasticNodeHexId(senderDeviceId), MeshtasticService.GetMeshtasticNodeHexId(receiverDeviceId));
-
-                meshtasticService.InjectOurNodeInTraceRouteAndSend(
-                    (TraceRouteMessage)msg,
-                    receiverDeviceId,
-                    primaryChannel,
-                    primaryChannel.Name,
-                    gatewayId,
-                    outGoingGatewayId.Value);
+                //No bridging for trace routes
+                return false;
             }
-            return true;
         }
         return false;
     }
