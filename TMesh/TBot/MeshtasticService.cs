@@ -13,6 +13,7 @@ using Shared.Models;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using TBot.Analytics.Models;
 using TBot.Database.Models;
@@ -309,21 +310,44 @@ namespace TBot
 
         public void AckMeshtasticMessage(
             MeshMessage msg,
-            IRecipient recipient,
+            Device device,
+            PublicChannel devicePrimaryChannel,
             long? relayGatewayId)
         {
+            if (msg.To != _options.MeshtasticNodeId)
+            {
+                // Not for us, don't ack
+                return;
+            }
+
             if (msg.DeviceId == BroadcastDeviceId)
             {
-                throw new InvalidOperationException("No confirmation for broadcast devices");
+                // No confirmation for broadcast devices
+                return;
             }
 
             var hopsForReply = msg.GetSuggestedReplyHopLimit();
-            var envelope = PackAckMessage(msg.DeviceId, msg.Id, hopsForReply, msg.EnvelopeChannelName, recipient);
+
+            var envelope = PackAckMessage(
+                msg.DeviceId,
+                msg.Id,
+                hopsForReply,
+                msg.EnvelopeChannelName,
+                device,
+                devicePrimaryChannel);
+
+            if (envelope == null)
+            {
+                //Can't encrypt, don't ack
+                return;
+            }
+
             AddStat(new MeshStat
             {
                 NetworkId = msg.NetworkId,
                 AckSent = 1
             });
+
             QueueMessage(envelope, msg.NetworkId, MessagePriority.High, relayGatewayId);
         }
 
@@ -541,14 +565,38 @@ namespace TBot
             long messageId,
             int messageHopLimit,
             string channelName,
-            IRecipient recipient)
+            Device device,
+            PublicChannel devicePublicChannel)
         {
-            var packet = CreateAckMessagePacket(deviceId, recipient.RecipientType == RecipientType.Device ? recipient.RecipientKey : null, messageId, messageHopLimit);
-            if (recipient.RecipientType == RecipientType.PrivateChannel
-                || recipient.RecipientType == RecipientType.PublicChannel)
+            var packet = CreateAckMessagePacket(
+                deviceId,
+                messageId,
+                messageHopLimit);
+
+            if (device.PublicKey != null && device.PublicKey.Length > 0)
             {
-                packet = EncryptPacketWithPsk(packet, recipient);
+                AckProof.Sign(_privateKey, device.PublicKey, packet);
             }
+
+            if (devicePublicChannel != null)
+            {
+                packet = EncryptPacketWithPsk(packet, devicePublicChannel);
+            }
+            else if (device.PublicKey != null && device.PublicKey.Length == PkiKeyLength)
+            {
+                Meshtastic.Crypto.PKIEncryption.Encrypt(
+                    _privateKey,
+                    device.PublicKey,
+                    packet
+                );
+
+                packet.PkiEncrypted = true;
+            }
+            else
+            {
+                return null;
+            }
+
             var envelope = CreateMeshtasticEnvelope(packet, channelName);
             return envelope;
         }
@@ -647,7 +695,7 @@ namespace TBot
 
         private static uint GenerateNewMessageId()
         {
-            return (uint)Math.Floor(Random.Shared.Next() * 1e9);
+            return (uint)Random.Shared.NextInt64(1, 1L << 32);
         }
 
         public static long GetNextMeshtasticMessageId()
@@ -657,7 +705,6 @@ namespace TBot
 
         public MeshPacket CreateAckMessagePacket(
             long deviceId,
-            byte[] publicKey,
             long messageId,
             int messageHopLimit)
         {
@@ -666,7 +713,7 @@ namespace TBot
                 ErrorReason = Routing.Types.Error.None
             };
 
-            var packet = new MeshPacket()
+            return new MeshPacket()
             {
                 Channel = 0,
                 WantAck = false,
@@ -685,22 +732,6 @@ namespace TBot
                     Payload = routeData.ToByteString(),
                 },
             };
-
-            if (publicKey != null && publicKey.Length > 0)
-            {
-                Meshtastic.Crypto.PKIEncryption.Encrypt(
-                    _privateKey,
-                    publicKey,
-                    packet
-                );
-
-                packet.PkiEncrypted = true;
-                // Not needed, as it's in the encrypted payload.
-                // The proxy node should have this node's public key for retransmission.
-                // packet.PublicKey = ByteString.FromBase64(_options.MeshtasticPublicKeyBase64);
-            }
-
-            return packet;
         }
 
         public MeshPacket CreateTraceRoutePacket(
@@ -1168,7 +1199,6 @@ namespace TBot
                     packet.XeddsaSigned = true;
                 }
             }
-
             var input = packet.Decoded.ToByteArray();
             var nonce = new Meshtastic.Crypto.NonceGenerator(packet.From, packet.Id);
             var encrypted = TransformPacket(input, nonce.Create(), channelPsk, true);

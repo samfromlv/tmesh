@@ -22,6 +22,8 @@ namespace TBot.Models.MeshMessages
         public int NetworkId { get; set; }
         public abstract MeshMessageType MessageType { get; }
         public long DeviceId { get; set; }
+
+        public long To { get; set; }
         public long? ChannelId { get; set; }
 
         public bool IsSingleDeviceChannel { get; set; }
@@ -59,6 +61,7 @@ namespace TBot.Models.MeshMessages
             {
                 RawPacketEnvelope = env,
                 DeviceId = env.Packet.From,
+                To = env.Packet.To,
                 OkToMqtt = MeshtasticService.OkToMqtt(decoded),
                 ViaMqtt = env.Packet.ViaMqtt || env.Packet.TransportMechanism == MeshPacket.Types.TransportMechanism.TransportMqtt,
                 EnvelopeChannelName = env.ChannelId,

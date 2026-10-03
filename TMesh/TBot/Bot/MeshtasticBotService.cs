@@ -91,15 +91,6 @@ namespace TBot.Bot
 
         private async Task ProcessInboundDeviceMetricsMessage(DeviceMetricsMessage message)
         {
-            Device device = null;
-            if (message.NeedAck)
-            {
-                device = (message.DecodedBy as Device) ?? await registrationService.GetDeviceAsync(message.DeviceId);
-                if (device != null)
-                {
-                    meshtasticService.AckMeshtasticMessage(message, device, meshSender.GetReplyGatewayId(message));
-                }
-            }
             var analyticsService = services.GetService<AnalyticsService>();
             if (analyticsService == null)
             {
@@ -113,7 +104,7 @@ namespace TBot.Bot
                 return;
             }
 
-            device ??= await registrationService.GetDeviceAsync(message.DeviceId);
+            var device = (message.DecodedBy as Device) ?? await registrationService.GetDeviceAsync(message.DeviceId);
             if (device?.LocationUpdatedUtc == null
                 || !device.IsLocationPublic)
             {
@@ -144,9 +135,22 @@ namespace TBot.Bot
             {
                 return;
             }
-            if (message.NeedAck)
+            if (message.NeedAck && message.To == _options.MeshtasticNodeId)
             {
-                meshtasticService.AckMeshtasticMessage(message, device, meshSender.GetReplyGatewayId(message));
+                var devicePublicChannel = message.DecodedBy.IsPublicChannel
+                    ? (PublicChannel)message.DecodedBy
+                    : null;
+
+                if (devicePublicChannel == null && device.NodeInfoOnPublicChannelId.HasValue)
+                {
+                    devicePublicChannel = await registrationService.GetPublicChannelByIdCachedAsync(device.NodeInfoOnPublicChannelId.Value);
+                }
+
+                meshtasticService.AckMeshtasticMessage(
+                    message,
+                    device,
+                    devicePublicChannel,
+                    meshSender.GetReplyGatewayId(message));
             }
             logger.LogDebug("Processing inbound Meshtastic message: {Message}", message);
             device.LocationUpdatedUtc = DateTime.UtcNow;
@@ -564,11 +568,19 @@ namespace TBot.Bot
             {
                 throw new InvalidOperationException("Device cannot be null for Text messages");
             }
-            if (message.NeedAck)
+
+            if (message.NeedAck 
+                && message.To == _options.MeshtasticNodeId)
             {
+                var devicePublicChannel =
+                    device.NodeInfoOnPublicChannelId.HasValue
+                    ? await registrationService.GetPublicChannelByIdCachedAsync(device.NodeInfoOnPublicChannelId.Value)
+                    : null;
+
                 meshtasticService.AckMeshtasticMessage(
                     message,
                     device,
+                    devicePublicChannel,
                     meshSender.GetReplyGatewayId(message));
             }
 
@@ -607,7 +619,7 @@ namespace TBot.Bot
                 await HandleEndChatRequstFromMesh(message, device, device, null);
                 return;
             }
-            else if (cmdText != null 
+            else if (cmdText != null
                 && (cmdText.Equals("nopongs", StringComparison.OrdinalIgnoreCase) ||
                     cmdText.Equals("nodm", StringComparison.OrdinalIgnoreCase)))
             {
@@ -678,7 +690,7 @@ namespace TBot.Bot
                 if (device.NoDmPongs || device.IsUnmessagable)
                 {
                     string noPongsReply;
-                    
+
                     if (device.NoDmPongs)
                     {
                         noPongsReply = _options.Texts.PingReplyNoPongs ?? "Can't answer. You can reenable pongs with /enablepongs";
@@ -873,12 +885,12 @@ namespace TBot.Bot
         private async Task ProcessInboundNodeInfo(NodeInfoMessage message)
         {
             int? publicChannelIdWithPreset = null;
+            PublicChannel publicChannel = null;
             if (message.DecodedBy.IsPublicChannel)
             {
-                var channel = message.DecodedBy as PublicChannel
-                    ?? await registrationService.GetPublicChannelByIdCachedAsync(message.DecodedBy.RecipientPublicChannelId.Value);
+                publicChannel = message.DecodedBy as PublicChannel;
 
-                if (channel != null && (channel.IsPrimary || channel.SendNodeInfoOnSecondary))
+                if (publicChannel != null && (publicChannel.IsPrimary || publicChannel.SendNodeInfoOnSecondary))
                 {
                     publicChannelIdWithPreset = message.DecodedBy.RecipientPublicChannelId;
                 }
@@ -896,11 +908,18 @@ namespace TBot.Bot
                 message.NodeInfo.IsUnmessagable,
                 MeshtasticService.ConvertDeviceRole(message.NodeInfo.Role));
 
-            if (message.NeedAck && res.device != null && res.device.PublicKey != null)
+            if (message.NeedAck && message.To == _options.MeshtasticNodeId)
             {
+                var devicePublicChannel = publicChannel;
+                if (devicePublicChannel == null 
+                    && res.device.NodeInfoOnPublicChannelId != null)
+                {
+                    devicePublicChannel = await registrationService.GetPublicChannelByIdCachedAsync(res.device.NodeInfoOnPublicChannelId.Value);
+                }
                 meshtasticService.AckMeshtasticMessage(
                   message,
                   res.device,
+                  devicePublicChannel,
                   meshSender.GetReplyGatewayId(message));
             }
 
