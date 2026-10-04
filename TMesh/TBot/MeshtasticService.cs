@@ -1113,11 +1113,11 @@ namespace TBot
                     Portnum = PortNum.NodeinfoApp,
                     Payload = new User
                     {
-                        HwModel = HardwareModel.DiyV1,
+                        HwModel = HardwareModel.PrivateHw,
                         Id = GetMeshtasticNodeHexId(_options.MeshtasticNodeId),
                         IsLicensed = false,
                         LongName = _options.MeshtasticNodeNameLong,
-                        IsUnmessagable = false, // Field name from external library kept as-is.
+                        IsUnmessagable = false, // TMesh Bot accepts DMs, so this is false.
                         ShortName = _options.MeshtasticNodeNameShort,
                         Role = Config.Types.DeviceConfig.Types.Role.ClientHidden,
                         PublicKey = ByteString.FromBase64(_options.MeshtasticPublicKeyBase64)
@@ -1159,7 +1159,7 @@ namespace TBot
                         Id = GetMeshtasticNodeHexId(device.Id),
                         IsLicensed = false,
                         LongName = device.Name,
-                        IsUnmessagable = false, // Field name from external library kept as-is.
+                        IsUnmessagable = true, // Virtual gateway devices are not messagable, so this is true.
                         ShortName = device.ShortName,
                         Role = Config.Types.DeviceConfig.Types.Role.ClientHidden,
                         PublicKey = ByteString.CopyFrom(device.PublicKey)
