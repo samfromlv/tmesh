@@ -523,17 +523,18 @@ namespace TBot
             return Regex.Replace(input.ToLowerInvariant(), "[^a-z2-7]", "");
         }
 
-        private string GetAdminOtpCodeForRequest(PendingCode code)
+        private (string generalCode, string requestSpecificCode) GetAdminOtpCodesForRequest(PendingCode code)
         {
-            if (string.IsNullOrEmpty(_options.AdminOtpKey)) return null;
+            if (string.IsNullOrEmpty(_options.AdminOtpKey)) return default;
 
             var secret = new StringBuilder(_options.AdminOtpKey);
+            var generalCode = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(secret.ToString())).ComputeTotp();
             if (code.DeviceId.HasValue)
             {
                 var deviceIdSanitized = Base32Sanitize(MeshtasticService.GetMeshtasticNodeHexId(code.DeviceId.Value));
                 if (String.IsNullOrEmpty(deviceIdSanitized))
                 {
-                    return null;
+                    return (generalCode, null);
                 }
                 secret.Append(deviceIdSanitized);
             }
@@ -542,12 +543,12 @@ namespace TBot
                 var channelNameSanitized = Base32Sanitize(code.ChannelName);
                 if (String.IsNullOrEmpty(channelNameSanitized))
                 {
-                    return null;
+                    return (generalCode, null);
                 }
                 secret.Append(channelNameSanitized);
             }
             var totp = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(secret.ToString()));
-            return totp.ComputeTotp();
+            return (generalCode, totp.ComputeTotp());
         }
 
         public async Task<bool> TryCreateRegistrationWithCode(
@@ -569,8 +570,9 @@ namespace TBot
 
             if (!string.Equals(storedCode.Code, code, StringComparison.OrdinalIgnoreCase))
             {
-                var adminOtpCode = GetAdminOtpCodeForRequest(storedCode);
-                if (adminOtpCode == null || !string.Equals(adminOtpCode, code, StringComparison.OrdinalIgnoreCase))
+                var adminOtpCodes = GetAdminOtpCodesForRequest(storedCode);
+                if (!string.Equals(adminOtpCodes.generalCode, code, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(adminOtpCodes.requestSpecificCode, code, StringComparison.OrdinalIgnoreCase))
                 {
                     memoryCache.Set(key, storedCode, storedCode.ExpiresUtc);
                     return false;
