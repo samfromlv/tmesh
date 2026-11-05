@@ -1138,10 +1138,10 @@ public class MessageLoopService(
             return;
         }
 
-        if (msg.OkToMqtt != OkToMqttStatus.True)
-        {
-            return;
-        }
+        //if (msg.OkToMqtt != OkToMqttStatus.True)
+        //{
+        //    return;
+        //}
 
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var network = await registrationService.GetNetwork(msg.NetworkId);

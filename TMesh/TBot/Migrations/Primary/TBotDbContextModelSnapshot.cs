@@ -174,6 +174,11 @@ namespace TBot.Migrations.Primary
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("OkToMqtt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
                     b.Property<byte[]>("PublicKey")
                         .IsRequired()
                         .HasColumnType("BLOB");
