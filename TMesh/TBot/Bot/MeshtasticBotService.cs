@@ -125,7 +125,11 @@ namespace TBot.Bot
                 AirUtil = message.AirUtilization,
             };
 
-            await analyticsService.RecordEventAsync(metrics);
+
+            if (message.OkToMqtt == Models.Uplink.OkToMqttStatus.True)
+            {
+                await analyticsService.RecordEventAsync(metrics);
+            }
         }
 
         private async Task ProcessInboundPositionMessage(PositionMessage message)
@@ -156,7 +160,7 @@ namespace TBot.Bot
             device.LocationUpdatedUtc = DateTime.UtcNow;
             device.Longitude = message.Longitude;
             device.Latitude = message.Latitude;
-            device.IsLocationPublic = message.DecodedBy.IsPublicChannel;
+            device.IsLocationPublic = message.DecodedBy.IsPublicChannel && message.OkToMqtt == Models.Uplink.OkToMqttStatus.True;
             device.AccuracyMeters = (int)Math.Round(message.AccuracyMeters);
             await registrationService.SaveAssumeChanged(device);
             if (!message.SentToOurNodeId)
@@ -906,7 +910,8 @@ namespace TBot.Bot
                 message.Id,
                 publicChannelIdWithPreset,
                 message.NodeInfo.IsUnmessagable,
-                MeshtasticService.ConvertDeviceRole(message.NodeInfo.Role));
+                MeshtasticService.ConvertDeviceRole(message.NodeInfo.Role),
+                message.OkToMqtt == Models.Uplink.OkToMqttStatus.True);
 
             if (message.NeedAck && message.To == _options.MeshtasticNodeId)
             {

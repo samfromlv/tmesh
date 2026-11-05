@@ -26,6 +26,7 @@ public class Device : IRecipient
     public bool IsUnmessagable { get; set; }
     public DeviceRole? Role { get; set; }
     public bool IsLocationPublic { get; set; }
+    public bool OkToMqtt { get; set; }
     public DateTime? LocationUpdatedUtc { get; set; }
     public int? AccuracyMeters { get; set; }
     long? IRecipient.RecipientDeviceId => DeviceId;

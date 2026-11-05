@@ -11,6 +11,7 @@ using TBot.Helpers;
 using TBot.Models;
 using TBot.Models.ChatSession;
 using TBot.Models.ScheduledMessages;
+using TBot.Models.Uplink;
 
 namespace TBot
 {
@@ -872,7 +873,8 @@ namespace TBot
             long meshPacketId,
             int? nodeInfoFromPublicChannelId,
             bool noMessages,
-            DeviceRole? role)
+            DeviceRole? role,
+            bool okToMqtt)
         {
             if (publicKey == null || publicKey.Length == 0 || publicKey.Length != MeshtasticService.PkiKeyLength)
             {
@@ -897,7 +899,8 @@ namespace TBot
                     CreatedUtc = now,
                     UpdatedUtc = now,
                     NodeInfoOnPublicChannelId = nodeInfoFromPublicChannelId,
-                    LastUpdatePacketId = meshPacketId
+                    LastUpdatePacketId = meshPacketId,
+                    OkToMqtt = okToMqtt
                 };
                 db.Devices.Add(entity);
                 res = SaveResult.Inserted;
@@ -925,6 +928,7 @@ namespace TBot
                 entity.UpdatedUtc = now;
                 entity.Role = role;
                 entity.LastUpdatePacketId = meshPacketId;
+                entity.OkToMqtt = okToMqtt;
                 res = SaveResult.Updated;
             }
             else if (entity.HasRegistrations
@@ -934,6 +938,7 @@ namespace TBot
                 entity.NetworkId = networkId;
                 entity.IsUnmessagable = noMessages;
                 entity.NodeName = nodeName;
+                entity.OkToMqtt = okToMqtt;
                 entity.Role = role;
                 if (nodeInfoFromPublicChannelId != null)
                 {
@@ -1353,7 +1358,8 @@ namespace TBot
         public async Task<List<DeviceNameForVote>> GetActiveDevicesNamesForVote(int networkId, DateTime fromUtc)
         {
             return await db.Devices.Where(d => d.NetworkId == networkId
-                && d.UpdatedUtc >= fromUtc)
+                && d.UpdatedUtc >= fromUtc
+                && d.OkToMqtt)
                 .Select(x => new DeviceNameForVote
                 {
                     DeviceId = x.DeviceId,

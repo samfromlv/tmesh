@@ -65,6 +65,9 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.AccuracyMeters);
             e.Property(p => p.NoDmPongs).HasDefaultValue(false);
             e.Property(p => p.IsUnmessagable).HasDefaultValue(false);
+            e.Property(p => p.OkToMqtt)
+                .IsRequired()
+                .HasDefaultValue(true);
 
             e.HasIndex(r => r.NetworkId);
 

@@ -1060,15 +1060,18 @@ public class MessageLoopService(
             if (msg.MessageType == MeshMessageType.DeviceMetrics
                 && _gatewayLookup.ContainsKey(msg.DeviceId))
             {
-                await SaveLinkTrace(
-                    scope: scope,
-                    packetId: msg.Id,
-                    networkId: msg.NetworkId,
-                    gatewayId: gatewayId,
-                    deviceId: msg.DeviceId,
-                    hopStart: (uint)msg.HopStart,
-                    hopLimit: (uint)msg.HopLimit,
-                    cachePacketId: true);
+                if (msg.OkToMqtt == OkToMqttStatus.True)
+                {
+                    await SaveLinkTrace(
+                        scope: scope,
+                        packetId: msg.Id,
+                        networkId: msg.NetworkId,
+                        gatewayId: gatewayId,
+                        deviceId: msg.DeviceId,
+                        hopStart: (uint)msg.HopStart,
+                        hopLimit: (uint)msg.HopLimit,
+                        cachePacketId: true);
+                }
             }
             else if (msg.MessageType == MeshMessageType.NodeInfo)
             {
@@ -1135,6 +1138,11 @@ public class MessageLoopService(
             return;
         }
 
+        if (msg.OkToMqtt != OkToMqttStatus.True)
+        {
+            return;
+        }
+
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var network = await registrationService.GetNetwork(msg.NetworkId);
         if (network == null || !network.SaveAnalytics)
@@ -1155,7 +1163,7 @@ public class MessageLoopService(
             return;
         }
 
-        if (msg.DecodedBy == null || !msg.DecodedBy.IsPublicChannel)
+        if (msg.DecodedBy == null || !msg.DecodedBy.IsPublicChannel || msg.OkToMqtt != OkToMqttStatus.True)
         {
             return;
         }
@@ -1239,7 +1247,8 @@ public class MessageLoopService(
             if (toDevice == null
                 || toDevice.Latitude == null
                 || toDevice.Longitude == null
-                || !toDevice.IsLocationPublic)
+                || !toDevice.IsLocationPublic
+                || !toDevice.OkToMqtt)
             {
                 return;
             }
@@ -1248,7 +1257,8 @@ public class MessageLoopService(
             if (fromDevice == null
                 || fromDevice.Latitude == null
                 || fromDevice.Longitude == null
-                || !fromDevice.IsLocationPublic)
+                || !fromDevice.IsLocationPublic
+                || !fromDevice.OkToMqtt)
             {
                 return;
             }

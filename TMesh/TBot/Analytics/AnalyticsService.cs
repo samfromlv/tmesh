@@ -103,7 +103,7 @@ namespace TBot.Analytics
 
             double? latitude = null;
             double? longitude = null;
-            if (device.IsLocationPublic)
+            if (device.IsLocationPublic && device.OkToMqtt)
             {
                 latitude = device.Latitude;
                 longitude = device.Longitude;
@@ -116,11 +116,17 @@ namespace TBot.Analytics
                 presetName = channel?.Name;
             }
 
+            var name = device.NodeName;
+            if (!device.OkToMqtt)
+            {
+                name = "NotOkToMqtt " + MeshtasticService.GetMeshtasticNodeHexId(device.DeviceId); 
+            }
+
 
             var updated = await db.TracePairDevices
                 .Where(x => x.RecDate == localToday && x.Id == id && x.NetworkId == networkId)
                 .ExecuteUpdateAsync(x => x
-                    .SetProperty(d => d.Name, device.NodeName)
+                    .SetProperty(d => d.Name, name)
                     .SetProperty(d => d.Latitude, latitude)
                     .SetProperty(d => d.Longitude, longitude)
                     .SetProperty(d => d.Role, device.Role)
@@ -133,7 +139,7 @@ namespace TBot.Analytics
                     Id = id,
                     NetworkId = networkId,
                     RecDate = localToday,
-                    Name = device.NodeName,
+                    Name = name,
                     Latitude = latitude,
                     Longitude = longitude,
                     Role = device.Role,
