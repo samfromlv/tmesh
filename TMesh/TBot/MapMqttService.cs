@@ -7,6 +7,7 @@ using MQTTnet;
 using MQTTnet.Packets;
 using Shared.Models;
 using System.Text;
+using TBot.Database.Models;
 using TBot.Models;
 using TBot.Models.Uplink;
 
@@ -113,13 +114,13 @@ namespace TBot
         public bool UplinkEnabled => _clients?.Any(x => x.server.UplinkMode != UplinkMode.Disabled) == true;
 
 
-        public bool ShouldUplink(OkToMqttStatus okToMqttStatus, int networkId)
+        public bool ShouldUplink(OkToMqttStatus okToMqttStatus, int networkId, UplinkPrivacyMode privacyMode)
         {
             foreach (var (_, server) in _clients.Where(x => 
                     x.server.UplinkMode != UplinkMode.Disabled
                     && (x.server.FilterByNetworkId == null || x.server.FilterByNetworkId == networkId)))
             {
-                if (ShouldUplink(okToMqttStatus, server.UplinkMode))
+                if (ShouldUplink(okToMqttStatus, server.UplinkMode, privacyMode))
                 {
                     return true;
                 }
@@ -129,6 +130,7 @@ namespace TBot
 
         public async ValueTask<bool> PublishMeshtasticMessage(
           int networkId,
+          UplinkPrivacyMode privacyMode,
           OkToMqttStatus okToMqttStatus,
           ServiceEnvelope envelope)
         {
@@ -138,7 +140,7 @@ namespace TBot
                 && x.mqttClient.IsConnected
                 && (x.server.FilterByNetworkId == null || x.server.FilterByNetworkId == networkId)))
             {
-                var shouldUplink = ShouldUplink(okToMqttStatus, server.UplinkMode);
+                var shouldUplink = ShouldUplink(okToMqttStatus, server.UplinkMode, privacyMode);
                 if (shouldUplink)
                 {
                     await PublishToClientAsync(client, server, networkId, envelope);
@@ -148,27 +150,51 @@ namespace TBot
             return published;
         }
 
-        private static bool ShouldUplink(OkToMqttStatus okToMqttStatus, UplinkMode uplinkMode)
-            => uplinkMode switch
+        private static bool ShouldUplink(
+            OkToMqttStatus okToMqttStatus,
+            UplinkMode uplinkMode,
+            UplinkPrivacyMode privacyMode)
+        {
+            switch (privacyMode)
             {
-                UplinkMode.Disabled => false,
-                UplinkMode.MqttOkExplicitTrueOnly => okToMqttStatus == OkToMqttStatus.True,
-                UplinkMode.MqttOkTrueAndUnknown => okToMqttStatus == OkToMqttStatus.True || okToMqttStatus == OkToMqttStatus.Unknown,
-                UplinkMode.MqttOkTrueAndUnknownAndFalseExceptPosition => 
-                    okToMqttStatus == OkToMqttStatus.True 
-                         || okToMqttStatus == OkToMqttStatus.Unknown
-                         || okToMqttStatus == OkToMqttStatus.False_NotPosition,
-                UplinkMode.All => true,
-                UplinkMode.MqttNotOkOnly => okToMqttStatus == OkToMqttStatus.False_NotPosition
-                    || okToMqttStatus == OkToMqttStatus.False_IsPosition,
-                UplinkMode.MqttNotOkAndUnknown => okToMqttStatus == OkToMqttStatus.False_NotPosition
-                    || okToMqttStatus == OkToMqttStatus.False_IsPosition
-                    || okToMqttStatus == OkToMqttStatus.Unknown,
-                UplinkMode.MqttNotOkAndUnknownExceptPosition => okToMqttStatus == OkToMqttStatus.False_NotPosition
-                    || okToMqttStatus == OkToMqttStatus.Unknown,
-                UplinkMode.MqttNotOkOnlyExceptPosition => okToMqttStatus == OkToMqttStatus.False_NotPosition,
-                _ => throw new NotImplementedException($"UplinkMode {uplinkMode} not implemented")
-            };
+                case UplinkPrivacyMode.Default:
+                    return ShouldUplinkNormalPrivacy(okToMqttStatus, uplinkMode);
+                case UplinkPrivacyMode.OnlyOkToMqttAndPKI:
+                    return ShouldUplinkNormalPrivacy(okToMqttStatus, uplinkMode)
+                        && (okToMqttStatus == OkToMqttStatus.True
+                        || okToMqttStatus == OkToMqttStatus.UnknownPkiEncrypted);
+                default:
+                    throw new NotImplementedException($"UplinkPrivacyMode {privacyMode} not implemented");
+            }
+        }
+
+        private static bool ShouldUplinkNormalPrivacy(OkToMqttStatus okToMqttStatus, UplinkMode uplinkMode)
+           => uplinkMode switch
+           {
+               UplinkMode.Disabled => false,
+               UplinkMode.MqttOkExplicitTrueOnly => okToMqttStatus == OkToMqttStatus.True,
+               UplinkMode.MqttOkTrueAndUnknown => okToMqttStatus == OkToMqttStatus.True 
+                    || okToMqttStatus == OkToMqttStatus.Unknown
+                    || okToMqttStatus == OkToMqttStatus.UnknownPkiEncrypted,
+               UplinkMode.MqttOkTrueAndUnknownAndFalseExceptPosition =>
+                   okToMqttStatus == OkToMqttStatus.True
+                        || okToMqttStatus == OkToMqttStatus.Unknown
+                        || okToMqttStatus == OkToMqttStatus.UnknownPkiEncrypted
+                        || okToMqttStatus == OkToMqttStatus.False_NotPosition,
+               UplinkMode.All => true,
+               UplinkMode.MqttNotOkOnly => okToMqttStatus == OkToMqttStatus.False_NotPosition
+                   || okToMqttStatus == OkToMqttStatus.False_IsPosition,
+               UplinkMode.MqttNotOkAndUnknown => okToMqttStatus == OkToMqttStatus.False_NotPosition
+                   || okToMqttStatus == OkToMqttStatus.False_IsPosition
+                   || okToMqttStatus == OkToMqttStatus.Unknown
+                   || okToMqttStatus == OkToMqttStatus.UnknownPkiEncrypted,
+               UplinkMode.MqttNotOkAndUnknownExceptPosition => okToMqttStatus == OkToMqttStatus.False_NotPosition
+                   || okToMqttStatus == OkToMqttStatus.Unknown
+                   || okToMqttStatus == OkToMqttStatus.UnknownPkiEncrypted,
+               UplinkMode.MqttNotOkOnlyExceptPosition => okToMqttStatus == OkToMqttStatus.False_NotPosition,
+               _ => throw new NotImplementedException($"UplinkMode {uplinkMode} not implemented")
+           };
+
 
         private async Task PublishToClientAsync(IMqttClient client, MapMqttServerOptions server, int networkId, ServiceEnvelope envelope)
         {

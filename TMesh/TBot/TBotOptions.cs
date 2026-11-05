@@ -123,6 +123,7 @@ public class AzureBlobBackupPathOptions
 
 public class MapMqttServerOptions
 {
+    public string Name { get; set; }
     public string Address { get; set; }
     public int Port { get; set; } = 1883;
     public string User { get; set; }

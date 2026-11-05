@@ -27,6 +27,7 @@ namespace TBot.Models
         RemovingChannelFromAll,
         PromotingToGateway,
         PromotingToGateway_NeedFirmwareConfirm,
+        PromotingToGateway_NeedPrivacyMode,
         DemotingFromGateway,
         Admin,
         RegisteringChat_NeedName

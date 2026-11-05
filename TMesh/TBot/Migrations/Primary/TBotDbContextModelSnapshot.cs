@@ -242,6 +242,11 @@ namespace TBot.Migrations.Primary
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(1);
 
+                    b.Property<byte>("PrivacyMode")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue((byte)0);
+
                     b.Property<DateTime>("UpdatedUtc")
                         .HasColumnType("TEXT");
 

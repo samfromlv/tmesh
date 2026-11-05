@@ -8,6 +8,6 @@ namespace TBot.Models.Uplink
 {
     public enum OkToMqttStatus
     {
-        False_NotPosition, True, Unknown, False_IsPosition 
+        False_NotPosition, True, Unknown, False_IsPosition, UnknownPkiEncrypted
     }
 }

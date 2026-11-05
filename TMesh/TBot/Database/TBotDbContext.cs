@@ -87,6 +87,9 @@ public class TBotDbContext(DbContextOptions<TBotDbContext> options) : DbContext(
             e.Property(p => p.VirtualNodeId)
                 .IsRequired()
                 .HasDefaultValue(0);
+            e.Property(p => p.PrivacyMode)
+                .IsRequired()
+                .HasDefaultValue(UplinkPrivacyMode.Default);
         });
 
         modelBuilder.Entity<Channel>(e =>

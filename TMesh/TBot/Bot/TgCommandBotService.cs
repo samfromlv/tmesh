@@ -504,11 +504,82 @@ namespace TBot.Bot
             }
 
             var deviceId = chatStateWithData.DeviceId.Value;
-            registrationService.SetChatState(userId, chatId, ChatState.Default);
-            return await ExecutePromoteToGateway(userId, chatId, deviceId);
+            var device = await registrationService.GetDeviceAsync(deviceId);
+            if (device == null)
+            {
+                await botClient.SendMessage(chatId, "Device not found. Please start over with /promote_to_gateway.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return TgResult.Ok;
+            }
+
+            var uplinkServices = _options.MapMqttServers?
+                .Where(x => x.UplinkMode != UplinkMode.Disabled && (x.FilterByNetworkId == null || device.NetworkId == x.FilterByNetworkId))
+                .Select(s => s.Name)
+                .Distinct()
+                .OrderBy(s => s)
+                .ToList();
+
+            string uplinkLinkStrMd = uplinkServices?.Count > 0
+                ? string.Concat(" (", string.Join(", ", uplinkServices.Select(s => $"{StringHelper.EscapeMd(s)}")), ")")
+                : "";
+
+            chatStateWithData.State = ChatState.PromotingToGateway_NeedPrivacyMode;
+
+            registrationService.SetChatStateWithData(userId, chatId, chatStateWithData);
+            await botClient.SendMessage(chatId,
+                 $"TMesh server uplinks packets to other services{uplinkLinkStrMd}.\n\n" +
+                 "Please choose if you allow TMesh to uplink packets where ok\\_to\\_mqtt flag is false or unknown.\n\n" +
+                 "*default* - allow to uplink packets where ok\\_to\\_mqtt flag is false or unknown, except location packets. Packets are uplinked encrypted, so privacy is not affected. This mode allows other services to implement better tools for the network.\n\n" + 
+                 "*strict* - only allow to uplink packets where ok\\_to\\_mqtt flag is true or packet is encrypted with PKI and flag is unknown, same behavior as default Meshtastic firmware\n\n"+
+                 "Please reply with *default* or *strict*",
+                 parseMode: ParseMode.Markdown);
+            return TgResult.Ok;
         }
 
-        private async Task<TgResult> ExecutePromoteToGateway(long userId, long chatId, long deviceId)
+        private async Task<TgResult> ProceedPromoteToGateway_SelectPrivacyMode(long userId, long chatId, Message message)
+        {
+            var text = message.Text?.Trim();
+            if (!string.Equals(text, "default", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(text, "strict", StringComparison.OrdinalIgnoreCase))
+            {
+                await botClient.SendMessage(chatId,
+                    $"Please reply with *default* or *strict*, or /stop to cancel.",
+                    parseMode: ParseMode.Markdown);
+                return TgResult.Ok;
+            }
+
+            var uplinkPrivacyMode = ParseUplinkPrivacyMode(text);
+
+            var chatStateWithData = registrationService.GetChatState(userId, chatId);
+            if (chatStateWithData?.DeviceId == null)
+            {
+                await botClient.SendMessage(chatId, "Session data lost. Please start over with /promote_to_gateway.");
+                registrationService.SetChatState(userId, chatId, ChatState.Default);
+                return TgResult.Ok;
+            }
+
+            var deviceId = chatStateWithData.DeviceId.Value;
+            registrationService.SetChatState(userId, chatId, ChatState.Default);
+            return await ExecutePromoteToGateway(userId, chatId, deviceId, uplinkPrivacyMode);
+        }
+
+        public static UplinkPrivacyMode ParseUplinkPrivacyMode(string text)
+        {
+            if (string.Equals(text, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                return UplinkPrivacyMode.Default;
+            }
+            else if (string.Equals(text, "strict", StringComparison.OrdinalIgnoreCase))
+            {
+                return UplinkPrivacyMode.OnlyOkToMqttAndPKI;
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid privacy mode: {text}");
+            }
+        }
+
+        private async Task<TgResult> ExecutePromoteToGateway(long userId, long chatId, long deviceId, UplinkPrivacyMode privacyMode)
         {
             var hexId = MeshtasticService.GetMeshtasticNodeHexId(deviceId);
             var device = await registrationService.GetDeviceAsync(deviceId);
@@ -521,7 +592,7 @@ namespace TBot.Bot
 
             var deviceName = device.NodeName;
 
-            await registrationService.RegisterGatewayAsync(deviceId, device.NetworkId);
+            await registrationService.RegisterGatewayAsync(deviceId, device.NetworkId, privacyMode);
             botCache.StoreGatewayRegistraionChat(deviceId, chatId);
 
 
@@ -1409,6 +1480,8 @@ namespace TBot.Bot
                     return await ProceedPromoteToGateway(userId, chatId, msg);
                 case ChatState.PromotingToGateway_NeedFirmwareConfirm:
                     return await ProceedPromoteToGateway_NeedFirmwareConfirm(userId, chatId, msg);
+                case ChatState.PromotingToGateway_NeedPrivacyMode:
+                    return await ProceedPromoteToGateway_SelectPrivacyMode(userId, chatId, msg);
                 case ChatState.DemotingFromGateway:
                     return await ProceedDemoteFromGateway(userId, chatId, msg);
                 case ChatState.RegisteringChat_NeedName:

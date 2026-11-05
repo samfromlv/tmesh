@@ -951,7 +951,7 @@ namespace TBot.Bot
                || !MeshtasticService.TryParseDeviceId(nodeId, out var parsedNodeId))
             {
                 await botClient.SendMessage(chatId, $"Invalid node ID format: '{nodeId}'. The node ID can be decimal or hex (hex starts with ! or #)." +
-                    $"Example: /admin add_gateway <nodeId> <networkId>");
+                    $"Example: /admin add_gateway <nodeId> <networkId> <privacyMode - default|strict>");
                 return TgResult.Ok;
             }
 
@@ -962,9 +962,26 @@ namespace TBot.Bot
             if (networkId == null)
             {
                 await botClient.SendMessage(chatId, $"Invalid or missing network ID. Please specify a valid integer network ID as the second argument." +
-                    $"Example: /admin add_gateway <nodeId> <networkId>");
+                    $"Example: /admin add_gateway <nodeId> <networkId> <privacyMode - default|strict>");
                 return TgResult.Ok;
             }
+
+            var privacyMode = segments.Length >= 4 ? segments[3].ToLowerInvariant() : null;
+
+            if (string.IsNullOrWhiteSpace(privacyMode))
+            {
+                await botClient.SendMessage(chatId, $"Missing privacy mode. Please specify a privacy mode as the third argument: 'default' or 'strict'." +
+                    $"Example: /admin add_gateway <nodeId> <networkId> <privacyMode - default|strict>");
+                return TgResult.Ok;
+            }
+
+            if (privacyMode != "default" && privacyMode != "strict")
+            {
+                await botClient.SendMessage(chatId, $"Invalid privacy mode: '{privacyMode}'. Valid values are 'default' or 'strict'.");
+                return TgResult.Ok;
+            }
+
+            var uplinkPrivacyMode = TgCommandBotService.ParseUplinkPrivacyMode(privacyMode);
 
             var network = await registrationService.GetNetwork(networkId.Value);
             if (network == null)
@@ -989,7 +1006,7 @@ namespace TBot.Bot
                 return TgResult.Ok;
             }
 
-            await registrationService.RegisterGatewayAsync(parsedNodeId, networkId.Value);
+            await registrationService.RegisterGatewayAsync(parsedNodeId, networkId.Value, uplinkPrivacyMode);
             botCache.StoreGatewayRegistraionChat(parsedNodeId, chatId);
             var mqttUsername = hexId;
             var mqttPassword = registrationService.DeriveMqttPasswordForDevice(parsedNodeId);
@@ -998,6 +1015,7 @@ namespace TBot.Bot
             var adminPublicChannels = (await registrationService
                 .GetPublicChannelsByNetworkAsync(networkId.Value)
                 ).Where(c => c.IsPrimary || !c.SendNodeInfoOnSecondary);
+
             var instructions = TgCommandBotService.CreateGatewaySetupInstructions(
                 hexId,
                 device?.NodeName,
@@ -1366,7 +1384,7 @@ namespace TBot.Bot
             envelope.Packet.RelayNode = 35;
             envelope.Packet.RxTime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-            bool sent = await mapMqttService.PublishMeshtasticMessage(publicChannel.NetworkId, MeshtasticService.DefaultOkToMqtt, envelope);
+            bool sent = await mapMqttService.PublishMeshtasticMessage(publicChannel.NetworkId, privacyMode: UplinkPrivacyMode.Default, MeshtasticService.DefaultOkToMqtt, envelope);
 
             if (sent)
             {

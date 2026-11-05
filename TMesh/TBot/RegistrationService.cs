@@ -713,13 +713,14 @@ namespace TBot
                     {
                         DeviceId = g.DeviceId,
                         LastSeen = g.LastSeenUtc,
-                        NetworkId = g.NetworkId
+                        NetworkId = g.NetworkId,
+                        PrivacyMode = g.PrivacyMode
                     }).ToListAsync();
                 return gatewayIds.ToDictionary(g => g.DeviceId);
             });
         }
 
-        public async Task RegisterGatewayAsync(long deviceId, int networkId)
+        public async Task RegisterGatewayAsync(long deviceId, int networkId, UplinkPrivacyMode privacyMode)
         {
             var now = DateTime.UtcNow;
             var entity = await db.GatewayRegistrations.FirstOrDefaultAsync(g => g.DeviceId == deviceId);
@@ -730,7 +731,8 @@ namespace TBot
                     DeviceId = deviceId,
                     CreatedUtc = now,
                     UpdatedUtc = now,
-                    NetworkId = networkId
+                    NetworkId = networkId,
+                    PrivacyMode = privacyMode
                 };
 
                 var (publicKey, privateKey) = MeshtasticService.GenerateKeyPair();
@@ -744,6 +746,7 @@ namespace TBot
             else
             {
                 entity.UpdatedUtc = now;
+                entity.PrivacyMode = privacyMode;
             }
             await db.SaveChangesAsync();
             memoryCache.Remove("GatewayNodeIds");

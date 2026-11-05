@@ -24,7 +24,6 @@ namespace TBot
 
         public const string NetworkSegmentPrefix = "N";
 
-
         public MqttService(
             ILogger<MqttService> logger,
             IOptions<TBotOptions> options,
@@ -190,11 +189,14 @@ namespace TBot
 
             var slashIndex = topic.IndexOf('/', _topicPrefixNetworkCharIndex + 1);
 
+
             if (slashIndex > _topicPrefixNetworkCharIndex)
             {
                 var networkSegment = topic.AsSpan(
-                    _topicPrefixNetworkCharIndex + 1/*Slash*/ + NetworkSegmentPrefix.Length,
-                    slashIndex - _topicPrefixNetworkCharIndex - 1/*Slash*/ - NetworkSegmentPrefix.Length);
+                    _topicPrefixNetworkCharIndex + 1/*Slash*/,
+                    slashIndex - _topicPrefixNetworkCharIndex - 1/*Slash*/)
+                    .Slice(NetworkSegmentPrefix.Length);
+
                 if (int.TryParse(networkSegment, out int networkId))
                 {
                     return networkId;

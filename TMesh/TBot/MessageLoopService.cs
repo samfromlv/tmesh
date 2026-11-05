@@ -44,7 +44,7 @@ public class MessageLoopService(
     private BlockingCollection<AckMessage> _ackQueue;
     private readonly SemaphoreSlim _ackQueueSemaphore = new(0);
     private Task _ackWorker;
-    private Dictionary<long, int> _gatewayNetworkIds;
+    private Dictionary<long, (int networkId, UplinkPrivacyMode privacyMode)> _gatewayLookup;
     private Dictionary<int, PublicChannel> _primaryChannels;
     private HashSet<long> _registeredGatewayIds;
     private HashSet<long> _newGatewayIds;
@@ -335,7 +335,7 @@ public class MessageLoopService(
     private async Task LocalMessageQueueService_SendMessage(DataEventArgs<QueuedMessage> arg)
     {
         var relayThroughGatewayId = arg.Data.RelayThroughGatewayId;
-        if (relayThroughGatewayId.HasValue && !_gatewayNetworkIds.ContainsKey(relayThroughGatewayId.Value))
+        if (relayThroughGatewayId.HasValue && !_gatewayLookup.ContainsKey(relayThroughGatewayId.Value))
         {
             relayThroughGatewayId = null;
         }
@@ -347,10 +347,13 @@ public class MessageLoopService(
             arg.Data.Message,
             relayThroughGatewayId);
 
-        if (mapMqttService.UplinkEnabled
-            && !arg.Data.Message.Packet.ViaMqtt)
+        if (
+            mapMqttService.UplinkEnabled
+            && !arg.Data.Message.Packet.ViaMqtt
+            && !arg.Data.NoUplink)
         {
             await PerhapsUplinkEnvelopeToMap(arg.Data.NetworkId,
+                privacyMode: UplinkPrivacyMode.Default,
                 MeshtasticService.DefaultOkToMqtt,
                 arg.Data.Message,
                 overrideChannelId: null);
@@ -450,8 +453,7 @@ public class MessageLoopService(
     private async ValueTask<Dictionary<string, DateTime?>> GetGatewaysLastSeenStatByNetwork(DateTime utcNow, RegistrationService regService, int networkId)
     {
         var stat = new Dictionary<string, DateTime?>();
-        var gatewaysInNetwork = _gatewayNetworkIds.Where(g => g.Value == networkId).Select(g => g.Key);
-
+        var gatewaysInNetwork = _gatewayLookup.Where(g => g.Value.networkId == networkId).Select(g => g.Key);
         foreach (var gwId in gatewaysInNetwork.OrderBy(x => x))
         {
             if (!_gatewayLastSeen.TryGetValue(gwId, out var lastSeen))
@@ -544,12 +546,12 @@ public class MessageLoopService(
     {
         var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
         var registeredGateways = await registrationService.GetGatewaysCached();
-        var ids = new Dictionary<long, int>();
+        var ids = new Dictionary<long, (int networkId, UplinkPrivacyMode privacyMode)>();
         foreach (var gw in registeredGateways)
         {
-            ids.Add(gw.Key, gw.Value.NetworkId);
+            ids.Add(gw.Key, (gw.Value.NetworkId, gw.Value.PrivacyMode));
         }
-        _gatewayNetworkIds = ids;
+        _gatewayLookup = ids;
         _registeredGatewayIds = [.. registeredGateways.Keys];
         _newGatewayIds = [.. registeredGateways.Values
                     .Where(x => x.LastSeen == null)
@@ -579,13 +581,13 @@ public class MessageLoopService(
                 return;
             }
 
-            if (!_gatewayNetworkIds.TryGetValue(gatewayId, out var networkId))
+            if (!_gatewayLookup.TryGetValue(gatewayId, out var gwInfo))
             {
                 logger.LogWarning("Received Meshtastic message from unregistered gateway ID {GatewayId}", gatewayId);
                 return;
             }
 
-            if (msg.Data.NetworkId == null || msg.Data.NetworkId != networkId)
+            if (msg.Data.NetworkId == null || msg.Data.NetworkId != gwInfo.networkId)
             {
                 logger.LogWarning("Received Meshtastic message with invalid network ID {NetworkId} from gateway ID {GatewayId}", msg.Data.NetworkId, gatewayId);
                 return;
@@ -604,11 +606,11 @@ public class MessageLoopService(
                 if (uplinkInfo != null)
                 {
                     uplinkTried = true;
-                    await PerhapsUplinkEnvelopeToMap(networkId, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
+                    await PerhapsUplinkEnvelopeToMap(gwInfo.networkId, privacyMode: gwInfo.privacyMode, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
                 }
             }
 
-            await ProcessPacket(env, networkId, gatewayId, isTMeshGateway: true, uplinkTried: uplinkTried);
+            await ProcessPacket(env, gwInfo.networkId, gatewayId, gwInfo.privacyMode, isTMeshGateway: true, uplinkTried: uplinkTried);
         }
         catch (Exception ex)
         {
@@ -620,6 +622,7 @@ public class MessageLoopService(
         ServiceEnvelope env,
         int networkId,
         long tmeshOrMapGatewayId,
+        UplinkPrivacyMode privacyMode,
         bool isTMeshGateway,
         bool uplinkTried)
     {
@@ -656,7 +659,7 @@ public class MessageLoopService(
                     && DateTime.UtcNow.Subtract(added) < TimeSpan.FromSeconds(1)
                     && !_stopCancellationTokenSource.IsCancellationRequested)
                 {
-                    ScheduleNeedToUplinkCheck(env, networkId);
+                    ScheduleNeedToUplinkCheck(env, networkId, privacyMode);
                 }
 
                 meshtasticService.AddStat(new MeshStat
@@ -675,7 +678,7 @@ public class MessageLoopService(
                 return;
             }
 
-            if (await TryBridge(env, tmeshOrMapGatewayId, isTMeshGateway))
+            if (await TryBridge(env, tmeshOrMapGatewayId, isTMeshGateway, privacyMode))
             {
                 return;
             }
@@ -731,13 +734,14 @@ public class MessageLoopService(
             {
                 if (!env.Packet.ViaMqtt)
                 {
+                    var okToMqttStatus = msg?.OkToMqtt ?? (MeshtasticService.IsPkiEncrypted(env.Packet) ? OkToMqttStatus.UnknownPkiEncrypted : OkToMqttStatus.Unknown);
                     if (isTMeshGateway)
                     {
-                        await PerhapsUplinkEnvelopeToMap(networkId, msg?.OkToMqtt ?? OkToMqttStatus.Unknown, env, overrideChannelId: null);
+                        await PerhapsUplinkEnvelopeToMap(networkId, privacyMode, okToMqttStatus, env, overrideChannelId: null);
                     }
                     else
                     {
-                        await PerhapsMarkEnvelopeForUplinkToMap(networkId, msg?.OkToMqtt ?? OkToMqttStatus.Unknown, env, overrideChannelId: null);
+                        await PerhapsMarkEnvelopeForUplinkToMap(networkId, okToMqttStatus, env, overrideChannelId: null);
                     }
                 }
                 return;
@@ -768,7 +772,7 @@ public class MessageLoopService(
 
             var t1 = PerhapsSaveForAnalytics(scope, tmeshOrMapGatewayId, msg);
 
-            var t2 = PerhapsUplinkMessageToMap(isTMeshGateway, env, msg);
+            var t2 = PerhapsUplinkMessageToMap(isTMeshGateway, privacyMode, env, msg);
 
             await Task.WhenAll(t1.AsTask(), t2.AsTask());
 
@@ -798,7 +802,7 @@ public class MessageLoopService(
         }
     }
 
-    private void ScheduleNeedToUplinkCheck(ServiceEnvelope env, int networkId)
+    private void ScheduleNeedToUplinkCheck(ServiceEnvelope env, int networkId, UplinkPrivacyMode privacyMode)
     {
         var task = Task.Run(async () =>
         {
@@ -808,7 +812,7 @@ public class MessageLoopService(
                 var uplinkInfo = meshtasticService.GetUplinkPacketInfo(env);
                 if (uplinkInfo != null)
                 {
-                    await PerhapsUplinkEnvelopeToMap(networkId, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
+                    await PerhapsUplinkEnvelopeToMap(networkId, privacyMode, uplinkInfo.MqttStatus, env, uplinkInfo.OverrideChannelName);
                 }
             }
             catch (OperationCanceledException)
@@ -840,7 +844,7 @@ public class MessageLoopService(
                TaskScheduler.Default);
     }
 
-    private async ValueTask<bool> TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway)
+    private async ValueTask<bool> TryBridge(ServiceEnvelope envelope, long gatewayId, bool isTMeshGateway, UplinkPrivacyMode privacyMode)
     {
         if (envelope.Packet == null || envelope.Packet.PayloadVariantCase != MeshPacket.PayloadVariantOneofCase.Encrypted)
         {
@@ -849,8 +853,8 @@ public class MessageLoopService(
 
         var senderDeviceId = envelope.Packet.From;
         var receiverDeviceId = envelope.Packet.To;
-        var senderIsGateway = _gatewayNetworkIds.TryGetValue(senderDeviceId, out _);
-        var receiverIsGateway = _gatewayNetworkIds.TryGetValue(receiverDeviceId, out var receiverNetworkId);
+        var senderIsGateway = _gatewayLookup.TryGetValue(senderDeviceId, out _);
+        var receiverIsGateway = _gatewayLookup.TryGetValue(receiverDeviceId, out var gwInfo);
 
         var senderIsSpecialNode = !senderIsGateway
             && _options.BridgeAllowedExtraNodeIds != null
@@ -867,15 +871,17 @@ public class MessageLoopService(
                && (senderIsGateway || senderIsSpecialNode)
                && gatewayId != _options.MeshtasticNodeId)
         {
+            int networkId;
             long? outGoingGatewayId = null;
             if (receiverIsGateway)
             {
+                networkId = gwInfo.networkId;
                 outGoingGatewayId = receiverDeviceId;
             }
             else
             {
                 var ids = botCache.GetDeviceGateway(receiverDeviceId);
-                if (ids == null || !_gatewayNetworkIds.TryGetValue(ids.GatewayId, out receiverNetworkId))
+                if (ids == null || !_gatewayLookup.TryGetValue(ids.GatewayId, out gwInfo))
                 {
                     using var scope = services.CreateScope();
                     var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
@@ -885,27 +891,25 @@ public class MessageLoopService(
                         return false;
                     }
                     outGoingGatewayId = null;
-                    receiverNetworkId = device.NetworkId;
+                    networkId = device.NetworkId;
                 }
                 else
                 {
                     outGoingGatewayId = ids.GatewayId;
+                    networkId = gwInfo.networkId;
                 }
             }
 
-            var primaryChannel = _primaryChannels.GetValueOrDefault(receiverNetworkId);
+            var primaryChannel = _primaryChannels.GetValueOrDefault(networkId);
             if (primaryChannel == null)
             {
                 return false;
             }
 
-            var (traceRouteSuccess, msg) = MeshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, receiverNetworkId, isTMeshGateway);
-
-
-
+            var (traceRouteSuccess, msg) = MeshtasticService.TryDecryptPskTraceRoute(envelope, primaryChannel, networkId, isTMeshGateway);
             meshtasticService.AddStat(new MeshStat
             {
-                NetworkId = receiverNetworkId,
+                NetworkId = networkId,
                 BridgeDirectMessagesToGateways = 1,
             });
 
@@ -921,9 +925,10 @@ public class MessageLoopService(
                 outgoing.GatewayId = MeshtasticService.GetMeshtasticNodeHexId(_options.MeshtasticNodeId);
                 meshtasticService.QueueMessage(
                     outgoing,
-                    receiverNetworkId,
+                    networkId,
                     MessagePriority.High,
-                    relayThroughGatewayId: outGoingGatewayId);
+                    relayThroughGatewayId: outGoingGatewayId,
+                    noUplink: true);
 
                 return true;
             }
@@ -941,6 +946,7 @@ public class MessageLoopService(
 
     private async ValueTask PerhapsUplinkMessageToMap(
         bool isTMeshGateway,
+        UplinkPrivacyMode privacyMode,
         ServiceEnvelope data,
         MeshMessage msg)
     {
@@ -966,7 +972,7 @@ public class MessageLoopService(
 
         if (isTMeshGateway)
         {
-            await PerhapsUplinkEnvelopeToMap(msg.NetworkId, msg.OkToMqtt, data, overrideChannelId);
+            await PerhapsUplinkEnvelopeToMap(msg.NetworkId, privacyMode, msg.OkToMqtt, data, overrideChannelId);
         }
         else
         {
@@ -974,16 +980,32 @@ public class MessageLoopService(
         }
     }
 
-    private async ValueTask PerhapsUplinkEnvelopeToMap(int networkId, OkToMqttStatus okToMqttStatus, ServiceEnvelope data, string overrideChannelId)
+    private async ValueTask PerhapsUplinkEnvelopeToMap(
+        int networkId,
+        UplinkPrivacyMode privacyMode,
+        OkToMqttStatus okToMqttStatus,
+        ServiceEnvelope data,
+        string overrideChannelId)
     {
         if (data.Packet.ViaMqtt)
         {
             throw new Exception("Trying to uplink a packet that was received via MQTT, this should not happen");
         }
 
-        bool willUplink = mapMqttService.ShouldUplink(okToMqttStatus, networkId);
+        bool willUplink = mapMqttService.ShouldUplink(okToMqttStatus, networkId, privacyMode);
         if (!willUplink)
         {
+            if (privacyMode != UplinkPrivacyMode.Default)
+            {
+                if (mapMqttService.ShouldUplink(okToMqttStatus, networkId, UplinkPrivacyMode.Default))
+                {
+                    meshtasticService.MarkUplinkPacket(data.Packet.Id, new PacketUplinkInfo
+                    {
+                        MqttStatus = okToMqttStatus,
+                        OverrideChannelName = overrideChannelId
+                    });
+                }
+            }
             return;
         }
 
@@ -999,7 +1021,7 @@ public class MessageLoopService(
             MqttStatus = okToMqttStatus,
             OverrideChannelName = overrideChannelId
         });
-        await mapMqttService.PublishMeshtasticMessage(networkId, okToMqttStatus, dataToUplink);
+        await mapMqttService.PublishMeshtasticMessage(networkId, privacyMode, okToMqttStatus, dataToUplink);
     }
 
     private async ValueTask PerhapsMarkEnvelopeForUplinkToMap(int networkId, OkToMqttStatus okToMqttStatus, ServiceEnvelope data, string overrideChannelId)
@@ -1009,7 +1031,12 @@ public class MessageLoopService(
             throw new Exception("Trying to uplink a packet that was received via MQTT, this should not happen");
         }
 
-        bool willUplink = mapMqttService.ShouldUplink(okToMqttStatus, networkId);
+        bool willUplink = mapMqttService.ShouldUplink(
+            okToMqttStatus,
+            networkId,
+            //We always use default to check if packet should be uplinked for marking it
+            UplinkPrivacyMode.Default);
+
         if (!willUplink)
         {
             return;
@@ -1031,7 +1058,7 @@ public class MessageLoopService(
         try
         {
             if (msg.MessageType == MeshMessageType.DeviceMetrics
-                && _gatewayNetworkIds.ContainsKey(msg.DeviceId))
+                && _gatewayLookup.ContainsKey(msg.DeviceId))
             {
                 await SaveLinkTrace(
                     scope: scope,
@@ -1265,12 +1292,12 @@ public class MessageLoopService(
             {
                 try
                 {
-                    var networkId = _gatewayNetworkIds.GetValueOrDefault(gatewayId);
+                    var gwInfo = _gatewayLookup.GetValueOrDefault(gatewayId);
 
                     using var scope = services.CreateScope();
                     var registrationService = scope.ServiceProvider.GetRequiredService<RegistrationService>();
                     await registrationService.UpdateGatewayLastSeenAsync(gatewayId, now);
-                    var channels = await registrationService.GetPublicChannelsByNetworkAsync(networkId);
+                    var channels = await registrationService.GetPublicChannelsByNetworkAsync(gwInfo.networkId);
                     foreach (var channel in channels.Where(x => x.IsPrimary || x.SendNodeInfoOnSecondary))
                     {
                         meshtasticService.SendVirtualNodeInfo(channel.Name, channel, int.MaxValue, gatewayId, gatewayId);
@@ -1297,13 +1324,13 @@ public class MessageLoopService(
                 || !MeshtasticService.TryParseDeviceId(env.GatewayId, out var mapGatewayId))
                 return;
 
-            if (_gatewayNetworkIds.TryGetValue(mapGatewayId, out _))
+            if (_gatewayLookup.TryGetValue(mapGatewayId, out _))
             {
                 //We should not process telemetry messages from known gateways here, as they are already processed in HandleMeshtasticMessage.
                 return;
             }
 
-            await ProcessPacket(env, args.Data.NetworkId.Value, mapGatewayId, isTMeshGateway: false, uplinkTried: false);
+            await ProcessPacket(env, args.Data.NetworkId.Value, mapGatewayId, isTMeshGateway: false, privacyMode: UplinkPrivacyMode.Default, uplinkTried: false);
         }
         catch (Exception ex)
         {

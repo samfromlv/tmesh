@@ -8,7 +8,6 @@ namespace TBot.Models.MeshMessages
 
         public bool Success { get; set; }
         public Routing.Types.Error Error { get; set; }
-        public bool IsPkiEncrypted { get; set; }
         public long AckedMessageId { get; set; }
 
     }

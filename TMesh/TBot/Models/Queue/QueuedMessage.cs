@@ -1,9 +1,4 @@
 ﻿using Meshtastic.Protobufs;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace TBot.Models.Queue
 {
@@ -12,6 +7,8 @@ namespace TBot.Models.Queue
         public int NetworkId { get; set; }
 
         public ServiceEnvelope Message { get; set; }
+
+        public bool NoUplink { get; set; }
 
         public long? RelayThroughGatewayId { get; set; }
 

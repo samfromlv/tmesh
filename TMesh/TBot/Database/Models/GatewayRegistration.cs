@@ -21,6 +21,8 @@ namespace TBot.Database.Models
 
         public long VirtualNodeId { get; set; }
 
+        public UplinkPrivacyMode PrivacyMode { get; set; }
+
         public System.DateTime CreatedUtc { get; set; }
         public System.DateTime UpdatedUtc { get; set; }
         public System.DateTime? LastSeenUtc { get; set; }

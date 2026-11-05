@@ -476,13 +476,15 @@ namespace TBot
             ServiceEnvelope envelope,
             int networkId,
             MessagePriority messagePriority,
-            long? relayThroughGatewayId)
+            long? relayThroughGatewayId,
+            bool noUplink = false)
         {
             return localMessageQueueService.EnqueueMessage(new QueuedMessage
             {
                 Message = envelope,
                 NetworkId = networkId,
-                RelayThroughGatewayId = relayThroughGatewayId
+                RelayThroughGatewayId = relayThroughGatewayId,
+                NoUplink = noUplink
             }, messagePriority);
         }
 
@@ -1301,17 +1303,33 @@ namespace TBot
             {
                 From = envelope.Packet.From,
                 To = envelope.Packet.To,
-                IsPkiEncrypted = envelope.Packet.PkiEncrypted,
+                IsPkiEncrypted = IsPkiEncrypted(envelope.Packet),
                 XorHash = (byte)envelope.Packet.Channel,
                 MqttChannelName = envelope.ChannelId,
                 PayloadType = envelope.Packet.PayloadVariantCase
             };
         }
 
-        internal static OkToMqttStatus OkToMqtt(Data decoded)
+        public static bool IsPkiEncrypted(MeshPacket packet)
+        {
+            if (packet == null)
+            {
+                return false;
+            }
+            return packet.Channel == 0
+                && packet.PayloadVariantCase == MeshPacket.PayloadVariantOneofCase.Encrypted
+                && packet.To != BroadcastDeviceId;
+        }
+
+        internal static OkToMqttStatus OkToMqtt(Data decoded, bool isPkiEncrypted)
         {
             if (decoded == null)
             {
+                if (isPkiEncrypted)
+                {
+                    return OkToMqttStatus.UnknownPkiEncrypted;
+                }
+
                 return OkToMqttStatus.Unknown;
             }
 
@@ -1354,7 +1372,7 @@ namespace TBot
 
             var id = envelope.Packet.Id;
 
-            if (!envelope.Packet.PkiEncrypted)
+            if (!IsPkiEncrypted(envelope.Packet))
             {
                 return DecryptPksMessage(envelope, recipients, gatewayNodeId, networkId, isTMeshGateway);
             }
@@ -1435,7 +1453,7 @@ namespace TBot
            int networkId,
            bool isTMeshGateway)
         {
-            if (envelope.Packet.PkiEncrypted)
+            if (IsPkiEncrypted(envelope.Packet))
             {
                 return default;
             }
@@ -1756,7 +1774,6 @@ namespace TBot
             var msg = MeshMessage.FromEnvelope<AckMessage>(envelope, decoded, recipient, networkId, isTMeshGateway);
             msg.NeedAck = false;
             msg.AckedMessageId = decoded.RequestId;
-            msg.IsPkiEncrypted = envelope.Packet.PkiEncrypted;
             msg.Success = routing.ErrorReason == Routing.Types.Error.None;
             msg.Error = routing.ErrorReason;
             return msg;

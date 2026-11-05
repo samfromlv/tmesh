@@ -56,13 +56,14 @@ namespace TBot.Models.MeshMessages
             where T : MeshMessage, new()
         {
             var gatewayId = MeshtasticService.PraseDeviceHexId(env.GatewayId);
+            bool isPkiEncrypted = MeshtasticService.IsPkiEncrypted(env.Packet);
 
             return new T
             {
                 RawPacketEnvelope = env,
                 DeviceId = env.Packet.From,
                 To = env.Packet.To,
-                OkToMqtt = MeshtasticService.OkToMqtt(decoded),
+                OkToMqtt = MeshtasticService.OkToMqtt(decoded, isPkiEncrypted),
                 ViaMqtt = env.Packet.ViaMqtt || env.Packet.TransportMechanism == MeshPacket.Types.TransportMechanism.TransportMqtt,
                 EnvelopeChannelName = env.ChannelId,
                 ChannelId = recipient?.RecipientPrivateChannelId,
