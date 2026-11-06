@@ -10,7 +10,6 @@ namespace TBot.Analytics
 {
     public class AnalyticsService(AnalyticsDbContext db, RegistrationService registrationService, TimeZoneHelper tz, IMemoryCache cache)
     {
-
         public const int MinAccuracyMetersForTraceDistances = 750;
 
         public async Task RecordEventAsync(DeviceMetric metrics)

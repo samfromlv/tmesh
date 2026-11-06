@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text;
+using TBot.Analytics;
 using TBot.Database;
 using TBot.Database.Models;
 using TBot.Helpers;
@@ -518,6 +519,13 @@ namespace TBot.Bot
                 .Distinct()
                 .OrderBy(s => s)
                 .ToList();
+
+            var analyticsService = services.GetService<AnalyticsService>();
+            if (analyticsService != null)
+            {
+                uplinkServices ??= new List<string>();
+                uplinkServices.Add("TMesh Map");
+            }
 
             string uplinkLinkStrMd = uplinkServices?.Count > 0
                 ? string.Concat(" (", string.Join(", ", uplinkServices.Select(s => $"{StringHelper.EscapeMd(s)}")), ")")
